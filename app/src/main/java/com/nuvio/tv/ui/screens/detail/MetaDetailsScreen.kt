@@ -122,41 +122,94 @@ private fun MetaDetailsContent(
     val isSeries = meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
     val nextEpisode = episodesForSeason.firstOrNull()
 
-    TvLazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 48.dp)
-    ) {
-        // Hero section with backdrop
-        item {
-            HeroSection(
-                meta = meta,
-                nextEpisode = nextEpisode,
-                onPlayClick = {
-                    val videoId = if (isSeries && nextEpisode != null) {
-                        nextEpisode.id
-                    } else {
-                        meta.id
-                    }
-                    onPlayClick(videoId)
-                }
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Sticky background image - stays fixed in place while content scrolls
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = meta.background ?: meta.poster,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            // Light global dim so text remains readable; the main fade happens in the section below the hero.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(NuvioColors.Background.copy(alpha = 0.08f))
+            )
+
+            // Left side gradient for better text readability
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                NuvioColors.Background.copy(alpha = 0.85f),
+                                NuvioColors.Background.copy(alpha = 0.5f),
+                                Color.Transparent
+                            ),
+                            startX = 0f,
+                            endX = 600f
+                        )
+                    )
             )
         }
 
-        // Season tabs and episodes for series
-        if (isSeries && seasons.isNotEmpty()) {
+        // Scrollable content on top of the fixed background
+        TvLazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 48.dp)
+        ) {
+            // Hero content section (fills screen height, content at bottom)
             item {
-                SeasonTabs(
-                    seasons = seasons,
-                    selectedSeason = selectedSeason,
-                    onSeasonSelected = onSeasonSelected
+                HeroContentSection(
+                    meta = meta,
+                    nextEpisode = nextEpisode,
+                    onPlayClick = {
+                        val videoId = if (isSeries && nextEpisode != null) {
+                            nextEpisode.id
+                        } else {
+                            meta.id
+                        }
+                        onPlayClick(videoId)
+                    }
                 )
             }
 
-            item {
-                EpisodesRow(
-                    episodes = episodesForSeason,
-                    onEpisodeClick = onEpisodeClick
-                )
+            // Season tabs and episodes for series - fully transparent over backdrop
+            if (isSeries && seasons.isNotEmpty()) {
+                item {
+                    // This section owns the fade-to-dark background (smooth at top, darker as you scroll down).
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        NuvioColors.Background.copy(alpha = 0.55f),
+                                        NuvioColors.Background.copy(alpha = 0.85f),
+                                        NuvioColors.Background
+                                    )
+                                )
+                            )
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SeasonTabs(
+                                seasons = seasons,
+                                selectedSeason = selectedSeason,
+                                onSeasonSelected = onSeasonSelected
+                            )
+                            EpisodesRow(
+                                episodes = episodesForSeason,
+                                onEpisodeClick = onEpisodeClick
+                            )
+                            Spacer(modifier = Modifier.height(140.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -164,62 +217,22 @@ private fun MetaDetailsContent(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun HeroSection(
+private fun HeroContentSection(
     meta: Meta,
     nextEpisode: Video?,
     onPlayClick: () -> Unit
 ) {
+    // Full height hero with content at bottom
     Box(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .height(540.dp), // Full screen height for TV
+        contentAlignment = Alignment.BottomStart
     ) {
-        // Background image
-        AsyncImage(
-            model = meta.background ?: meta.poster,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-
-        // Gradient overlay
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            NuvioColors.Background.copy(alpha = 0.3f),
-                            NuvioColors.Background.copy(alpha = 0.7f),
-                            NuvioColors.Background
-                        ),
-                        startY = 0f,
-                        endY = Float.POSITIVE_INFINITY
-                    )
-                )
-        )
-
-        // Left side gradient for better text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            NuvioColors.Background.copy(alpha = 0.8f),
-                            NuvioColors.Background.copy(alpha = 0.4f),
-                            Color.Transparent
-                        ),
-                        startX = 0f,
-                        endX = 800f
-                    )
-                )
-        )
-
-        // Content
+        // Content at the bottom
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(start = 48.dp, end = 48.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.Bottom
         ) {
@@ -488,12 +501,21 @@ private fun SeasonTabs(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        NuvioColors.Background.copy(alpha = 0.2f),
+                        NuvioColors.Background.copy(alpha = 0.4f)
+                    )
+                )
+            )
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
         TabRow(
             selectedTabIndex = selectedIndex,
             modifier = Modifier.fillMaxWidth(),
-            separator = { Spacer(modifier = Modifier.width(24.dp)) }
+            separator = { Spacer(modifier = Modifier.width(24.dp)) },
+            containerColor = Color.Transparent
         ) {
             seasons.forEachIndexed { index, season ->
                 Tab(
@@ -524,8 +546,17 @@ private fun EpisodesRow(
     onEpisodeClick: (Video) -> Unit
 ) {
     TvLazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 48.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        NuvioColors.Background.copy(alpha = 0.3f),
+                        NuvioColors.Background.copy(alpha = 0.5f)
+                    )
+                )
+            ),
+        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         items(episodes, key = { it.id }) { episode ->

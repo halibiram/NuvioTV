@@ -11,6 +11,6 @@ data class HomeUiState(
 
 sealed class HomeEvent {
     data class OnItemClick(val itemId: String, val itemType: String) : HomeEvent()
-    data class OnLoadMoreCatalog(val catalogId: String, val addonId: String) : HomeEvent()
+    data class OnLoadMoreCatalog(val catalogId: String, val addonId: String, val type: String) : HomeEvent()
     data object OnRetry : HomeEvent()
 }

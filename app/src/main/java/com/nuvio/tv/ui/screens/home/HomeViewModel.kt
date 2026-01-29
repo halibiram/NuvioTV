@@ -37,7 +37,7 @@ class HomeViewModel @Inject constructor(
     fun onEvent(event: HomeEvent) {
         when (event) {
             is HomeEvent.OnItemClick -> navigateToDetail(event.itemId, event.itemType)
-            is HomeEvent.OnLoadMoreCatalog -> loadMoreCatalogItems(event.catalogId, event.addonId)
+            is HomeEvent.OnLoadMoreCatalog -> loadMoreCatalogItems(event.catalogId, event.addonId, event.type)
             HomeEvent.OnRetry -> loadAllCatalogs()
         }
     }
@@ -59,7 +59,11 @@ class HomeViewModel @Inject constructor(
                 // Build catalog order based on addon manifest order
                 addons.forEach { addon ->
                     addon.catalogs.forEach { catalog ->
-                        val key = "${addon.id}_${catalog.id}"
+                        val key = catalogKey(
+                            addonId = addon.id,
+                            type = catalog.type.toApiString(),
+                            catalogId = catalog.id
+                        )
                         if (key !in catalogOrder) {
                             catalogOrder.add(key)
                         }
@@ -91,7 +95,11 @@ class HomeViewModel @Inject constructor(
             ).collect { result ->
                 when (result) {
                     is NetworkResult.Success -> {
-                        val key = "${addon.id}_${catalog.id}"
+                        val key = catalogKey(
+                            addonId = addon.id,
+                            type = catalog.type.toApiString(),
+                            catalogId = catalog.id
+                        )
                         catalogsMap[key] = result.data
                         updateCatalogRows()
                     }
@@ -104,8 +112,8 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadMoreCatalogItems(catalogId: String, addonId: String) {
-        val key = "${addonId}_${catalogId}"
+    private fun loadMoreCatalogItems(catalogId: String, addonId: String, type: String) {
+        val key = catalogKey(addonId = addonId, type = type, catalogId = catalogId)
         val currentRow = catalogsMap[key] ?: return
 
         if (currentRow.isLoading || !currentRow.hasMore) return
@@ -156,5 +164,9 @@ class HomeViewModel @Inject constructor(
 
     private fun navigateToDetail(itemId: String, itemType: String) {
         _uiState.update { it.copy(selectedItemId = itemId) }
+    }
+
+    private fun catalogKey(addonId: String, type: String, catalogId: String): String {
+        return "${addonId}_${type}_${catalogId}"
     }
 }

@@ -61,7 +61,7 @@ fun HomeScreen(
                     ) {
                         items(
                             items = uiState.catalogRows,
-                            key = { "${it.addonId}_${it.catalogId}" }
+                            key = { "${it.addonId}_${it.type}_${it.catalogId}" }
                         ) { catalogRow ->
                             CatalogRowSection(
                                 catalogRow = catalogRow,
@@ -72,7 +72,8 @@ fun HomeScreen(
                                     viewModel.onEvent(
                                         HomeEvent.OnLoadMoreCatalog(
                                             catalogId = catalogRow.catalogId,
-                                            addonId = catalogRow.addonId
+                                            addonId = catalogRow.addonId,
+                                            type = catalogRow.type.toApiString()
                                         )
                                     )
                                 }

@@ -80,7 +80,7 @@ fun CatalogRowSection(
         ) {
             items(
                 items = catalogRow.items,
-                key = { "${catalogRow.catalogId}_${it.id}" }
+                key = { "${catalogRow.type}_${catalogRow.catalogId}_${it.id}" }
             ) { item ->
                 ContentCard(
                     item = item,
