@@ -109,7 +109,9 @@ private fun CastMemberItem(
                         model = photo,
                         contentDescription = member.name,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        requestedWidthDp = 72.dp,
+                        requestedHeightDp = 72.dp
                     )
                 } else {
                     Text(

@@ -77,7 +77,9 @@ private fun CompanyLogoCard(company: MetaCompany) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 10.dp),
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Fit,
+                requestedWidthDp = 140.dp,
+                requestedHeightDp = 56.dp
             )
         } else {
             Text(

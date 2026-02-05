@@ -183,7 +183,9 @@ private fun EpisodeCard(
                     model = episode.thumbnail,
                     contentDescription = episode.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    requestedWidthDp = 280.dp,
+                    requestedHeightDp = 158.dp
                 )
 
                 // Show watched/in-progress indicator

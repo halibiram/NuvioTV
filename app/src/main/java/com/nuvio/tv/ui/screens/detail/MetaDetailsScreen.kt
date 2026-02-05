@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.detail
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -178,13 +179,15 @@ private fun MetaDetailsContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Sticky background image - stays fixed in place while content scrolls
-        Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             FadeInAsyncImage(
                 model = meta.background ?: meta.poster,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                fadeDurationMs = 600
+                fadeDurationMs = 600,
+                requestedWidthDp = maxWidth,
+                requestedHeightDp = maxHeight
             )
 
             // Light global dim so text remains readable
