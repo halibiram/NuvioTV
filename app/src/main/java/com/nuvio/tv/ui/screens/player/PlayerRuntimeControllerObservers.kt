@@ -241,32 +241,59 @@ internal fun PlayerRuntimeController.tryApplyPendingResumeProgress(player: Playe
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
-    if (hasRetriedCurrentStreamAfter416) return
-    hasRetriedCurrentStreamAfter416 = true
-    pendingResumeProgress = null
-    _uiState.update {
-        it.copy(
-            pendingSeekPosition = null,
-            error = null,
-            showLoadingOverlay = it.loadingOverlayEnabled
-        )
+    if (hasRetriedCurrentStreamAfter416 && http416RetryCount >= PlayerRuntimeController.HTTP_416_MAX_RETRIES) {
+        _uiState.update {
+            it.copy(
+                error = "Stream unavailable after multiple attempts",
+                showLoadingOverlay = false,
+                showPauseOverlay = false
+            )
+        }
+        return
     }
-    _exoPlayer?.let { player ->
-        runCatching {
-            player.stop()
-            player.clearMediaItems()
-            player.setMediaSource(mediaSourceFactory.createMediaSource(currentStreamUrl, currentHeaders))
-            player.seekTo(0L)
-            player.prepare()
-            player.playWhenReady = true
-        }.onFailure { e ->
-            _uiState.update {
-                it.copy(
-                    error = e.message ?: "Playback error",
-                    showLoadingOverlay = false,
-                    showPauseOverlay = false
-                )
+    
+    val savedPosition = _exoPlayer?.currentPosition ?: 0L
+    positionBefore416Error = savedPosition
+    
+    http416RetryJob?.cancel()
+    http416RetryJob = scope.launch {
+        val delayMs = PlayerRuntimeController.HTTP_416_BASE_DELAY_MS * (1 shl http416RetryCount)
+        kotlinx.coroutines.delay(delayMs)
+        
+        http416RetryCount++
+        hasRetriedCurrentStreamAfter416 = true
+        
+        _uiState.update {
+            it.copy(
+                error = null,
+                showLoadingOverlay = it.loadingOverlayEnabled
+            )
+        }
+        
+        _exoPlayer?.let { player ->
+            runCatching {
+                player.stop()
+                player.clearMediaItems()
+                player.setMediaSource(mediaSourceFactory.createMediaSource(currentStreamUrl, currentHeaders))
+                player.prepare()
+                player.playWhenReady = true
+            }.onFailure { e ->
+                _uiState.update {
+                    it.copy(
+                        error = e.message ?: "Playback error",
+                        showLoadingOverlay = false,
+                        showPauseOverlay = false
+                    )
+                }
             }
         }
     }
+}
+
+internal fun PlayerRuntimeController.resetHttp416RetryState() {
+    http416RetryJob?.cancel()
+    http416RetryJob = null
+    http416RetryCount = 0
+    hasRetriedCurrentStreamAfter416 = false
+    positionBefore416Error = 0L
 }

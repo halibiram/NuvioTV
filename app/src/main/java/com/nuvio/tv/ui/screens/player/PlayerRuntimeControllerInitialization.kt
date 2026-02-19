@@ -43,7 +43,24 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
             val playerSettings = playerSettingsDataStore.playerSettings.first()
             val useLibass = false // Temporarily disabled for maintenance
             val libassRenderType = playerSettings.libassRenderType.toAssRenderType()
-            val loadControl = DefaultLoadControl.Builder().build()
+            val bufferSettings = playerSettings.bufferSettings
+            val loadControlBuilder = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    bufferSettings.minBufferMs,
+                    bufferSettings.maxBufferMs,
+                    bufferSettings.bufferForPlaybackMs,
+                    bufferSettings.bufferForPlaybackAfterRebufferMs
+                )
+            if (bufferSettings.targetBufferSizeMb > 0) {
+                loadControlBuilder.setTargetBufferBytes(bufferSettings.targetBufferSizeMb * 1024 * 1024)
+            }
+            if (bufferSettings.backBufferDurationMs > 0) {
+                loadControlBuilder.setBackBuffer(
+                    bufferSettings.backBufferDurationMs,
+                    bufferSettings.retainBackBufferFromKeyframe
+                )
+            }
+            val loadControl = loadControlBuilder.build()
 
             
             trackSelector = DefaultTrackSelector(context).apply {

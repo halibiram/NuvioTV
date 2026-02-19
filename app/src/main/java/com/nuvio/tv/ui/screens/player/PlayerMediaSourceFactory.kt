@@ -50,7 +50,7 @@ internal class PlayerMediaSourceFactory {
         val mediaItem = mediaItemBuilder.build()
         return when {
             isHls -> HlsMediaSource.Factory(okHttpFactory)
-                .setAllowChunklessPreparation(true)
+                .setAllowChunklessPreparation(false)
                 .createMediaSource(mediaItem)
             isDash -> DashMediaSource.Factory(okHttpFactory)
                 .createMediaSource(mediaItem)

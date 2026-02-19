@@ -13,6 +13,30 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+internal fun PlayerRuntimeController.calculateAdaptiveSeekDelta(forward: Boolean): Long {
+    val duration = _exoPlayer?.duration?.takeIf { it > 0 } ?: lastKnownDuration
+    return when {
+        duration <= 0L -> PlayerRuntimeController.SEEK_STEP_MEDIUM_MS
+        duration <= PlayerRuntimeController.SEEK_SHORT_VIDEO_THRESHOLD_MS -> PlayerRuntimeController.SEEK_STEP_SHORT_MS
+        duration >= PlayerRuntimeController.SEEK_LONG_VIDEO_THRESHOLD_MS -> PlayerRuntimeController.SEEK_STEP_LONG_MS
+        else -> PlayerRuntimeController.SEEK_STEP_MEDIUM_MS
+    }
+}
+
+internal fun PlayerRuntimeController.performDebouncedSeek(targetPosition: Long) {
+    pendingDebouncedSeekTarget = targetPosition
+    _uiState.update { it.copy(currentPosition = targetPosition) }
+    
+    seekDebounceJob?.cancel()
+    seekDebounceJob = scope.launch {
+        delay(PlayerRuntimeController.SEEK_DEBOUNCE_DELAY_MS)
+        pendingDebouncedSeekTarget?.let { target ->
+            _exoPlayer?.seekTo(target)
+            pendingDebouncedSeekTarget = null
+        }
+    }
+}
+
 internal fun PlayerRuntimeController.startProgressUpdates() {
     progressJob?.cancel()
     progressJob = scope.launch {
@@ -23,7 +47,7 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 if (playerDuration > lastKnownDuration) {
                     lastKnownDuration = playerDuration
                 }
-                val displayPosition = pendingPreviewSeekPosition ?: pos
+                val displayPosition = pendingPreviewSeekPosition ?: pendingDebouncedSeekTarget ?: pos
                 _uiState.update {
                     it.copy(
                         currentPosition = displayPosition,
@@ -311,10 +335,12 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             showControlsTemporarily()
         }
         PlayerEvent.OnSeekForward -> {
-            onEvent(PlayerEvent.OnSeekBy(deltaMs = 10_000L))
+            val seekDelta = calculateAdaptiveSeekDelta(forward = true)
+            onEvent(PlayerEvent.OnSeekBy(deltaMs = seekDelta))
         }
         PlayerEvent.OnSeekBackward -> {
-            onEvent(PlayerEvent.OnSeekBy(deltaMs = -10_000L))
+            val seekDelta = calculateAdaptiveSeekDelta(forward = false)
+            onEvent(PlayerEvent.OnSeekBy(deltaMs = -seekDelta))
         }
         is PlayerEvent.OnSeekBy -> {
             pendingPreviewSeekPosition = null
@@ -323,8 +349,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 val target = (player.currentPosition + event.deltaMs)
                     .coerceAtLeast(0L)
                     .coerceAtMost(maxDuration)
-                player.seekTo(target)
-                _uiState.update { it.copy(currentPosition = target) }
+                performDebouncedSeek(target)
             }
             if (_uiState.value.showControls) {
                 showControlsTemporarily()
@@ -491,7 +516,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         PlayerEvent.OnRetry -> {
             hasRenderedFirstFrame = false
-            hasRetriedCurrentStreamAfter416 = false
+            resetHttp416RetryState()
             resetNextEpisodeCardState(clearEpisode = false)
             _uiState.update { state ->
                 state.copy(

@@ -48,6 +48,14 @@ class PlayerRuntimeController(
     companion object {
         internal const val TAG = "PlayerViewModel"
         internal const val TRACK_FRAME_RATE_GRACE_MS = 1500L
+        internal const val SEEK_DEBOUNCE_DELAY_MS = 300L
+        internal const val SEEK_SHORT_VIDEO_THRESHOLD_MS = 5 * 60 * 1000L
+        internal const val SEEK_LONG_VIDEO_THRESHOLD_MS = 90 * 60 * 1000L
+        internal const val SEEK_STEP_SHORT_MS = 5_000L
+        internal const val SEEK_STEP_MEDIUM_MS = 10_000L
+        internal const val SEEK_STEP_LONG_MS = 15_000L
+        internal const val HTTP_416_MAX_RETRIES = 3
+        internal const val HTTP_416_BASE_DELAY_MS = 500L
     }
 
     internal val navigationArgs = PlayerNavigationArgs.from(savedStateHandle)
@@ -117,7 +125,8 @@ class PlayerRuntimeController(
     internal var nextEpisodeAutoPlayJob: Job? = null
     internal var sourceStreamsJob: Job? = null
     internal var sourceStreamsCacheRequestKey: String? = null
-    
+    internal var seekDebounceJob: Job? = null
+    internal var pendingDebouncedSeekTarget: Long? = null
     
     internal var lastSavedPosition: Long = 0L
     internal val saveThresholdMs = 5000L 
@@ -159,6 +168,9 @@ class PlayerRuntimeController(
     internal var pendingPreviewSeekPosition: Long? = null
     internal var pendingResumeProgress: WatchProgress? = null
     internal var hasRetriedCurrentStreamAfter416: Boolean = false
+    internal var http416RetryCount: Int = 0
+    internal var http416RetryJob: Job? = null
+    internal var positionBefore416Error: Long = 0L
     internal var currentScrobbleItem: TraktScrobbleItem? = null
     internal var hasSentScrobbleStartForCurrentItem: Boolean = false
     internal var hasSentCompletionScrobbleForCurrentItem: Boolean = false
