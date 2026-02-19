@@ -230,7 +230,14 @@ fun PlaybackSettingsContent(
                 onSetSubtitleBold = { bold -> coroutineScope.launch { viewModel.setSubtitleBold(bold) } },
                 onSetSubtitleOutlineEnabled = { enabled -> coroutineScope.launch { viewModel.setSubtitleOutlineEnabled(enabled) } },
                 onSetUseLibass = { enabled -> coroutineScope.launch { viewModel.setUseLibass(enabled) } },
-                onSetLibassRenderType = { renderType -> coroutineScope.launch { viewModel.setLibassRenderType(renderType) } }
+                onSetLibassRenderType = { renderType -> coroutineScope.launch { viewModel.setLibassRenderType(renderType) } },
+                onSetBufferMinBufferMs = { ms -> coroutineScope.launch { viewModel.setBufferMinBufferMs(ms) } },
+                onSetBufferMaxBufferMs = { ms -> coroutineScope.launch { viewModel.setBufferMaxBufferMs(ms) } },
+                onSetBufferForPlaybackMs = { ms -> coroutineScope.launch { viewModel.setBufferForPlaybackMs(ms) } },
+                onSetBufferForPlaybackAfterRebufferMs = { ms -> coroutineScope.launch { viewModel.setBufferForPlaybackAfterRebufferMs(ms) } },
+                onSetBufferTargetSizeMb = { mb -> coroutineScope.launch { viewModel.setBufferTargetSizeMb(mb) } },
+                onSetBufferBackBufferDurationMs = { ms -> coroutineScope.launch { viewModel.setBufferBackBufferDurationMs(ms) } },
+                onSetBufferRetainBackBufferFromKeyframe = { retain -> coroutineScope.launch { viewModel.setBufferRetainBackBufferFromKeyframe(retain) } }
             )
         }
     }

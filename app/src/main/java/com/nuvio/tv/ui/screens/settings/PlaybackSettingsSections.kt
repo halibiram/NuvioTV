@@ -59,7 +59,8 @@ private enum class PlaybackSection {
     GENERAL,
     STREAM_SELECTION,
     AUDIO_TRAILER,
-    SUBTITLES
+    SUBTITLES,
+    BUFFER
 }
 
 private fun frameRateMatchingModeLabel(mode: FrameRateMatchingMode): String {
@@ -109,19 +110,28 @@ internal fun PlaybackSettingsSections(
     onSetSubtitleBold: (Boolean) -> Unit,
     onSetSubtitleOutlineEnabled: (Boolean) -> Unit,
     onSetUseLibass: (Boolean) -> Unit,
-    onSetLibassRenderType: (com.nuvio.tv.data.local.LibassRenderType) -> Unit
+    onSetLibassRenderType: (com.nuvio.tv.data.local.LibassRenderType) -> Unit,
+    onSetBufferMinBufferMs: (Int) -> Unit,
+    onSetBufferMaxBufferMs: (Int) -> Unit,
+    onSetBufferForPlaybackMs: (Int) -> Unit,
+    onSetBufferForPlaybackAfterRebufferMs: (Int) -> Unit,
+    onSetBufferTargetSizeMb: (Int) -> Unit,
+    onSetBufferBackBufferDurationMs: (Int) -> Unit,
+    onSetBufferRetainBackBufferFromKeyframe: (Boolean) -> Unit
 ) {
     var generalExpanded by rememberSaveable { mutableStateOf(false) }
     var afrExpanded by rememberSaveable { mutableStateOf(false) }
     var streamExpanded by rememberSaveable { mutableStateOf(false) }
     var audioTrailerExpanded by rememberSaveable { mutableStateOf(false) }
     var subtitlesExpanded by rememberSaveable { mutableStateOf(false) }
+    var bufferExpanded by rememberSaveable { mutableStateOf(false) }
 
     val defaultGeneralHeaderFocus = remember { FocusRequester() }
     val afrHeaderFocus = remember { FocusRequester() }
     val streamHeaderFocus = remember { FocusRequester() }
     val audioTrailerHeaderFocus = remember { FocusRequester() }
     val subtitlesHeaderFocus = remember { FocusRequester() }
+    val bufferHeaderFocus = remember { FocusRequester() }
     val generalHeaderFocus = initialFocusRequester ?: defaultGeneralHeaderFocus
 
     var focusedSection by remember { mutableStateOf<PlaybackSection?>(null) }
@@ -146,6 +156,11 @@ internal fun PlaybackSettingsSections(
     LaunchedEffect(subtitlesExpanded, focusedSection) {
         if (!subtitlesExpanded && focusedSection == PlaybackSection.SUBTITLES) {
             subtitlesHeaderFocus.requestFocus()
+        }
+    }
+    LaunchedEffect(bufferExpanded, focusedSection) {
+        if (!bufferExpanded && focusedSection == PlaybackSection.BUFFER) {
+            bufferHeaderFocus.requestFocus()
         }
     }
 
@@ -311,6 +326,29 @@ internal fun PlaybackSettingsSections(
                 onSetUseLibass = onSetUseLibass,
                 onSetLibassRenderType = onSetLibassRenderType,
                 onItemFocused = { focusedSection = PlaybackSection.SUBTITLES },
+                enabled = !isExternalPlayer
+            )
+        }
+
+        playbackCollapsibleSection(
+            keyPrefix = "buffer",
+            title = "Buffer",
+            description = "Video buffering and memory settings.",
+            expanded = bufferExpanded,
+            onToggle = { bufferExpanded = !bufferExpanded },
+            focusRequester = bufferHeaderFocus,
+            onHeaderFocused = { focusedSection = PlaybackSection.BUFFER }
+        ) {
+            bufferSettingsItems(
+                bufferSettings = playerSettings.bufferSettings,
+                onSetBufferMinBufferMs = onSetBufferMinBufferMs,
+                onSetBufferMaxBufferMs = onSetBufferMaxBufferMs,
+                onSetBufferForPlaybackMs = onSetBufferForPlaybackMs,
+                onSetBufferForPlaybackAfterRebufferMs = onSetBufferForPlaybackAfterRebufferMs,
+                onSetBufferTargetSizeMb = onSetBufferTargetSizeMb,
+                onSetBufferBackBufferDurationMs = onSetBufferBackBufferDurationMs,
+                onSetBufferRetainBackBufferFromKeyframe = onSetBufferRetainBackBufferFromKeyframe,
+                onItemFocused = { focusedSection = PlaybackSection.BUFFER },
                 enabled = !isExternalPlayer
             )
         }
