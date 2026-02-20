@@ -675,6 +675,13 @@ internal fun PlayerRuntimeController.playNextEpisode() {
                 )
             }
         } catch (e: CancellationException) {
+            _uiState.update {
+                it.copy(
+                    nextEpisodeAutoPlaySearching = false,
+                    nextEpisodeAutoPlaySourceName = null,
+                    nextEpisodeAutoPlayCountdownSec = null
+                )
+            }
             throw e
         } catch (e: Exception) {
             _uiState.update {

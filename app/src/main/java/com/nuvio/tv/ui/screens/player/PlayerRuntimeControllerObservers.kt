@@ -266,7 +266,8 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
                 it.copy(
                     error = e.message ?: "Playback error",
                     showLoadingOverlay = false,
-                    showPauseOverlay = false
+                    showPauseOverlay = false,
+                    isBuffering = false
                 )
             }
         }

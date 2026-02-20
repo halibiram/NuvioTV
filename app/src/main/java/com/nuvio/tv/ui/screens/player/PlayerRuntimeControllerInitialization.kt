@@ -31,7 +31,13 @@ import kotlinx.coroutines.launch
 @OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<String, String>) {
     if (url.isEmpty()) {
-        _uiState.update { it.copy(error = "No stream URL provided", showLoadingOverlay = false) }
+        _uiState.update { 
+            it.copy(
+                error = "No stream URL provided", 
+                showLoadingOverlay = false,
+                isBuffering = false
+            ) 
+        }
         return
     }
 
@@ -299,7 +305,8 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
             _uiState.update {
                 it.copy(
                     error = e.message ?: "Failed to initialize player",
-                    showLoadingOverlay = false
+                    showLoadingOverlay = false,
+                    isBuffering = false
                 )
             }
         }
