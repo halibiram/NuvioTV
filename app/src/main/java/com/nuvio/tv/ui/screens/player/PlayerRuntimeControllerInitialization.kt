@@ -295,7 +295,8 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                             it.copy(
                                 error = detailedError,
                                 showLoadingOverlay = false,
-                                showPauseOverlay = false
+                                showPauseOverlay = false,
+                                isBuffering = false
                             )
                         }
                     }
