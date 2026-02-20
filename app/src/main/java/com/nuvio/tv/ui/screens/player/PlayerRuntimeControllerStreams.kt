@@ -216,7 +216,13 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
                 _uiState.value.frameRateMatchingMode != FrameRateMatchingMode.OFF
             )
         } catch (e: Exception) {
-            _uiState.update { it.copy(error = e.message ?: "Failed to play selected stream") }
+            _uiState.update { 
+                it.copy(
+                    error = e.message ?: "Failed to play selected stream",
+                    showLoadingOverlay = false,
+                    isBuffering = false
+                ) 
+            }
             return
         }
     } ?: run {
@@ -524,7 +530,13 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
                 _uiState.value.frameRateMatchingMode != FrameRateMatchingMode.OFF
             )
         } catch (e: Exception) {
-            _uiState.update { it.copy(error = e.message ?: "Failed to play selected stream") }
+            _uiState.update { 
+                it.copy(
+                    error = e.message ?: "Failed to play selected stream",
+                    showLoadingOverlay = false,
+                    isBuffering = false
+                ) 
+            }
             return
         }
     } ?: run {
