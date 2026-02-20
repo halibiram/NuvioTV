@@ -402,6 +402,7 @@ class MainActivity : ComponentActivity() {
             else -> Log.w("MainActivity", "Unknown deep link action: $action")
         }
     }
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

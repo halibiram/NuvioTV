@@ -38,7 +38,7 @@ androidxTestRunner = "1.6.2"
 uiautomator = "2.3.0"
 profileinstaller = "1.4.1"
 baselineProfilePlugin = "1.4.1"
-tvProvider = "1.1.0-alpha02"
+tvProvider = "1.1.0"
 workRuntime = "2.10.1"
 
 [libraries]

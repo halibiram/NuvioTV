@@ -62,8 +62,8 @@ class ProgramBuilder @Inject constructor(
         progress.backdrop?.let { builder.setThumbnailUri(Uri.parse(it)) }
 
         if (!isMovie) {
-            progress.season?.let { builder.setSeasonNumber(it.toString()) }
-            progress.episode?.let { builder.setEpisodeNumber(it.toString()) }
+            progress.season?.let { builder.setSeasonNumber(it) }
+            progress.episode?.let { builder.setEpisodeNumber(it) }
             progress.episodeTitle?.let { builder.setEpisodeTitle(it) }
         }
 
@@ -90,8 +90,8 @@ class ProgramBuilder @Inject constructor(
             .setTitle(nextUp.name)
             .setDescription("S${nextUp.season}E${nextUp.episode}" +
                     (nextUp.episodeTitle?.let { " · $it" } ?: ""))
-            .setSeasonNumber(nextUp.season.toString())
-            .setEpisodeNumber(nextUp.episode.toString())
+            .setSeasonNumber(nextUp.season)
+            .setEpisodeNumber(nextUp.episode)
             .setInternalProviderId("nu_${nextUp.contentId}_s${nextUp.season}e${nextUp.episode}")
             .setIntentUri(buildNextUpPlayUri(nextUp))
             .setLive(false)
@@ -162,8 +162,8 @@ class ProgramBuilder @Inject constructor(
         }
 
         if (!isMovie) {
-            progress.season?.let { builder.setSeasonNumber(it.toString()) }
-            progress.episode?.let { builder.setEpisodeNumber(it.toString()) }
+            progress.season?.let { builder.setSeasonNumber(it) }
+            progress.episode?.let { builder.setEpisodeNumber(it) }
             progress.episodeTitle?.let { builder.setEpisodeTitle(it) }
         }
 
