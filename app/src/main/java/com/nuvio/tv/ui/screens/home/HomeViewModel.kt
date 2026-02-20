@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.recommendations.TvRecommendationManager
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -68,7 +69,8 @@ class HomeViewModel @Inject constructor(
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val tmdbService: TmdbService,
     private val tmdbMetadataService: TmdbMetadataService,
-    private val trailerService: TrailerService
+    private val trailerService: TrailerService,
+    private val tvRecommendationManager: TvRecommendationManager
 ) : ViewModel() {
     companion object {
         private const val TAG = "HomeViewModel"
@@ -648,6 +650,20 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+
+        // Push resolved Next Up items to TV Home Screen recommendation channel
+        val resolvedNextUp = mergeMutex.withLock {
+            nextUpByContent.values.map { it.info }
+        }
+        if (resolvedNextUp.isNotEmpty()) {
+            launch(Dispatchers.IO) {
+                try {
+                    tvRecommendationManager.updateNextUp(resolvedNextUp)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to update Next Up recommendations", e)
+                }
+            }
+        }
     }
 
     private fun mergeContinueWatchingItems(
@@ -1186,6 +1202,18 @@ class HomeViewModel @Inject constructor(
                 gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
                 isLoading = false
             )
+        }
+
+        // Push the first catalog row's items to the Trending TV recommendation channel
+        val trendingItems = displayRows.firstOrNull()?.items.orEmpty()
+        if (trendingItems.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    tvRecommendationManager.updateTrending(trendingItems)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to update Trending recommendations", e)
+                }
+            }
         }
     }
 

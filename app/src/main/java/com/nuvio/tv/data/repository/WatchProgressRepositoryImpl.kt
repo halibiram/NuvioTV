@@ -2,6 +2,7 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.recommendations.TvRecommendationManager
 import com.nuvio.tv.core.sync.WatchProgressSyncService
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
 import android.util.Log
@@ -43,7 +44,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val authManager: AuthManager,
-    private val metaRepository: MetaRepository
+    private val metaRepository: MetaRepository,
+    private val tvRecommendationManager: TvRecommendationManager
 ) : WatchProgressRepository {
     companion object {
         private const val TAG = "WatchProgressRepo"
@@ -331,10 +333,12 @@ class WatchProgressRepositoryImpl @Inject constructor(
         if (traktAuthDataStore.isAuthenticated.first()) {
             traktProgressService.applyOptimisticProgress(progress)
             watchProgressPreferences.saveProgress(progress)
+            triggerRecommendationUpdate(progress)
             return
         }
         watchProgressPreferences.saveProgress(progress)
         triggerRemoteSync()
+        triggerRecommendationUpdate(progress)
         if (progress.isCompleted()) {
             watchedItemsPreferences.markAsWatched(
                 WatchedItem(
@@ -471,6 +475,20 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
+    }
+
+    /**
+     * Fire-and-forget update of TV Home Screen recommendation channels.
+     * Failures are logged but never propagate to the caller.
+     */
+    private fun triggerRecommendationUpdate(progress: WatchProgress) {
+        syncScope.launch {
+            try {
+                tvRecommendationManager.onProgressUpdated(progress)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update TV recommendations", e)
+            }
+        }
     }
 
     private fun mergeProgressLists(
