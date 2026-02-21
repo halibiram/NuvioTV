@@ -829,6 +829,17 @@ private fun GenreChipsGrid(
     onGenreSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showAll by remember { mutableStateOf(false) }
+    val visibleGenres = remember(genres, showAll) {
+        if (showAll) genres
+        else genres.filter { genre ->
+            val isHistory = genre.equals("history", ignoreCase = true)
+            val isYear = genre.matches(Regex("""^(19|20)\d{2}$"""))
+            !isHistory && !isYear
+        }
+    }
+    val hasHidden = genres.size > visibleGenres.size
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -846,45 +857,106 @@ private fun GenreChipsGrid(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            genres.forEach { genre ->
+            visibleGenres.forEach { genre ->
                 val emoji = getGenreEmoji(genre)
+                var isFocused by remember { mutableStateOf(false) }
                 
                 androidx.tv.material3.Surface(
                     onClick = { onGenreSelected(genre) },
-                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(20.dp)),
+                    modifier = Modifier.onFocusChanged { state -> isFocused = state.isFocused },
+                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
                     colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-                        containerColor = NuvioColors.SurfaceVariant.copy(alpha = 0.6f),
+                        containerColor = NuvioColors.SurfaceVariant,
                         contentColor = NuvioColors.TextPrimary,
-                        focusedContainerColor = NuvioColors.Primary.copy(alpha = 0.2f),
-                        focusedContentColor = NuvioColors.Primary
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = NuvioColors.TextPrimary
                     ),
                     scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(
-                        focusedScale = 1.06f
+                        focusedScale = 1.08f
                     ),
                     border = androidx.tv.material3.ClickableSurfaceDefaults.border(
                         border = androidx.tv.material3.Border(
-                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(20.dp)
+                            border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color.Transparent),
+                            shape = RoundedCornerShape(50)
                         ),
                         focusedBorder = androidx.tv.material3.Border(
-                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.Primary),
-                            shape = RoundedCornerShape(20.dp)
+                            border = androidx.compose.foundation.BorderStroke(3.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(50)
                         )
                     )
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        androidx.tv.material3.Text(
-                            text = emoji,
-                            style = androidx.tv.material3.MaterialTheme.typography.headlineSmall
-                        )
+                        Box(
+                            modifier = Modifier
+                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.25f), androidx.compose.foundation.shape.CircleShape)
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.tv.material3.Text(
+                                text = emoji,
+                                style = androidx.tv.material3.MaterialTheme.typography.titleMedium
+                            )
+                        }
                         androidx.tv.material3.Text(
                             text = genre,
                             style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    }
+                }
+            }
+            
+            if (hasHidden && !showAll) {
+                var isFocused by remember { mutableStateOf(false) }
+                
+                androidx.tv.material3.Surface(
+                    onClick = { showAll = true },
+                    modifier = Modifier.onFocusChanged { state -> isFocused = state.isFocused },
+                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
+                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                        containerColor = NuvioColors.SurfaceVariant,
+                        contentColor = NuvioColors.TextPrimary,
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = NuvioColors.TextPrimary
+                    ),
+                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(
+                        focusedScale = 1.08f
+                    ),
+                    border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color.Transparent),
+                            shape = RoundedCornerShape(50)
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(3.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(50)
+                        )
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.25f), androidx.compose.foundation.shape.CircleShape)
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.tv.material3.Text(
+                                text = "➕",
+                                style = androidx.tv.material3.MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        androidx.tv.material3.Text(
+                            text = "More",
+                            style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                     }
                 }
@@ -930,4 +1002,20 @@ private fun getGenreEmoji(genre: String): String {
         "nature" -> "🌿"
         else -> "🍿"
     }
+}
+
+private fun getGenreGradient(genre: String): androidx.compose.ui.graphics.Brush {
+    val colors = when (genre.lowercase()) {
+        "action", "action & adventure" -> listOf(androidx.compose.ui.graphics.Color(0xFFE50914), androidx.compose.ui.graphics.Color(0xFF8E0E00)) // Netflix red
+        "comedy" -> listOf(androidx.compose.ui.graphics.Color(0xFFF2C94C), androidx.compose.ui.graphics.Color(0xFFF2994A)) // Joyful gold
+        "sci-fi", "science fiction", "sci-fi & fantasy" -> listOf(androidx.compose.ui.graphics.Color(0xFF00C9FF), androidx.compose.ui.graphics.Color(0xFF92FE9D)) // Neon cyan
+        "romance" -> listOf(androidx.compose.ui.graphics.Color(0xFFff0844), androidx.compose.ui.graphics.Color(0xFFffb199)) // Pink
+        "horror", "thriller", "mystery" -> listOf(androidx.compose.ui.graphics.Color(0xFF434343), androidx.compose.ui.graphics.Color(0xFF000000)) // Creepy dark
+        "drama" -> listOf(androidx.compose.ui.graphics.Color(0xFF8E2DE2), androidx.compose.ui.graphics.Color(0xFF4A00E0)) // Deep purple
+        "documentary", "history", "biography" -> listOf(androidx.compose.ui.graphics.Color(0xFF1D976C), androidx.compose.ui.graphics.Color(0xFF93F9B9)) // Earthy green
+        "animation", "anime", "kids" -> listOf(androidx.compose.ui.graphics.Color(0xFFFF416C), androidx.compose.ui.graphics.Color(0xFFFF4B2B)) // Vibrant red/pink
+        "fantasy", "adventure" -> listOf(androidx.compose.ui.graphics.Color(0xFF3A1C71), androidx.compose.ui.graphics.Color(0xFFD76D77), androidx.compose.ui.graphics.Color(0xFFFFAF7B)) // Sunset
+        else -> listOf(androidx.compose.ui.graphics.Color(0xFF2C3E50), androidx.compose.ui.graphics.Color(0xFF3498DB)) // Default blue/gray
+    }
+    return androidx.compose.ui.graphics.Brush.horizontalGradient(colors)
 }
