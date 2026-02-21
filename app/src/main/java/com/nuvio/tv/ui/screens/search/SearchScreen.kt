@@ -98,6 +98,35 @@ fun SearchScreen(
     var pendingDiscoverRestoreOnResume by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+
+    // --- Shared callbacks (eliminates duplication between discover / search modes) ---
+    fun resetPendingFocusState() {
+        pendingFocusMoveToResultsQuery = null
+        pendingFocusMoveSawSearching = false
+        pendingFocusMoveHadExistingSearchRows = false
+    }
+
+    val sharedOnQueryChanged: (String) -> Unit = { query ->
+        focusResults = false
+        resetPendingFocusState()
+        viewModel.onEvent(SearchEvent.QueryChanged(query))
+    }
+
+    val sharedOnSubmit: () -> Unit = {
+        val submittedQuery = uiState.query.trim()
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        focusResults = false
+        if (submittedQuery.length >= 2) {
+            pendingFocusMoveToResultsQuery = submittedQuery
+            pendingFocusMoveSawSearching = false
+            pendingFocusMoveHadExistingSearchRows =
+                uiState.submittedQuery.trim().length >= 2 && uiState.catalogRows.any { row -> row.items.isNotEmpty() }
+        } else {
+            resetPendingFocusState()
+        }
+    }
+
+    val sharedOnMoveToResults: () -> Unit = { focusResults = true }
     val onVoiceQueryResultState = rememberUpdatedState<(String) -> Unit> { recognized ->
         if (recognized.isNotBlank()) {
             viewModel.onEvent(SearchEvent.QueryChanged(recognized))
@@ -191,9 +220,7 @@ fun SearchScreen(
             delay(100)
             runCatching { discoverFirstItemFocusRequester.requestFocus() }
             focusResults = false
-            pendingFocusMoveToResultsQuery = null
-            pendingFocusMoveSawSearching = false
-            pendingFocusMoveHadExistingSearchRows = false
+            resetPendingFocusState()
         }
     }
 
@@ -227,9 +254,7 @@ fun SearchScreen(
             delay(80)
             focusResults = true
         }
-        pendingFocusMoveToResultsQuery = null
-        pendingFocusMoveSawSearching = false
-        pendingFocusMoveHadExistingSearchRows = false
+        resetPendingFocusState()
     }
 
     LaunchedEffect(Unit) {
@@ -286,31 +311,11 @@ fun SearchScreen(
                     voiceFocusRequester = if (isVoiceSearchAvailable) voiceFocusRequester else null,
                     searchFocusRequester = searchFocusRequester,
                     onAttached = { isSearchFieldAttached = true },
-                    onQueryChanged = {
-                        focusResults = false
-                        pendingFocusMoveToResultsQuery = null
-                        pendingFocusMoveSawSearching = false
-                        pendingFocusMoveHadExistingSearchRows = false
-                        viewModel.onEvent(SearchEvent.QueryChanged(it))
-                    },
-                    onSubmit = {
-                        val submittedQuery = uiState.query.trim()
-                        viewModel.onEvent(SearchEvent.SubmitSearch)
-                        focusResults = false
-                        if (submittedQuery.length >= 2) {
-                            pendingFocusMoveToResultsQuery = submittedQuery
-                            pendingFocusMoveSawSearching = false
-                            pendingFocusMoveHadExistingSearchRows =
-                                trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { row -> row.items.isNotEmpty() }
-                        } else {
-                            pendingFocusMoveToResultsQuery = null
-                            pendingFocusMoveSawSearching = false
-                            pendingFocusMoveHadExistingSearchRows = false
-                        }
-                    },
+                    onQueryChanged = sharedOnQueryChanged,
+                    onSubmit = sharedOnSubmit,
                     showVoiceSearch = isVoiceSearchAvailable,
                     onVoiceSearch = launchVoiceSearch,
-                    onMoveToResults = { focusResults = true },
+                    onMoveToResults = sharedOnMoveToResults,
                     keyboardController = keyboardController
                 )
 
@@ -342,33 +347,11 @@ fun SearchScreen(
                         voiceFocusRequester = if (isVoiceSearchAvailable) voiceFocusRequester else null,
                         searchFocusRequester = searchFocusRequester,
                         onAttached = { isSearchFieldAttached = true },
-                        onQueryChanged = {
-                            focusResults = false
-                            pendingFocusMoveToResultsQuery = null
-                            pendingFocusMoveSawSearching = false
-                            pendingFocusMoveHadExistingSearchRows = false
-                            viewModel.onEvent(SearchEvent.QueryChanged(it))
-                        },
-                        onSubmit = {
-                            val submittedQuery = uiState.query.trim()
-                            viewModel.onEvent(SearchEvent.SubmitSearch)
-                            focusResults = false
-                            if (submittedQuery.length >= 2) {
-                                pendingFocusMoveToResultsQuery = submittedQuery
-                                pendingFocusMoveSawSearching = false
-                                pendingFocusMoveHadExistingSearchRows =
-                                    trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { row -> row.items.isNotEmpty() }
-                            } else {
-                                pendingFocusMoveToResultsQuery = null
-                                pendingFocusMoveSawSearching = false
-                                pendingFocusMoveHadExistingSearchRows = false
-                            }
-                        },
+                        onQueryChanged = sharedOnQueryChanged,
+                        onSubmit = sharedOnSubmit,
                         showVoiceSearch = isVoiceSearchAvailable,
                         onVoiceSearch = launchVoiceSearch,
-                        onMoveToResults = {
-                            focusResults = true
-                        },
+                        onMoveToResults = sharedOnMoveToResults,
                         keyboardController = keyboardController
                     )
                 }
