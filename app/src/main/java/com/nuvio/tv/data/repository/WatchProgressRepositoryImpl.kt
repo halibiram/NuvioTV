@@ -483,28 +483,26 @@ class WatchProgressRepositoryImpl @Inject constructor(
 
     /**
      * Fire-and-forget update of TV Home Screen recommendation channels.
-     * Failures are logged but never propagate to the caller.
+     * Failures are silently swallowed and never propagate to the caller.
      */
     private fun triggerRecommendationUpdate(progress: WatchProgress) {
         syncScope.launch {
             try {
                 tvRecommendationManager.onProgressUpdated(progress)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to update TV recommendations", e)
+            } catch (_: Exception) {
             }
         }
     }
 
     /**
      * Fire-and-forget removal of a Watch Next entry and Continue Watching channel refresh.
-     * Failures are logged but never propagate to the caller.
+     * Failures are silently swallowed and never propagate to the caller.
      */
     private fun triggerRecommendationRemoval(contentId: String) {
         syncScope.launch {
             try {
                 tvRecommendationManager.onProgressRemoved(contentId)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to clean up TV recommendations for $contentId", e)
+            } catch (_: Exception) {
             }
         }
     }

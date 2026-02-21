@@ -3,7 +3,6 @@ package com.nuvio.tv.core.recommendations
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.tvprovider.media.tv.PreviewProgram
 import androidx.tvprovider.media.tv.TvContractCompat
 import androidx.tvprovider.media.tv.WatchNextProgram
@@ -21,9 +20,6 @@ import javax.inject.Singleton
 class ProgramBuilder @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    companion object {
-        private const val TAG = "ProgramBuilder"
-    }
 
     // ────────────────────────────────────────────────────────────────
     //  Continue Watching → PreviewProgram
@@ -183,16 +179,13 @@ class ProgramBuilder @Inject constructor(
             if (existingId != null) {
                 val uri = TvContractCompat.buildWatchNextProgramUri(existingId)
                 context.contentResolver.update(uri, program.toContentValues(), null, null)
-                Log.d(TAG, "Updated Watch Next program: $internalId")
             } else {
                 context.contentResolver.insert(
                     TvContractCompat.WatchNextPrograms.CONTENT_URI,
                     program.toContentValues()
                 )
-                Log.d(TAG, "Inserted Watch Next program: $internalId")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to upsert Watch Next program: $internalId", e)
+        } catch (_: Exception) {
         }
     }
 
@@ -204,9 +197,7 @@ class ProgramBuilder @Inject constructor(
             val existingId = findWatchNextByInternalId(internalId) ?: return
             val uri = TvContractCompat.buildWatchNextProgramUri(existingId)
             context.contentResolver.delete(uri, null, null)
-            Log.d(TAG, "Removed Watch Next program: $internalId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to remove Watch Next program: $internalId", e)
+        } catch (_: Exception) {
         }
     }
 
@@ -241,9 +232,7 @@ class ProgramBuilder @Inject constructor(
                     }
                 }
             }
-            Log.d(TAG, "Cleared all Watch Next programs")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear Watch Next programs", e)
+        } catch (_: Exception) {
         } finally {
             cursor?.close()
         }
@@ -331,8 +320,7 @@ class ProgramBuilder @Inject constructor(
                     if (idx >= 0) it.getLong(idx) else null
                 } else null
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying Watch Next programs", e)
+        } catch (_: Exception) {
             null
         }
     }

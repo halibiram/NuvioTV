@@ -3,7 +3,6 @@ package com.nuvio.tv.core.recommendations
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,13 +25,11 @@ class RecommendationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == "android.media.tv.action.INITIALIZE_PROGRAMS") {
-            Log.i("RecommendationReceiver", "INITIALIZE_PROGRAMS received — syncing channels")
             val pendingResult = goAsync()
             scope.launch {
                 try {
                     recommendationManager.syncAllChannels()
-                } catch (e: Exception) {
-                    Log.e("RecommendationReceiver", "Sync failed", e)
+                } catch (_: Exception) {
                 } finally {
                     pendingResult.finish()
                 }

@@ -1,7 +1,6 @@
 package com.nuvio.tv.data.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -25,22 +24,16 @@ class TvRecommendationWorker @AssistedInject constructor(
     private val recommendationDataStore: RecommendationDataStore
 ) : CoroutineWorker(context, params) {
 
-    companion object {
-        private const val TAG = "TvRecWorker"
-    }
 
     override suspend fun doWork(): Result {
         return try {
             if (!recommendationDataStore.isEnabled()) {
-                Log.d(TAG, "Recommendations disabled — skipping sync")
                 return Result.success()
             }
 
             recommendationManager.syncAllChannels()
-            Log.d(TAG, "Periodic recommendation sync completed")
             Result.success()
-        } catch (e: Exception) {
-            Log.e(TAG, "Recommendation sync failed (attempt $runAttemptCount)", e)
+        } catch (_: Exception) {
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }

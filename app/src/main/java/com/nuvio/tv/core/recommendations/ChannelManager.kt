@@ -4,7 +4,6 @@ import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
-import android.util.Log
 import androidx.tvprovider.media.tv.Channel
 import androidx.tvprovider.media.tv.PreviewProgram
 import androidx.tvprovider.media.tv.TvContractCompat
@@ -21,9 +20,6 @@ class ChannelManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dataStore: RecommendationDataStore
 ) {
-    companion object {
-        private const val TAG = "ChannelManager"
-    }
 
     // ────────────────────────────────────────────────────────────────
     //  Channel operations
@@ -67,7 +63,6 @@ class ChannelManager @Inject constructor(
             )
 
             if (channelUri == null) {
-                Log.w(TAG, "ContentResolver.insert returned null for channel: $internalId")
                 return null
             }
 
@@ -78,10 +73,8 @@ class ChannelManager @Inject constructor(
             // On first call the user gets a prompt; subsequent calls are no-ops.
             TvContractCompat.requestChannelBrowsable(context, channelId)
 
-            Log.i(TAG, "Created channel '$displayName' (id=$channelId)")
             channelId
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create channel '$displayName'", e)
+        } catch (_: Exception) {
             null
         }
     }
@@ -92,10 +85,8 @@ class ChannelManager @Inject constructor(
     fun clearProgramsForChannel(channelId: Long) {
         try {
             val uri = TvContractCompat.buildPreviewProgramsUriForChannel(channelId)
-            val deleted = context.contentResolver.delete(uri, null, null)
-            Log.d(TAG, "Cleared $deleted programs from channel $channelId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear programs for channel $channelId", e)
+            context.contentResolver.delete(uri, null, null)
+        } catch (_: Exception) {
         }
     }
 
@@ -106,13 +97,11 @@ class ChannelManager @Inject constructor(
         if (programs.isEmpty()) return
         try {
             val values = programs.map { it.toContentValues() }.toTypedArray()
-            val inserted = context.contentResolver.bulkInsert(
+            context.contentResolver.bulkInsert(
                 TvContractCompat.PreviewPrograms.CONTENT_URI,
                 values
             )
-            Log.d(TAG, "Inserted $inserted preview programs")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to insert preview programs", e)
+        } catch (_: Exception) {
         }
     }
 
@@ -125,9 +114,7 @@ class ChannelManager @Inject constructor(
             val uri = TvContractCompat.buildChannelUri(channelId)
             context.contentResolver.delete(uri, null, null)
             dataStore.clearChannelId(internalId)
-            Log.i(TAG, "Deleted channel $internalId (id=$channelId)")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete channel $internalId", e)
+        } catch (_: Exception) {
         }
     }
 
@@ -172,8 +159,7 @@ class ChannelManager @Inject constructor(
                 }
             }
             null
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying channels", e)
+        } catch (_: Exception) {
             null
         } finally {
             cursor?.close()

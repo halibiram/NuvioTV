@@ -1,7 +1,6 @@
 package com.nuvio.tv
 
 import android.app.Application
-import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
@@ -72,8 +71,7 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
         appScope.launch {
             try {
                 tvRecommendationManager.initializeChannels()
-            } catch (e: Exception) {
-                Log.e("NuvioApplication", "TV recommendation init failed", e)
+            } catch (_: Exception) {
             }
         }
 

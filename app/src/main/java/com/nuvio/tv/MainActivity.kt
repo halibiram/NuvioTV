@@ -3,7 +3,6 @@ package com.nuvio.tv
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -361,7 +360,6 @@ class MainActivity : ComponentActivity() {
     private fun handleRecommendationDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
         if (uri.scheme != RecommendationConstants.DEEP_LINK_SCHEME) return
-        Log.d("MainActivity", "Deep link received: $uri")
         pendingDeepLink.value = uri
     }
 
@@ -404,7 +402,7 @@ class MainActivity : ComponentActivity() {
                 )
                 navController.navigate(route)
             }
-            else -> Log.w("MainActivity", "Unknown deep link action: $action")
+            else -> { /* Unknown deep link action */ }
         }
     }
 }

@@ -2,7 +2,6 @@ package com.nuvio.tv.core.recommendations
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.util.Log
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.WatchProgressRepository
@@ -31,9 +30,6 @@ class TvRecommendationManager @Inject constructor(
     private val dataStore: RecommendationDataStore,
     private val watchProgressRepository: WatchProgressRepository
 ) {
-    companion object {
-        private const val TAG = "TvRecommendationMgr"
-    }
 
     /** Serializes channel-update operations to avoid races from multiple triggers. */
     private val mutex = Mutex()
@@ -66,9 +62,7 @@ class TvRecommendationManager @Inject constructor(
                     RecommendationConstants.CHANNEL_TRENDING,
                     RecommendationConstants.CHANNEL_DISPLAY_TRENDING
                 )
-                Log.i(TAG, "Channels initialized")
-            } catch (e: Exception) {
-                Log.e(TAG, "Channel initialization failed", e)
+            } catch (_: Exception) {
             }
         }
     }
@@ -97,10 +91,7 @@ class TvRecommendationManager @Inject constructor(
                         programBuilder.buildContinueWatchingProgram(channelId, progress)
                     }
                     channelManager.insertPrograms(programs)
-
-                    Log.d(TAG, "Continue Watching updated with ${programs.size} items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update Continue Watching", e)
+                } catch (_: Exception) {
                 }
             }
         }
@@ -123,10 +114,7 @@ class TvRecommendationManager @Inject constructor(
                         val internalId = "wn_${progress.contentId}"
                         programBuilder.upsertWatchNextProgram(program, internalId)
                     }
-
-                    Log.d(TAG, "Watch Next updated with ${items.size} items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update Watch Next", e)
+                } catch (_: Exception) {
                 }
             }
         }
@@ -146,8 +134,7 @@ class TvRecommendationManager @Inject constructor(
                 val program = programBuilder.buildWatchNextProgram(progress)
                 val internalId = "wn_${progress.contentId}"
                 programBuilder.upsertWatchNextProgram(program, internalId)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update Watch Next entry", e)
+            } catch (_: Exception) {
             }
         }
     }
@@ -174,9 +161,7 @@ class TvRecommendationManager @Inject constructor(
                         .map { programBuilder.buildNextUpProgram(channelId, it) }
 
                     channelManager.insertPrograms(programs)
-                    Log.d(TAG, "Next Up updated with ${programs.size} items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update Next Up", e)
+                } catch (_: Exception) {
                 }
             }
         }
@@ -207,9 +192,7 @@ class TvRecommendationManager @Inject constructor(
 
                     channelManager.insertPrograms(programs)
                     lastTrendingSignature = signature
-                    Log.d(TAG, "Trending updated with ${programs.size} items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update Trending", e)
+                } catch (_: Exception) {
                 }
             }
         }
@@ -220,7 +203,6 @@ class TvRecommendationManager @Inject constructor(
      */
     suspend fun syncAllChannels() {
         if (!shouldRun()) return
-        Log.i(TAG, "Starting full recommendation sync")
         initializeChannels()
         updateContinueWatching()
         updateWatchNext()
@@ -238,7 +220,6 @@ class TvRecommendationManager @Inject constructor(
             channelManager.deleteChannel(RecommendationConstants.CHANNEL_TRENDING)
             programBuilder.clearAllWatchNextPrograms()
             lastTrendingSignature = null
-            Log.i(TAG, "All recommendation data cleared")
         }
     }
 
@@ -252,8 +233,7 @@ class TvRecommendationManager @Inject constructor(
         withContext(Dispatchers.IO) {
             try {
                 programBuilder.removeWatchNextProgram("wn_$contentId")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove Watch Next entry for $contentId", e)
+            } catch (_: Exception) {
             }
         }
     }

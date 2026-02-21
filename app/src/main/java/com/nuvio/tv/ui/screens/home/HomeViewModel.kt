@@ -659,8 +659,7 @@ class HomeViewModel @Inject constructor(
             launch(Dispatchers.IO) {
                 try {
                     tvRecommendationManager.updateNextUp(resolvedNextUp)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update Next Up recommendations", e)
+                } catch (_: Exception) {
                 }
             }
         }
@@ -1210,8 +1209,7 @@ class HomeViewModel @Inject constructor(
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     tvRecommendationManager.updateTrending(trendingItems)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update Trending recommendations", e)
+                } catch (_: Exception) {
                 }
             }
         }
