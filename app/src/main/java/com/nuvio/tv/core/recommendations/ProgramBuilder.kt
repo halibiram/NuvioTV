@@ -210,6 +210,45 @@ class ProgramBuilder @Inject constructor(
         }
     }
 
+    /**
+     * Removes ALL Watch Next programs created by this app (identified by the "wn_" prefix).
+     */
+    fun clearAllWatchNextPrograms() {
+        var cursor: android.database.Cursor? = null
+        try {
+            cursor = context.contentResolver.query(
+                TvContractCompat.WatchNextPrograms.CONTENT_URI,
+                arrayOf(
+                    TvContractCompat.WatchNextPrograms._ID,
+                    TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID
+                ),
+                null, null, null
+            )
+            cursor?.let {
+                while (it.moveToNext()) {
+                    val idIdx = it.getColumnIndex(
+                        TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID
+                    )
+                    if (idIdx >= 0) {
+                        val providerId = it.getString(idIdx)
+                        if (providerId?.startsWith("wn_") == true) {
+                            val pkIdx = it.getColumnIndex(TvContractCompat.WatchNextPrograms._ID)
+                            if (pkIdx >= 0) {
+                                val uri = TvContractCompat.buildWatchNextProgramUri(it.getLong(pkIdx))
+                                context.contentResolver.delete(uri, null, null)
+                            }
+                        }
+                    }
+                }
+            }
+            Log.d(TAG, "Cleared all Watch Next programs")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear Watch Next programs", e)
+        } finally {
+            cursor?.close()
+        }
+    }
+
     // ────────────────────────────────────────────────────────────────
     //  Deep-link URI builders
     // ────────────────────────────────────────────────────────────────
@@ -222,6 +261,7 @@ class ProgramBuilder @Inject constructor(
             .appendPath(progress.contentId)
             .appendQueryParameter(RecommendationConstants.PARAM_CONTENT_TYPE, progress.contentType)
             .appendQueryParameter(RecommendationConstants.PARAM_VIDEO_ID, progress.videoId)
+            .appendQueryParameter(RecommendationConstants.PARAM_NAME, progress.name)
             .apply {
                 progress.season?.let {
                     appendQueryParameter(RecommendationConstants.PARAM_SEASON, it.toString())
@@ -233,6 +273,12 @@ class ProgramBuilder @Inject constructor(
                     RecommendationConstants.PARAM_RESUME_POSITION,
                     progress.position.toString()
                 )
+                progress.poster?.let {
+                    appendQueryParameter(RecommendationConstants.PARAM_POSTER, it)
+                }
+                progress.backdrop?.let {
+                    appendQueryParameter(RecommendationConstants.PARAM_BACKDROP, it)
+                }
             }
             .build()
 
@@ -244,8 +290,17 @@ class ProgramBuilder @Inject constructor(
             .appendPath(nextUp.contentId)
             .appendQueryParameter(RecommendationConstants.PARAM_CONTENT_TYPE, nextUp.contentType)
             .appendQueryParameter(RecommendationConstants.PARAM_VIDEO_ID, nextUp.videoId)
+            .appendQueryParameter(RecommendationConstants.PARAM_NAME, nextUp.name)
             .appendQueryParameter(RecommendationConstants.PARAM_SEASON, nextUp.season.toString())
             .appendQueryParameter(RecommendationConstants.PARAM_EPISODE, nextUp.episode.toString())
+            .apply {
+                nextUp.poster?.let {
+                    appendQueryParameter(RecommendationConstants.PARAM_POSTER, it)
+                }
+                (nextUp.thumbnail ?: nextUp.backdrop)?.let {
+                    appendQueryParameter(RecommendationConstants.PARAM_BACKDROP, it)
+                }
+            }
             .build()
 
     private fun buildDetailUri(contentId: String, type: String): Uri =
@@ -262,33 +317,23 @@ class ProgramBuilder @Inject constructor(
     // ────────────────────────────────────────────────────────────────
 
     private fun findWatchNextByInternalId(internalId: String): Long? {
-        var cursor: android.database.Cursor? = null
         return try {
-            cursor = context.contentResolver.query(
+            val cursor = context.contentResolver.query(
                 TvContractCompat.WatchNextPrograms.CONTENT_URI,
-                arrayOf(
-                    TvContractCompat.WatchNextPrograms._ID,
-                    TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID
-                ),
-                null, null, null
+                arrayOf(TvContractCompat.WatchNextPrograms._ID),
+                "${TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID} = ?",
+                arrayOf(internalId),
+                null
             )
-            cursor?.let {
-                while (it.moveToNext()) {
-                    val idIdx = it.getColumnIndex(
-                        TvContractCompat.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID
-                    )
-                    if (idIdx >= 0 && it.getString(idIdx) == internalId) {
-                        val pkIdx = it.getColumnIndex(TvContractCompat.WatchNextPrograms._ID)
-                        if (pkIdx >= 0) return it.getLong(pkIdx)
-                    }
-                }
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val idx = it.getColumnIndex(TvContractCompat.WatchNextPrograms._ID)
+                    if (idx >= 0) it.getLong(idx) else null
+                } else null
             }
-            null
         } catch (e: Exception) {
             Log.e(TAG, "Error querying Watch Next programs", e)
             null
-        } finally {
-            cursor?.close()
         }
     }
 }

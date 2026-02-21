@@ -27,6 +27,9 @@ object RecommendationConstants {
     const val PARAM_SEASON = "season"
     const val PARAM_EPISODE = "episode"
     const val PARAM_RESUME_POSITION = "position"
+    const val PARAM_NAME = "name"
+    const val PARAM_POSTER = "poster"
+    const val PARAM_BACKDROP = "backdrop"
 
     // ── WorkManager ──
     const val WORK_NAME_PERIODIC_SYNC = "tv_recommendation_sync"

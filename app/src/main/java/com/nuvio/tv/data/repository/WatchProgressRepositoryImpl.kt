@@ -364,6 +364,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
             traktProgressService.applyOptimisticRemoval(contentId, season, episode)
             traktProgressService.removeProgress(contentId, season, episode)
             watchProgressPreferences.removeProgress(contentId, season, episode)
+            triggerRecommendationRemoval(contentId)
             return
         }
         val remoteDeleteKeys = resolveRemoteDeleteKeys(contentId, season, episode)
@@ -375,12 +376,14 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 }
         }
         triggerRemoteSync()
+        triggerRecommendationRemoval(contentId)
     }
 
     override suspend fun removeFromHistory(contentId: String, season: Int?, episode: Int?) {
         if (traktAuthDataStore.isAuthenticated.first()) {
             traktProgressService.removeFromHistory(contentId, season, episode)
             watchProgressPreferences.removeProgress(contentId, season, episode)
+            triggerRecommendationRemoval(contentId)
             return
         }
         val remoteDeleteKeys = resolveRemoteDeleteKeys(contentId, season, episode)
@@ -394,6 +397,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
         }
         triggerRemoteSync()
         triggerWatchedItemsSync()
+        triggerRecommendationRemoval(contentId)
     }
 
     override suspend fun markAsCompleted(progress: WatchProgress) {
@@ -487,6 +491,20 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 tvRecommendationManager.onProgressUpdated(progress)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to update TV recommendations", e)
+            }
+        }
+    }
+
+    /**
+     * Fire-and-forget removal of a Watch Next entry and Continue Watching channel refresh.
+     * Failures are logged but never propagate to the caller.
+     */
+    private fun triggerRecommendationRemoval(contentId: String) {
+        syncScope.launch {
+            try {
+                tvRecommendationManager.onProgressRemoved(contentId)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to clean up TV recommendations for $contentId", e)
             }
         }
     }

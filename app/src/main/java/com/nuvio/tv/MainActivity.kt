@@ -387,15 +387,20 @@ class MainActivity : ComponentActivity() {
                 val videoId = uri.getQueryParameter(RecommendationConstants.PARAM_VIDEO_ID) ?: contentId
                 val season = uri.getQueryParameter(RecommendationConstants.PARAM_SEASON)?.toIntOrNull()
                 val episode = uri.getQueryParameter(RecommendationConstants.PARAM_EPISODE)?.toIntOrNull()
+                val name = uri.getQueryParameter(RecommendationConstants.PARAM_NAME)
+                val poster = uri.getQueryParameter(RecommendationConstants.PARAM_POSTER)
+                val backdrop = uri.getQueryParameter(RecommendationConstants.PARAM_BACKDROP)
 
-                // Navigate to stream selection for this content
                 val route = Screen.Stream.createRoute(
                     videoId = videoId,
                     contentType = contentType,
-                    title = contentId,  // Will be resolved by StreamScreen
+                    title = name ?: contentId,
+                    poster = poster,
+                    backdrop = backdrop,
                     season = season,
                     episode = episode,
-                    contentId = contentId
+                    contentId = contentId,
+                    contentName = name
                 )
                 navController.navigate(route)
             }

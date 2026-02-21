@@ -38,6 +38,10 @@ class TvRecommendationManager @Inject constructor(
     /** Serializes channel-update operations to avoid races from multiple triggers. */
     private val mutex = Mutex()
 
+    /** Tracks the last set of trending items to avoid redundant ContentProvider writes. */
+    @Volatile
+    private var lastTrendingSignature: String? = null
+
     // ────────────────────────────────────────────────────────────────
     //  Public API
     // ────────────────────────────────────────────────────────────────
@@ -77,8 +81,9 @@ class TvRecommendationManager @Inject constructor(
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 try {
-                    val channelId = dataStore.getChannelId(
-                        RecommendationConstants.CHANNEL_CONTINUE_WATCHING
+                    val channelId = channelManager.getOrCreateChannel(
+                        RecommendationConstants.CHANNEL_CONTINUE_WATCHING,
+                        RecommendationConstants.CHANNEL_DISPLAY_CONTINUE_WATCHING
                     ) ?: return@withContext
 
                     val items = watchProgressRepository.continueWatching
@@ -106,21 +111,23 @@ class TvRecommendationManager @Inject constructor(
      */
     suspend fun updateWatchNext() {
         if (!shouldRun()) return
-        withContext(Dispatchers.IO) {
-            try {
-                val items = watchProgressRepository.continueWatching
-                    .first()
-                    .take(RecommendationConstants.MAX_WATCH_NEXT_ITEMS)
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                try {
+                    val items = watchProgressRepository.continueWatching
+                        .first()
+                        .take(RecommendationConstants.MAX_WATCH_NEXT_ITEMS)
 
-                for (progress in items) {
-                    val program = programBuilder.buildWatchNextProgram(progress)
-                    val internalId = "wn_${progress.contentId}"
-                    programBuilder.upsertWatchNextProgram(program, internalId)
+                    for (progress in items) {
+                        val program = programBuilder.buildWatchNextProgram(progress)
+                        val internalId = "wn_${progress.contentId}"
+                        programBuilder.upsertWatchNextProgram(program, internalId)
+                    }
+
+                    Log.d(TAG, "Watch Next updated with ${items.size} items")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update Watch Next", e)
                 }
-
-                Log.d(TAG, "Watch Next updated with ${items.size} items")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update Watch Next", e)
             }
         }
     }
@@ -131,17 +138,16 @@ class TvRecommendationManager @Inject constructor(
      */
     suspend fun onProgressUpdated(progress: WatchProgress) {
         if (!shouldRun()) return
+        // Refresh the full Continue Watching channel (acquires mutex internally)
+        updateContinueWatching()
+        // Update the individual Watch Next entry separately
         withContext(Dispatchers.IO) {
             try {
-                // Update Continue Watching channel
-                updateContinueWatching()
-
-                // Update individual Watch Next entry
                 val program = programBuilder.buildWatchNextProgram(progress)
                 val internalId = "wn_${progress.contentId}"
                 programBuilder.upsertWatchNextProgram(program, internalId)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to handle progress update", e)
+                Log.e(TAG, "Failed to update Watch Next entry", e)
             }
         }
     }
@@ -156,8 +162,9 @@ class TvRecommendationManager @Inject constructor(
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 try {
-                    val channelId = dataStore.getChannelId(
-                        RecommendationConstants.CHANNEL_NEXT_UP
+                    val channelId = channelManager.getOrCreateChannel(
+                        RecommendationConstants.CHANNEL_NEXT_UP,
+                        RecommendationConstants.CHANNEL_DISPLAY_NEXT_UP
                     ) ?: return@withContext
 
                     channelManager.clearProgramsForChannel(channelId)
@@ -178,23 +185,28 @@ class TvRecommendationManager @Inject constructor(
     /**
      * Publishes Trending items to the dedicated Trending channel.
      * Called from [HomeViewModel] after catalog rows are loaded.
+     * Skips redundant writes when the item set hasn't changed.
      */
     suspend fun updateTrending(items: List<MetaPreview>) {
         if (!shouldRun()) return
+        val trimmed = items.take(RecommendationConstants.MAX_TRENDING_ITEMS)
+        val signature = trimmed.joinToString("|") { it.id }
+        if (signature == lastTrendingSignature) return
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 try {
-                    val channelId = dataStore.getChannelId(
-                        RecommendationConstants.CHANNEL_TRENDING
+                    val channelId = channelManager.getOrCreateChannel(
+                        RecommendationConstants.CHANNEL_TRENDING,
+                        RecommendationConstants.CHANNEL_DISPLAY_TRENDING
                     ) ?: return@withContext
 
                     channelManager.clearProgramsForChannel(channelId)
 
-                    val programs = items
-                        .take(RecommendationConstants.MAX_TRENDING_ITEMS)
+                    val programs = trimmed
                         .map { programBuilder.buildTrendingProgram(channelId, it) }
 
                     channelManager.insertPrograms(programs)
+                    lastTrendingSignature = signature
                     Log.d(TAG, "Trending updated with ${programs.size} items")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to update Trending", e)
@@ -224,7 +236,25 @@ class TvRecommendationManager @Inject constructor(
             channelManager.deleteChannel(RecommendationConstants.CHANNEL_CONTINUE_WATCHING)
             channelManager.deleteChannel(RecommendationConstants.CHANNEL_NEXT_UP)
             channelManager.deleteChannel(RecommendationConstants.CHANNEL_TRENDING)
+            programBuilder.clearAllWatchNextPrograms()
+            lastTrendingSignature = null
             Log.i(TAG, "All recommendation data cleared")
+        }
+    }
+
+    /**
+     * Called when a watch progress entry is removed by the user.
+     * Refreshes the Continue Watching channel and removes the Watch Next entry.
+     */
+    suspend fun onProgressRemoved(contentId: String) {
+        if (!shouldRun()) return
+        updateContinueWatching()
+        withContext(Dispatchers.IO) {
+            try {
+                programBuilder.removeWatchNextProgram("wn_$contentId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove Watch Next entry for $contentId", e)
+            }
         }
     }
 
