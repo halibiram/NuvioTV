@@ -839,6 +839,17 @@ private fun GenreChipsGrid(
         }
     }
     val hasHidden = genres.size > visibleGenres.size
+    
+    val expandedFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    var itemToFocus by remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(itemToFocus) {
+        if (itemToFocus != null) {
+            kotlinx.coroutines.delay(100)
+            try { expandedFocusRequester.requestFocus() } catch (e: Exception) {}
+            itemToFocus = null
+        }
+    }
 
     Column(
         modifier = modifier
@@ -863,7 +874,9 @@ private fun GenreChipsGrid(
                 
                 androidx.tv.material3.Surface(
                     onClick = { onGenreSelected(genre) },
-                    modifier = Modifier.onFocusChanged { state -> isFocused = state.isFocused },
+                    modifier = Modifier
+                        .onFocusChanged { state -> isFocused = state.isFocused }
+                        .then(if (itemToFocus != null && genre == itemToFocus) Modifier.focusRequester(expandedFocusRequester) else Modifier),
                     shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
                     colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                         containerColor = NuvioColors.SurfaceVariant,
@@ -914,7 +927,10 @@ private fun GenreChipsGrid(
                 var isFocused by remember { mutableStateOf(false) }
                 
                 androidx.tv.material3.Surface(
-                    onClick = { showAll = true },
+                    onClick = { 
+                        itemToFocus = visibleGenres.lastOrNull()
+                        showAll = true 
+                    },
                     modifier = Modifier.onFocusChanged { state -> isFocused = state.isFocused },
                     shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
                     colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
