@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -543,8 +544,6 @@ private fun SearchInputField(
     onMoveToResults: () -> Unit,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
 ) {
-    var isVoiceButtonFocused by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -563,22 +562,29 @@ private fun SearchInputField(
                             Modifier
                         }
                     )
-                    .onFocusChanged { isVoiceButtonFocused = it.isFocused }
-                    .size(56.dp)
-                    .border(
-                        width = if (isVoiceButtonFocused) 2.dp else 1.dp,
-                        color = if (isVoiceButtonFocused) NuvioColors.FocusRing else NuvioColors.Border,
+                    .size(56.dp),
+                colors = androidx.tv.material3.IconButtonDefaults.colors(
+                    containerColor = NuvioColors.BackgroundCard,
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
+                    focusedContentColor = NuvioColors.TextPrimary
+                ),
+                scale = androidx.tv.material3.IconButtonDefaults.scale(focusedScale = 1.1f),
+                border = androidx.tv.material3.IconButtonDefaults.border(
+                    border = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                    focusedBorder = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    .background(
-                        color = NuvioColors.BackgroundCard,
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                ),
+                shape = androidx.tv.material3.IconButtonDefaults.shape(shape = RoundedCornerShape(12.dp))
             ) {
                 androidx.tv.material3.Icon(
                     imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice search",
-                    tint = if (isVoiceButtonFocused) NuvioColors.Background else NuvioColors.TextPrimary
+                    contentDescription = "Voice search"
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -714,14 +720,38 @@ private fun RecentSearchChips(
                 onClick = onClearHistory,
                 colors = androidx.tv.material3.ButtonDefaults.colors(
                     containerColor = NuvioColors.SurfaceVariant,
-                    contentColor = NuvioColors.TextSecondary,
-                    focusedContainerColor = NuvioColors.Surface,
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
                     focusedContentColor = NuvioColors.TextPrimary
                 ),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                shape = androidx.tv.material3.ButtonDefaults.shape(shape = RoundedCornerShape(50))
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                shape = androidx.tv.material3.ButtonDefaults.shape(shape = RoundedCornerShape(50)),
+                border = androidx.tv.material3.ButtonDefaults.border(
+                    border = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color.Transparent),
+                        shape = RoundedCornerShape(50)
+                    ),
+                    focusedBorder = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                        shape = RoundedCornerShape(50)
+                    )
+                ),
+                scale = androidx.tv.material3.ButtonDefaults.scale(focusedScale = 1.08f)
             ) {
-                androidx.tv.material3.Text("Clear", style = androidx.tv.material3.MaterialTheme.typography.labelMedium)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    androidx.tv.material3.Icon(
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = "Clear",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    androidx.tv.material3.Text(
+                        "Clear",
+                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge
+                    )
+                }
             }
         }
 
@@ -730,21 +760,44 @@ private fun RecentSearchChips(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(recentSearches, key = { it }) { query ->
+                var isChipFocused by androidx.compose.runtime.remember { mutableStateOf(false) }
                 androidx.tv.material3.Surface(
                     onClick = { onSearchQuery(query) },
-                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                    modifier = Modifier.onFocusChanged { state -> isChipFocused = state.isFocused },
+                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
                     colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = NuvioColors.SurfaceVariant,
                         contentColor = NuvioColors.TextSecondary,
-                        focusedContainerColor = NuvioColors.FocusRing,
-                        focusedContentColor = NuvioColors.Background
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = NuvioColors.TextPrimary
+                    ),
+                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                    border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                            shape = RoundedCornerShape(50)
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(50)
+                        )
                     )
                 ) {
-                    androidx.tv.material3.Text(
-                        text = query,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = androidx.tv.material3.MaterialTheme.typography.bodyMedium
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        androidx.tv.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        androidx.tv.material3.Text(
+                            text = query,
+                            style = androidx.tv.material3.MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }
@@ -776,14 +829,38 @@ private fun RecentlyViewedRow(
                 onClick = onClearHistory,
                 colors = androidx.tv.material3.ButtonDefaults.colors(
                     containerColor = NuvioColors.SurfaceVariant,
-                    contentColor = NuvioColors.TextSecondary,
-                    focusedContainerColor = NuvioColors.Surface,
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
                     focusedContentColor = NuvioColors.TextPrimary
                 ),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                shape = androidx.tv.material3.ButtonDefaults.shape(shape = RoundedCornerShape(50))
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                shape = androidx.tv.material3.ButtonDefaults.shape(shape = RoundedCornerShape(50)),
+                border = androidx.tv.material3.ButtonDefaults.border(
+                    border = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color.Transparent),
+                        shape = RoundedCornerShape(50)
+                    ),
+                    focusedBorder = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                        shape = RoundedCornerShape(50)
+                    )
+                ),
+                scale = androidx.tv.material3.ButtonDefaults.scale(focusedScale = 1.08f)
             ) {
-                androidx.tv.material3.Text("Clear", style = androidx.tv.material3.MaterialTheme.typography.labelMedium)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    androidx.tv.material3.Icon(
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = "Clear",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    androidx.tv.material3.Text(
+                        "Clear",
+                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge
+                    )
+                }
             }
         }
 
