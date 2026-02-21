@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -61,8 +63,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.ContentType
+import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PosterShape
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.components.CatalogRowSection
+import com.nuvio.tv.ui.components.ContentCard
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.LoadingIndicator
@@ -96,7 +103,14 @@ fun SearchScreen(
     var discoverFocusedItemIndex by rememberSaveable { mutableStateOf(0) }
     var restoreDiscoverFocus by rememberSaveable { mutableStateOf(false) }
     var pendingDiscoverRestoreOnResume by rememberSaveable { mutableStateOf(false) }
+    var showAdvancedDiscover by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    androidx.activity.compose.BackHandler(enabled = showAdvancedDiscover) {
+        showAdvancedDiscover = false
+        focusResults = false
+        viewModel.onEvent(SearchEvent.SelectDiscoverGenre(null))
+    }
     val coroutineScope = rememberCoroutineScope()
 
     // --- Shared callbacks (eliminates duplication between discover / search modes) ---
@@ -321,16 +335,63 @@ fun SearchScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    EmptyScreenState(
-                        title = "Start Searching",
-                        subtitle = "Enter at least 2 characters",
-                        icon = Icons.Default.Search
+                if (showAdvancedDiscover || uiState.selectedDiscoverGenre != null) {
+                    DiscoverSection(
+                        uiState = uiState,
+                        posterCardStyle = posterCardStyle,
+                        focusResults = focusResults,
+                        firstItemFocusRequester = discoverFirstItemFocusRequester,
+                        focusedItemIndex = discoverFocusedItemIndex,
+                        shouldRestoreFocusedItem = restoreDiscoverFocus,
+                        onRestoreFocusedItemHandled = { restoreDiscoverFocus = false },
+                        onNavigateToDetail = { item, addonBaseUrl ->
+                            pendingDiscoverRestoreOnResume = true
+                            viewModel.onEvent(SearchEvent.AddRecentlyViewed(
+                                com.nuvio.tv.domain.model.SearchHistoryItem(
+                                    id = item.id,
+                                    type = item.apiType,
+                                    title = item.name,
+                                    posterUrl = item.poster
+                                )
+                            ))
+                            onNavigateToDetail(item.id, item.apiType, addonBaseUrl)
+                        },
+                        onDiscoverItemFocused = { index ->
+                            discoverFocusedItemIndex = index
+                        },
+                        onSelectType = { viewModel.onEvent(SearchEvent.SelectDiscoverType(it)) },
+                        onSelectCatalog = { viewModel.onEvent(SearchEvent.SelectDiscoverCatalog(it)) },
+                        onSelectGenre = { viewModel.onEvent(SearchEvent.SelectDiscoverGenre(it)) },
+                        onLoadMore = { viewModel.onEvent(SearchEvent.LoadNextDiscoverResults) },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    )
+                } else {
+                    ProgressiveSearchContent(
+                        uiState = uiState,
+                        posterCardStyle = posterCardStyle,
+                        onSearchQuery = sharedOnQueryChanged,
+                        onGenreSelected = { genre ->
+                            viewModel.onEvent(SearchEvent.SelectDiscoverGenre(genre))
+                            showAdvancedDiscover = true
+                        },
+                        onClearRecentSearches = { viewModel.onEvent(SearchEvent.ClearRecentSearches) },
+                        onClearRecentlyViewed = { viewModel.onEvent(SearchEvent.ClearRecentlyViewed) },
+                        onNavigateToDetail = { item, addonBaseUrl ->
+                            viewModel.onEvent(SearchEvent.AddRecentlyViewed(
+                                com.nuvio.tv.domain.model.SearchHistoryItem(
+                                    id = item.id,
+                                    type = item.apiType,
+                                    title = item.name,
+                                    posterUrl = item.poster
+                                )
+                            ))
+                            onNavigateToDetail(item.id, item.apiType, addonBaseUrl)
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
                     )
                 }
             }
@@ -439,6 +500,17 @@ fun SearchScreen(
                                 },
                                 upFocusRequester = if (index == 0 && isSearchFieldAttached) topInputFocusRequester else null,
                                 onItemClick = { id, type, addonBaseUrl ->
+                                    val item = catalogRow.items.find { it.id == id && it.apiType == type }
+                                    if (item != null) {
+                                        viewModel.onEvent(SearchEvent.AddRecentlyViewed(
+                                            com.nuvio.tv.domain.model.SearchHistoryItem(
+                                                id = id,
+                                                type = type,
+                                                title = item.name,
+                                                posterUrl = item.poster
+                                            )
+                                        ))
+                                    }
                                     onNavigateToDetail(id, type, addonBaseUrl)
                                 },
                                 onSeeAll = {
@@ -481,7 +553,7 @@ private fun SearchInputField(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showVoiceSearch) {
-            IconButton(
+            androidx.tv.material3.IconButton(
                 onClick = onVoiceSearch,
                 modifier = Modifier
                     .then(
@@ -503,17 +575,16 @@ private fun SearchInputField(
                         shape = RoundedCornerShape(12.dp)
                     )
             ) {
-                Icon(
+                androidx.tv.material3.Icon(
                     imageVector = Icons.Default.Mic,
                     contentDescription = "Voice search",
-                    tint = NuvioColors.TextPrimary
+                    tint = if (isVoiceButtonFocused) NuvioColors.Background else NuvioColors.TextPrimary
                 )
             }
-
             Spacer(modifier = Modifier.width(12.dp))
         }
 
-        OutlinedTextField(
+        androidx.compose.material3.OutlinedTextField(
             value = query,
             onValueChange = onQueryChanged,
             modifier = Modifier
@@ -521,18 +592,18 @@ private fun SearchInputField(
                 .focusRequester(searchFocusRequester)
                 .onPreviewKeyEvent { keyEvent ->
                     when (keyEvent.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_ENTER,
-                        KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                            if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                        android.view.KeyEvent.KEYCODE_ENTER,
+                        android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                            if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
                                 onSubmit()
                             }
                             return@onPreviewKeyEvent true
                         }
 
-                        KeyEvent.KEYCODE_DPAD_DOWN,
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             if (canMoveToResults) {
-                                if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
                                     onMoveToResults()
                                 }
                                 return@onPreviewKeyEvent true
@@ -541,8 +612,10 @@ private fun SearchInputField(
                     }
                     false
                 },
-            keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default.copy(
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+            ),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onDone = {
                     onSubmit()
                     keyboardController?.hide()
@@ -551,12 +624,12 @@ private fun SearchInputField(
             singleLine = true,
             shape = RoundedCornerShape(12.dp),
             placeholder = {
-                Text(
+                androidx.tv.material3.Text(
                     text = "Search movies & series",
                     color = NuvioColors.TextTertiary
                 )
             },
-            colors = TextFieldDefaults.colors(
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
                 focusedContainerColor = NuvioColors.BackgroundCard,
                 unfocusedContainerColor = NuvioColors.BackgroundCard,
                 focusedIndicatorColor = NuvioColors.FocusRing,
@@ -566,5 +639,295 @@ private fun SearchInputField(
                 cursorColor = NuvioColors.FocusRing
             )
         )
+    }
+}
+
+@Composable
+private fun ProgressiveSearchContent(
+    uiState: SearchUiState,
+    posterCardStyle: PosterCardStyle,
+    onSearchQuery: (String) -> Unit,
+    onGenreSelected: (String) -> Unit,
+    onClearRecentSearches: () -> Unit,
+    onClearRecentlyViewed: () -> Unit,
+    onNavigateToDetail: (MetaPreview, String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        if (uiState.recentSearches.isNotEmpty()) {
+            item(key = "recent_searches") {
+                RecentSearchChips(
+                    recentSearches = uiState.recentSearches,
+                    onSearchQuery = onSearchQuery,
+                    onClearHistory = onClearRecentSearches
+                )
+            }
+        }
+
+        if (uiState.recentlyViewed.isNotEmpty()) {
+            item(key = "recently_viewed") {
+                RecentlyViewedRow(
+                    recentlyViewed = uiState.recentlyViewed,
+                    posterCardStyle = posterCardStyle,
+                    onItemClick = onNavigateToDetail,
+                    onClearHistory = onClearRecentlyViewed
+                )
+            }
+        }
+
+        if (uiState.availableGenres.isNotEmpty()) {
+            item(key = "quick_search_genres") {
+                GenreChipsGrid(
+                    genres = uiState.availableGenres,
+                    onGenreSelected = onGenreSelected
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentSearchChips(
+    recentSearches: List<String>,
+    onSearchQuery: (String) -> Unit,
+    onClearHistory: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 48.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.tv.material3.Text(
+                text = "Recent Searches",
+                style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                color = NuvioColors.TextPrimary
+            )
+            androidx.tv.material3.Button(
+                onClick = onClearHistory,
+                colors = androidx.tv.material3.ButtonDefaults.colors(
+                    containerColor = NuvioColors.SurfaceVariant,
+                    contentColor = NuvioColors.TextSecondary,
+                    focusedContainerColor = NuvioColors.Surface,
+                    focusedContentColor = NuvioColors.TextPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                shape = androidx.tv.material3.ButtonDefaults.shape(shape = RoundedCornerShape(50))
+            ) {
+                androidx.tv.material3.Text("Clear", style = androidx.tv.material3.MaterialTheme.typography.labelMedium)
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(recentSearches, key = { it }) { query ->
+                androidx.tv.material3.Surface(
+                    onClick = { onSearchQuery(query) },
+                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                        containerColor = NuvioColors.BackgroundCard,
+                        contentColor = NuvioColors.TextSecondary,
+                        focusedContainerColor = NuvioColors.FocusRing,
+                        focusedContentColor = NuvioColors.Background
+                    )
+                ) {
+                    androidx.tv.material3.Text(
+                        text = query,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = androidx.tv.material3.MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentlyViewedRow(
+    recentlyViewed: List<com.nuvio.tv.domain.model.SearchHistoryItem>,
+    posterCardStyle: PosterCardStyle,
+    onItemClick: (MetaPreview, String) -> Unit,
+    onClearHistory: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 48.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.tv.material3.Text(
+                text = "Recently Viewed",
+                style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                color = NuvioColors.TextPrimary
+            )
+            androidx.tv.material3.Button(
+                onClick = onClearHistory,
+                colors = androidx.tv.material3.ButtonDefaults.colors(
+                    containerColor = NuvioColors.SurfaceVariant,
+                    contentColor = NuvioColors.TextSecondary,
+                    focusedContainerColor = NuvioColors.Surface,
+                    focusedContentColor = NuvioColors.TextPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                shape = androidx.tv.material3.ButtonDefaults.shape(shape = RoundedCornerShape(50))
+            ) {
+                androidx.tv.material3.Text("Clear", style = androidx.tv.material3.MaterialTheme.typography.labelMedium)
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(recentlyViewed, key = { "${it.id}_${it.type}" }) { historyItem ->
+                val preview = remember(historyItem) {
+                    MetaPreview(
+                        id = historyItem.id,
+                        type = ContentType.fromString(historyItem.type),
+                        rawType = historyItem.type,
+                        name = historyItem.title,
+                        poster = historyItem.posterUrl,
+                        posterShape = PosterShape.POSTER,
+                        description = null,
+                        logo = null,
+                        background = null,
+                        imdbRating = null,
+                        releaseInfo = null,
+                        genres = emptyList()
+                    )
+                }
+                ContentCard(
+                    item = preview,
+                    posterCardStyle = posterCardStyle,
+                    showLabels = true,
+                    onClick = { onItemClick(preview, "") },
+                    focusedPosterBackdropExpandEnabled = false,
+                    focusedPosterBackdropTrailerEnabled = false,
+                    trailerPreviewUrl = null
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun GenreChipsGrid(
+    genres: List<String>,
+    onGenreSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 48.dp)
+    ) {
+        androidx.tv.material3.Text(
+            text = "Quick Search",
+            style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+            color = NuvioColors.TextPrimary,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            genres.forEach { genre ->
+                val emoji = getGenreEmoji(genre)
+                
+                androidx.tv.material3.Surface(
+                    onClick = { onGenreSelected(genre) },
+                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(20.dp)),
+                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                        containerColor = NuvioColors.SurfaceVariant.copy(alpha = 0.6f),
+                        contentColor = NuvioColors.TextPrimary,
+                        focusedContainerColor = NuvioColors.Primary.copy(alpha = 0.2f),
+                        focusedContentColor = NuvioColors.Primary
+                    ),
+                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(
+                        focusedScale = 1.06f
+                    ),
+                    border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(20.dp)
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.Primary),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        androidx.tv.material3.Text(
+                            text = emoji,
+                            style = androidx.tv.material3.MaterialTheme.typography.headlineSmall
+                        )
+                        androidx.tv.material3.Text(
+                            text = genre,
+                            style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun getGenreEmoji(genre: String): String {
+    return when (genre.lowercase()) {
+        "action" -> "🎬"
+        "adventure" -> "🌋"
+        "animation" -> "🎨"
+        "anime" -> "🥷"
+        "comedy" -> "😂"
+        "crime" -> "🕵️"
+        "documentary" -> "🎥"
+        "drama" -> "🎭"
+        "family" -> "👨‍👩‍👧‍👦"
+        "fantasy" -> "🧝"
+        "history" -> "🏛️"
+        "horror" -> "🧟"
+        "music", "musical" -> "🎵"
+        "mystery" -> "🔍"
+        "romance" -> "❤️"
+        "science fiction", "sci-fi" -> "🚀"
+        "thriller" -> "😱"
+        "war" -> "⚔️"
+        "western" -> "🤠"
+        "sport", "sports" -> "⚽"
+        "kids" -> "👶"
+        "news" -> "📰"
+        "reality" -> "📺"
+        "talk" -> "🗣️"
+        "politics", "political" -> "⚖️"
+        "action & adventure" -> "⚔️"
+        "sci-fi & fantasy" -> "🛸"
+        "biography" -> "📖"
+        "indie" -> "🎸"
+        "short" -> "⏳"
+        "superhero" -> "🦸"
+        "food" -> "🍔"
+        "nature" -> "🌿"
+        else -> "🍿"
     }
 }

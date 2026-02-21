@@ -9,6 +9,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.CatalogRepository
+import com.nuvio.tv.domain.repository.SearchHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,8 @@ import javax.inject.Inject
 class SearchViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository,
-    private val layoutPreferenceDataStore: LayoutPreferenceDataStore
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val searchHistoryRepository: SearchHistoryRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -94,6 +96,16 @@ class SearchViewModel @Inject constructor(
                 _uiState.update { it.copy(catalogTypeSuffixEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            searchHistoryRepository.getRecentSearches().collectLatest { recent ->
+                _uiState.update { it.copy(recentSearches = recent) }
+            }
+        }
+        viewModelScope.launch {
+            searchHistoryRepository.getRecentlyViewed().collectLatest { viewed ->
+                _uiState.update { it.copy(recentlyViewed = viewed) }
+            }
+        }
     }
 
     private data class LayoutPrefs(
@@ -117,6 +129,9 @@ class SearchViewModel @Inject constructor(
             is SearchEvent.SelectDiscoverCatalog -> selectDiscoverCatalog(event.catalogKey)
             is SearchEvent.SelectDiscoverGenre -> selectDiscoverGenre(event.genre)
             SearchEvent.LoadNextDiscoverResults -> loadNextDiscoverResults()
+            SearchEvent.ClearRecentSearches -> viewModelScope.launch { searchHistoryRepository.clearRecentSearches() }
+            SearchEvent.ClearRecentlyViewed -> viewModelScope.launch { searchHistoryRepository.clearRecentlyViewed() }
+            is SearchEvent.AddRecentlyViewed -> viewModelScope.launch { searchHistoryRepository.addRecentlyViewed(event.item) }
             SearchEvent.Retry -> performSearch(uiState.value.submittedQuery.ifBlank { uiState.value.query })
         }
     }
@@ -162,6 +177,12 @@ class SearchViewModel @Inject constructor(
         hasRenderedFirstCatalog = false
         pendingCatalogResponses = 0
 
+        if (query.length >= 2) {
+            viewModelScope.launch {
+                searchHistoryRepository.addSearchQuery(query)
+            }
+        }
+        
         if (query.length < 2) {
             _uiState.update {
                 it.copy(
@@ -396,10 +417,15 @@ class SearchViewModel @Inject constructor(
         )
         val selectedGenre: String? = null
 
+        val availableGenres = discoverCatalogs
+            .flatMap { it.genres }
+            .distinct()
+
         _uiState.update {
             it.copy(
                 installedAddons = addons,
                 discoverCatalogs = discoverCatalogs,
+                availableGenres = availableGenres,
                 selectedDiscoverType = selectedType,
                 selectedDiscoverCatalogKey = selectedCatalog?.key,
                 selectedDiscoverGenre = selectedGenre,
@@ -421,7 +447,14 @@ class SearchViewModel @Inject constructor(
             selectedType = type,
             preferredKey = _uiState.value.selectedDiscoverCatalogKey
         )
-        val selectedGenre: String? = null
+        // Keep the existing genre if the new catalog supports it, otherwise clear it
+        val currentGenre = _uiState.value.selectedDiscoverGenre
+        val selectedGenre = if (currentGenre != null && selectedCatalog?.genres?.contains(currentGenre) == true) {
+            currentGenre
+        } else {
+            null
+        }
+        
         _uiState.update {
             it.copy(
                 selectedDiscoverType = type,

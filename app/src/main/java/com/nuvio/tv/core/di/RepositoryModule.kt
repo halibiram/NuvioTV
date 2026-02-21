@@ -16,6 +16,8 @@ import com.nuvio.tv.domain.repository.StreamRepository
 import com.nuvio.tv.domain.repository.SubtitleRepository
 import com.nuvio.tv.domain.repository.SyncRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import com.nuvio.tv.data.repository.SearchHistoryRepositoryImpl
+import com.nuvio.tv.domain.repository.SearchHistoryRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -57,4 +59,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindWatchProgressRepository(impl: WatchProgressRepositoryImpl): WatchProgressRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSearchHistoryRepository(impl: SearchHistoryRepositoryImpl): SearchHistoryRepository
 }

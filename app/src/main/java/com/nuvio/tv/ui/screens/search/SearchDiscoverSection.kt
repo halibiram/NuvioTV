@@ -69,7 +69,7 @@ internal fun DiscoverSection(
     focusedItemIndex: Int,
     shouldRestoreFocusedItem: Boolean,
     onRestoreFocusedItemHandled: () -> Unit,
-    onNavigateToDetail: (String, String, String) -> Unit,
+    onNavigateToDetail: (MetaPreview, String) -> Unit,
     onDiscoverItemFocused: (Int) -> Unit,
     onSelectType: (String) -> Unit,
     onSelectCatalog: (String) -> Unit,
@@ -199,8 +199,7 @@ internal fun DiscoverSection(
                     onLoadMore = onLoadMore,
                     onItemClick = { _, item ->
                         onNavigateToDetail(
-                            item.id,
-                            item.apiType,
+                            item,
                             selectedCatalog?.addonBaseUrl ?: ""
                         )
                     }

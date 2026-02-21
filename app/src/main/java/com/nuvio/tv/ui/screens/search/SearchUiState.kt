@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.SearchHistoryItem
 
 @Immutable
 data class SearchUiState(
@@ -30,7 +31,10 @@ data class SearchUiState(
     val catalogTypeSuffixEnabled: Boolean = true,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
-    val posterCardCornerRadiusDp: Int = 12
+    val posterCardCornerRadiusDp: Int = 12,
+    val recentSearches: List<String> = emptyList(),
+    val recentlyViewed: List<SearchHistoryItem> = emptyList(),
+    val availableGenres: List<String> = emptyList()
 )
 
 @Immutable

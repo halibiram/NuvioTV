@@ -15,5 +15,9 @@ sealed interface SearchEvent {
     data class SelectDiscoverGenre(val genre: String?) : SearchEvent
     data object LoadNextDiscoverResults : SearchEvent
 
+    data object ClearRecentSearches : SearchEvent
+    data object ClearRecentlyViewed : SearchEvent
+    data class AddRecentlyViewed(val item: com.nuvio.tv.domain.model.SearchHistoryItem) : SearchEvent
+
     data object Retry : SearchEvent
 }
