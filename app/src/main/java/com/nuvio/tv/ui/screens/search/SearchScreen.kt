@@ -230,6 +230,10 @@ fun SearchScreen(
         if (isDiscoverMode) false else trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { it.items.isNotEmpty() }
     }
 
+    val cinemetaBaseUrl = remember(uiState.installedAddons) {
+        uiState.installedAddons.find { it.id.contains("cinemeta", ignoreCase = true) }?.baseUrl ?: ""
+    }
+
     LaunchedEffect(focusResults, isDiscoverMode, uiState.discoverResults.size) {
         if (focusResults && isDiscoverMode && uiState.discoverResults.isNotEmpty()) {
             delay(100)
@@ -368,11 +372,22 @@ fun SearchScreen(
                             .fillMaxSize()
                             .weight(1f)
                     )
-                } else {
+                } else if (!hasPendingUnsubmittedQuery && trimmedQuery.length < 2) {
                     ProgressiveSearchContent(
                         uiState = uiState,
                         posterCardStyle = posterCardStyle,
-                        onSearchQuery = sharedOnQueryChanged,
+                        onSearchQuery = { query -> 
+                            sharedOnQueryChanged(query)
+                            viewModel.onEvent(SearchEvent.SubmitSearch)
+                            focusResults = false
+                            if (query.trim().length >= 2) {
+                                pendingFocusMoveToResultsQuery = query.trim()
+                                pendingFocusMoveSawSearching = false
+                                pendingFocusMoveHadExistingSearchRows = false
+                            } else {
+                                resetPendingFocusState()
+                            }
+                        },
                         onGenreSelected = { genre ->
                             viewModel.onEvent(SearchEvent.SelectDiscoverGenre(genre))
                             showAdvancedDiscover = true
@@ -394,6 +409,66 @@ fun SearchScreen(
                             .fillMaxSize()
                             .weight(1f)
                     )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp),
+                        verticalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        if (uiState.liveSuggestions.isNotEmpty()) {
+                            item {
+                                LiveSuggestionsRow(
+                                    suggestions = uiState.liveSuggestions,
+                                    posterCardStyle = posterCardStyle,
+                                    onSuggestionSelected = { suggestion ->
+                                        sharedOnQueryChanged(suggestion)
+                                        viewModel.onEvent(SearchEvent.SubmitSearch)
+                                        focusResults = false
+                                        pendingFocusMoveToResultsQuery = suggestion
+                                        pendingFocusMoveSawSearching = false
+                                        pendingFocusMoveHadExistingSearchRows = false
+                                    },
+                                    onSuggestionPosterSelected = { item ->
+                                        viewModel.onEvent(SearchEvent.AddRecentlyViewed(
+                                            com.nuvio.tv.domain.model.SearchHistoryItem(
+                                                id = item.id,
+                                                type = item.apiType,
+                                                title = item.name,
+                                                posterUrl = item.poster
+                                            )
+                                        ))
+                                        onNavigateToDetail(item.id, item.apiType, cinemetaBaseUrl)
+                                    }
+                                )
+                            }
+                        } else if (uiState.isFetchingSuggestions) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 24.dp, horizontal = 48.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    androidx.tv.material3.Text(
+                                        text = "Finding suggestions...",
+                                        style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                                        color = NuvioColors.TextSecondary
+                                    )
+                                }
+                            }
+                        } else {
+                            item {
+                                Text(
+                                    text = "Press Done on the keyboard to search",
+                                    style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
+                                    color = NuvioColors.TextSecondary,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 48.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         } else {
@@ -419,15 +494,58 @@ fun SearchScreen(
                 }
 
                 if (trimmedSubmittedQuery.length < 2 || hasPendingUnsubmittedQuery) {
-                    item {
-                        Text(
-                            text = "Press Done on the keyboard to search",
-                            style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
-                            color = NuvioColors.TextSecondary,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 52.dp)
-                        )
+                    if (uiState.liveSuggestions.isNotEmpty()) {
+                        item {
+                            LiveSuggestionsRow(
+                                suggestions = uiState.liveSuggestions,
+                                posterCardStyle = posterCardStyle,
+                                onSuggestionSelected = { suggestion ->
+                                    sharedOnQueryChanged(suggestion)
+                                    viewModel.onEvent(SearchEvent.SubmitSearch)
+                                    focusResults = false
+                                    pendingFocusMoveToResultsQuery = suggestion
+                                    pendingFocusMoveSawSearching = false
+                                    pendingFocusMoveHadExistingSearchRows = false
+                                },
+                                onSuggestionPosterSelected = { item ->
+                                    viewModel.onEvent(SearchEvent.AddRecentlyViewed(
+                                        com.nuvio.tv.domain.model.SearchHistoryItem(
+                                            id = item.id,
+                                            type = item.apiType,
+                                            title = item.name,
+                                            posterUrl = item.poster
+                                        )
+                                    ))
+                                    onNavigateToDetail(item.id, item.apiType, cinemetaBaseUrl)
+                                }
+                            )
+                        }
+                    } else if (uiState.isFetchingSuggestions) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp, horizontal = 48.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                androidx.tv.material3.Text(
+                                    text = "Finding suggestions...",
+                                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                                    color = NuvioColors.TextSecondary
+                                )
+                            }
+                        }
+                    } else {
+                        item {
+                            Text(
+                                text = "Press Done on the keyboard to search",
+                                style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
+                                color = NuvioColors.TextSecondary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 48.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
 
@@ -1111,4 +1229,103 @@ private fun getGenreGradient(genre: String): androidx.compose.ui.graphics.Brush 
         else -> listOf(androidx.compose.ui.graphics.Color(0xFF2C3E50), androidx.compose.ui.graphics.Color(0xFF3498DB)) // Default blue/gray
     }
     return androidx.compose.ui.graphics.Brush.horizontalGradient(colors)
+}
+@Composable
+private fun LiveSuggestionsRow(
+    suggestions: List<com.nuvio.tv.domain.model.MetaPreview>,
+    posterCardStyle: PosterCardStyle,
+    onSuggestionSelected: (String) -> Unit,
+    onSuggestionPosterSelected: (com.nuvio.tv.domain.model.MetaPreview) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Column {
+            androidx.tv.material3.Text(
+                text = "Keywords",
+                style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                color = NuvioColors.TextSecondary,
+                modifier = Modifier.padding(start = 48.dp, end = 48.dp, bottom = 12.dp)
+            )
+            
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(suggestions, key = { "keyword_${it.name}" }) { suggestion ->
+                    val displayTitle = suggestion.name ?: return@items
+                    var isChipFocused by remember { mutableStateOf(false) }
+                    
+                    androidx.tv.material3.Surface(
+                        onClick = { onSuggestionSelected(displayTitle) },
+                        modifier = Modifier.onFocusChanged { state -> isChipFocused = state.isFocused },
+                        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
+                        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                            containerColor = NuvioColors.SurfaceVariant,
+                            contentColor = NuvioColors.TextSecondary,
+                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContentColor = NuvioColors.TextPrimary
+                        ),
+                        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                        border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                                shape = RoundedCornerShape(50)
+                            ),
+                            focusedBorder = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = RoundedCornerShape(50)
+                            )
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            androidx.tv.material3.Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            androidx.tv.material3.Text(
+                                text = displayTitle,
+                                style = androidx.tv.material3.MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        Column {
+            androidx.tv.material3.Text(
+                text = "Titles",
+                style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                color = NuvioColors.TextSecondary,
+                modifier = Modifier.padding(start = 48.dp, end = 48.dp, bottom = 12.dp)
+            )
+            
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(suggestions, key = { "poster_${it.id}_${it.apiType}" }) { suggestion ->
+                    ContentCard(
+                        item = suggestion,
+                        posterCardStyle = posterCardStyle,
+                        showLabels = true,
+                        onClick = { onSuggestionPosterSelected(suggestion) },
+                        focusedPosterBackdropExpandEnabled = false,
+                        focusedPosterBackdropTrailerEnabled = false,
+                        trailerPreviewUrl = null
+                    )
+                }
+            }
+        }
+    }
 }

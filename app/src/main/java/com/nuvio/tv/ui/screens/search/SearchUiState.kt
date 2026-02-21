@@ -34,7 +34,9 @@ data class SearchUiState(
     val posterCardCornerRadiusDp: Int = 12,
     val recentSearches: List<String> = emptyList(),
     val recentlyViewed: List<SearchHistoryItem> = emptyList(),
-    val availableGenres: List<String> = emptyList()
+    val availableGenres: List<String> = emptyList(),
+    val liveSuggestions: List<com.nuvio.tv.domain.model.MetaPreview> = emptyList(),
+    val isFetchingSuggestions: Boolean = false
 )
 
 @Immutable

@@ -12,6 +12,7 @@ import com.nuvio.tv.domain.repository.CatalogRepository
 import com.nuvio.tv.domain.repository.SearchHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +30,8 @@ class SearchViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
-    private val searchHistoryRepository: SearchHistoryRepository
+    private val searchHistoryRepository: SearchHistoryRepository,
+    private val tmdbService: com.nuvio.tv.core.tmdb.TmdbService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -39,6 +41,7 @@ class SearchViewModel @Inject constructor(
     private val catalogOrder = mutableListOf<String>()
 
     private var activeSearchJobs: List<Job> = emptyList()
+    private var searchDebounceJob: Job? = null
     private var discoverJob: Job? = null
     private var catalogRowsUpdateJob: Job? = null
     private var hasRenderedFirstCatalog = false
@@ -137,20 +140,100 @@ class SearchViewModel @Inject constructor(
     }
 
     private fun onQueryChanged(query: String) {
+        val trimmedInput = query.trim()
+        val submitted = _uiState.value.submittedQuery.trim()
+        
         _uiState.update {
-            val trimmedInput = query.trim()
-            val submitted = it.submittedQuery.trim()
             it.copy(
                 query = query,
                 error = null,
-                isSearching = false,
-                catalogRows = if (trimmedInput == submitted) it.catalogRows else emptyList()
+                isSearching = false, // Not executing full search yet
+                catalogRows = if (trimmedInput == submitted) it.catalogRows else emptyList(),
+                isFetchingSuggestions = trimmedInput.length >= 2,
+                liveSuggestions = if (trimmedInput.length < 2) emptyList() else it.liveSuggestions
             )
         }
 
-        // Search is explicit on submit only; stop any in-flight requests while editing.
+        // Cancel previous pending search if user is still typing
+        searchDebounceJob?.cancel()
+        
+        // Stop any currently running legacy explicit searches just in case
         activeSearchJobs.forEach { it.cancel() }
         activeSearchJobs = emptyList()
+
+        if (trimmedInput.length < 2) {
+            _uiState.update { it.copy(isSearching = false, catalogRows = emptyList(), isFetchingSuggestions = false, liveSuggestions = emptyList()) }
+            return
+        }
+
+        // Debounced Auto-complete: Wait for user to stop typing then fetch suggestions via Cinemeta
+        searchDebounceJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(400L)
+            
+            val addons = _uiState.value.installedAddons.ifEmpty {
+                try { addonRepository.getInstalledAddons().first() } catch (e: Exception) { emptyList() }
+            }
+            val cinemetaAddon = addons.find { it.id.contains("cinemeta", ignoreCase = true) }
+            if (cinemetaAddon == null) {
+                _uiState.update { it.copy(isFetchingSuggestions = false) }
+                return@launch
+            }
+            val baseUrl = cinemetaAddon.baseUrl
+            val addonId = cinemetaAddon.id
+            
+            val movieDeferred = async {
+                catalogRepository.getCatalog(
+                    addonBaseUrl = baseUrl,
+                    addonId = addonId,
+                    addonName = "Cinemeta",
+                    catalogId = "top",
+                    catalogName = "Movies",
+                    type = "movie",
+                    skip = 0,
+                    extraArgs = mapOf("search" to trimmedInput),
+                    supportsSkip = false
+                ).first { it !is NetworkResult.Loading }
+            }
+            
+            val seriesDeferred = async {
+                catalogRepository.getCatalog(
+                    addonBaseUrl = baseUrl,
+                    addonId = addonId,
+                    addonName = "Cinemeta",
+                    catalogId = "top",
+                    catalogName = "Series",
+                    type = "series",
+                    skip = 0,
+                    extraArgs = mapOf("search" to trimmedInput),
+                    supportsSkip = false
+                ).first { it !is NetworkResult.Loading }
+            }
+            
+            val movieResult = try { movieDeferred.await() } catch(e: Exception) { NetworkResult.Error("Failed") }
+            val seriesResult = try { seriesDeferred.await() } catch(e: Exception) { NetworkResult.Error("Failed") }
+            
+            val movies = if (movieResult is NetworkResult.Success) movieResult.data.items else emptyList()
+            val series = if (seriesResult is NetworkResult.Success) seriesResult.data.items else emptyList()
+            
+            // Interleave results to get a good mix of movies and series
+            val combined = mutableListOf<com.nuvio.tv.domain.model.MetaPreview>()
+            val maxLen = maxOf(movies.size, series.size)
+            for (i in 0 until maxLen) {
+                if (i < movies.size) combined.add(movies[i])
+                if (i < series.size) combined.add(series[i])
+            }
+            
+            // Distinct by name to avoid duplicate suggestions
+            val suggestions = combined.distinctBy { it.name }.take(8)
+
+            _uiState.update { 
+                if (it.query == query) {
+                    it.copy(liveSuggestions = suggestions, isFetchingSuggestions = false)
+                } else {
+                    it
+                }
+            }
+        }
     }
 
     private fun submitSearch() {
@@ -163,7 +246,9 @@ class SearchViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 submittedQuery = query,
-                query = rawQuery
+                query = rawQuery,
+                liveSuggestions = emptyList(),
+                isFetchingSuggestions = false
             )
         }
 
