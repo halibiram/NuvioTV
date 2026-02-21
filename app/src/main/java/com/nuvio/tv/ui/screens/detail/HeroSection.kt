@@ -90,6 +90,7 @@ fun HeroContentSection(
     hideMetaInfoImdb: Boolean = false,
     isTrailerPlaying: Boolean = false,
     playButtonFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     restorePlayFocusToken: Int = 0,
     onPlayFocusRestored: () -> Unit = {}
 ) {
@@ -186,6 +187,7 @@ fun HeroContentSection(
                             },
                             onClick = onPlayClick,
                             focusRequester = playButtonFocusRequester,
+                            downFocusRequester = downFocusRequester,
                             restoreFocusToken = restorePlayFocusToken,
                             onFocusRestored = onPlayFocusRestored
                         )
@@ -202,7 +204,8 @@ fun HeroContentSection(
                             },
                             contentDescription = if (isInLibrary) "Remove from library" else "Add to library",
                             onClick = onToggleLibrary,
-                            onLongPress = onLibraryLongPress
+                            onLongPress = onLibraryLongPress,
+                            downFocusRequester = downFocusRequester
                         )
 
                         if (meta.apiType == "movie") {
@@ -221,7 +224,8 @@ fun HeroContentSection(
                                 enabled = !isMovieWatchedPending,
                                 selected = isMovieWatched,
                                 selectedContainerColor = Color.White,
-                                selectedContentColor = Color.Black
+                                selectedContentColor = Color.Black,
+                                downFocusRequester = downFocusRequester
                             )
                         }
 
@@ -234,7 +238,8 @@ fun HeroContentSection(
                             ActionIconButtonPainter(
                                 painter = trailerPainter,
                                 contentDescription = "Play trailer",
-                                onClick = onTrailerClick
+                                onClick = onTrailerClick,
+                                downFocusRequester = downFocusRequester
                             )
                         }
                     }
@@ -299,6 +304,7 @@ private fun PlayButton(
     text: String,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     restoreFocusToken: Int = 0,
     onFocusRestored: () -> Unit = {}
 ) {
@@ -322,7 +328,10 @@ private fun PlayButton(
                     onFocusRestored()
                 }
             }
-            .focusProperties { up = FocusRequester.Cancel },
+            .focusProperties {
+                up = FocusRequester.Cancel
+                if (downFocusRequester != null) down = downFocusRequester
+            },
         colors = ButtonDefaults.colors(
             containerColor = androidx.compose.ui.graphics.Color.White,
             focusedContainerColor = androidx.compose.ui.graphics.Color.White,
@@ -363,14 +372,18 @@ private fun ActionIconButtonPainter(
     painter: Painter,
     contentDescription: String,
     onClick: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    downFocusRequester: FocusRequester? = null
 ) {
     IconButton(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier
             .size(48.dp)
-            .focusProperties { up = FocusRequester.Cancel },
+            .focusProperties {
+                up = FocusRequester.Cancel
+                if (downFocusRequester != null) down = downFocusRequester
+            },
         colors = IconButtonDefaults.colors(
             containerColor = NuvioColors.BackgroundCard,
             focusedContainerColor = NuvioColors.Secondary,
@@ -406,7 +419,8 @@ private fun ActionIconButton(
     enabled: Boolean = true,
     selected: Boolean = false,
     selectedContainerColor: Color = Color(0xFF7CFF9B),
-    selectedContentColor: Color = Color.Black
+    selectedContentColor: Color = Color.Black,
+    downFocusRequester: FocusRequester? = null
 ) {
     var longPressTriggered by remember { mutableStateOf(false) }
 
@@ -449,7 +463,10 @@ private fun ActionIconButton(
                 }
                 false
             }
-            .focusProperties { up = FocusRequester.Cancel },
+            .focusProperties {
+                up = FocusRequester.Cancel
+                if (downFocusRequester != null) down = downFocusRequester
+            },
         colors = IconButtonDefaults.colors(
             containerColor = if (selected) selectedContainerColor else NuvioColors.BackgroundCard,
             focusedContainerColor = NuvioColors.Secondary,

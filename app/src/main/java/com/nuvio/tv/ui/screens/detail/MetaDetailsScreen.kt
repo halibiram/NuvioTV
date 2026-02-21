@@ -701,6 +701,14 @@ private fun MetaDetailsContent(
         else -> null
     }
 
+    // Hero buttons should always navigate down to season tabs (series) or active people tab (movies)
+    val heroDownFocusRequester = when {
+        isSeries && seasons.isNotEmpty() -> selectedSeasonFocusRequester
+        hasPeopleTabs -> activePeopleTabFocusRequester
+        activePeopleTab == PeopleSectionTab.RATINGS -> ratingsContentFocusRequester
+        else -> null
+    }
+
     LaunchedEffect(availablePeopleTabs) {
         if (availablePeopleTabs.isNotEmpty() && activePeopleTab !in availablePeopleTabs) {
             activePeopleTab = availablePeopleTabs.first()
@@ -889,6 +897,7 @@ private fun MetaDetailsContent(
                         hideLogoDuringTrailer = hideLogoDuringTrailer,
                         isTrailerPlaying = isTrailerPlaying,
                         playButtonFocusRequester = heroPlayFocusRequester,
+                        downFocusRequester = heroDownFocusRequester,
                         restorePlayFocusToken = (if (pendingRestoreType == RestoreTarget.HERO) restoreFocusToken else 0) +
                                 restorePlayFocusAfterTrailerBackToken,
                         onPlayFocusRestored = {
@@ -1133,6 +1142,9 @@ private fun PeopleSectionTabButton(
     onFocused: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    // Track whether a lateral (left/right) key was pressed so we only
+    // switch tabs on horizontal navigation, not on vertical arrival.
+    var lateralKeyPressed by remember { mutableStateOf(false) }
 
     Card(
         onClick = onFocused,
@@ -1143,10 +1155,27 @@ private fun PeopleSectionTabButton(
                     down = downFocusRequester
                 }
             }
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.action == android.view.KeyEvent.ACTION_DOWN) {
+                    when (native.keyCode) {
+                        android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            lateralKeyPressed = true
+                        }
+                    }
+                }
+                false
+            }
             .onFocusChanged { state ->
                 val focusedNow = state.isFocused
                 isFocused = focusedNow
-                if (focusedNow) onFocused()
+                if (focusedNow) {
+                    if (selected || lateralKeyPressed) {
+                        onFocused()
+                    }
+                    lateralKeyPressed = false
+                }
             },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent,
