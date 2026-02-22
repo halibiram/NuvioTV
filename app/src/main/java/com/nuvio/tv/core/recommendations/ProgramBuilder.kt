@@ -7,6 +7,7 @@ import androidx.tvprovider.media.tv.PreviewProgram
 import androidx.tvprovider.media.tv.TvContractCompat
 import androidx.tvprovider.media.tv.WatchNextProgram
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.screens.home.NextUpInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -112,12 +113,19 @@ class ProgramBuilder @Inject constructor(
             else -> TvContractCompat.PreviewPrograms.TYPE_MOVIE
         }
 
+        val aspectRatio = when (item.posterShape) {
+            PosterShape.LANDSCAPE -> TvContractCompat.PreviewPrograms.ASPECT_RATIO_16_9
+            PosterShape.SQUARE -> TvContractCompat.PreviewPrograms.ASPECT_RATIO_1_1
+            else -> TvContractCompat.PreviewPrograms.ASPECT_RATIO_2_3
+        }
+
         val builder = PreviewProgram.Builder()
             .setChannelId(channelId)
             .setType(programType)
             .setTitle(item.name)
             .setInternalProviderId("tr_${item.id}")
             .setIntentUri(buildDetailUri(item.id, item.type.toApiString()))
+            .setPosterArtAspectRatio(aspectRatio)
             .setLive(false)
 
         item.description?.let { builder.setDescription(it) }
@@ -148,6 +156,7 @@ class ProgramBuilder @Inject constructor(
             .setLastEngagementTimeUtcMillis(progress.lastWatched)
             .setInternalProviderId("wn_${progress.contentId}")
             .setIntentUri(buildPlayUri(progress))
+            .setPosterArtAspectRatio(TvContractCompat.PreviewPrograms.ASPECT_RATIO_2_3)
 
         progress.poster?.let { builder.setPosterArtUri(Uri.parse(it)) }
         progress.backdrop?.let { builder.setThumbnailUri(Uri.parse(it)) }
