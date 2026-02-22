@@ -69,6 +69,7 @@ class TvRecommendationManager @Inject constructor(
 
     /**
      * Updates the **Continue Watching** channel with the latest in-progress items.
+     * Deduplicates series so only the latest episode per show appears.
      */
     suspend fun updateContinueWatching() {
         if (!shouldRun()) return
@@ -80,9 +81,9 @@ class TvRecommendationManager @Inject constructor(
                         RecommendationConstants.CHANNEL_DISPLAY_CONTINUE_WATCHING
                     ) ?: return@withContext
 
-                    val items = watchProgressRepository.continueWatching
-                        .first()
-                        .take(RecommendationConstants.MAX_CONTINUE_WATCHING_ITEMS)
+                    val items = deduplicateByContent(
+                        watchProgressRepository.continueWatching.first()
+                    ).take(RecommendationConstants.MAX_CONTINUE_WATCHING_ITEMS)
 
                     // Replace all programs in one shot
                     channelManager.clearProgramsForChannel(channelId)
@@ -99,15 +100,19 @@ class TvRecommendationManager @Inject constructor(
 
     /**
      * Updates the **Watch Next** system row with the user's in-progress items.
+     * Performs a full clear-and-rebuild to ensure no stale entries remain.
      */
     suspend fun updateWatchNext() {
         if (!shouldRun()) return
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 try {
-                    val items = watchProgressRepository.continueWatching
-                        .first()
-                        .take(RecommendationConstants.MAX_WATCH_NEXT_ITEMS)
+                    // Clear ALL our Watch Next entries first to remove stale ones
+                    programBuilder.clearAllWatchNextPrograms()
+
+                    val items = deduplicateByContent(
+                        watchProgressRepository.continueWatching.first()
+                    ).take(RecommendationConstants.MAX_WATCH_NEXT_ITEMS)
 
                     for (progress in items) {
                         val program = programBuilder.buildWatchNextProgram(progress)
@@ -123,20 +128,12 @@ class TvRecommendationManager @Inject constructor(
     /**
      * Convenience method called when a single progress entry is saved/updated.
      * Refreshes Continue Watching channel + Watch Next row.
+     * Both are fully rebuilt to ensure no stale entries remain.
      */
     suspend fun onProgressUpdated(progress: WatchProgress) {
         if (!shouldRun()) return
-        // Refresh the full Continue Watching channel (acquires mutex internally)
         updateContinueWatching()
-        // Update the individual Watch Next entry separately
-        withContext(Dispatchers.IO) {
-            try {
-                val program = programBuilder.buildWatchNextProgram(progress)
-                val internalId = "wn_${progress.contentId}"
-                programBuilder.upsertWatchNextProgram(program, internalId)
-            } catch (_: Exception) {
-            }
-        }
+        updateWatchNext()
     }
 
     /**
@@ -241,6 +238,17 @@ class TvRecommendationManager @Inject constructor(
     // ────────────────────────────────────────────────────────────────
     //  Helpers
     // ────────────────────────────────────────────────────────────────
+
+    /**
+     * Deduplicates progress entries per contentId, keeping only the most
+     * recently watched entry for each content item. This prevents showing
+     * multiple episodes of the same series in Continue Watching / Watch Next.
+     */
+    private fun deduplicateByContent(items: List<WatchProgress>): List<WatchProgress> {
+        return items
+            .sortedByDescending { it.lastWatched }
+            .distinctBy { it.contentId }
+    }
 
     private suspend fun shouldRun(): Boolean =
         isTvDevice() && dataStore.isEnabled()
