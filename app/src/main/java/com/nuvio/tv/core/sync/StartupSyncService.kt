@@ -110,6 +110,7 @@ class StartupSyncService @Inject constructor(
 
         startupPullJob = scope.launch {
             val maxAttempts = 3
+            var syncCompleted = false
             repeat(maxAttempts) { index ->
                 val attempt = index + 1
                 Log.d(TAG, "Startup sync attempt $attempt/$maxAttempts for key=$key")
@@ -117,6 +118,7 @@ class StartupSyncService @Inject constructor(
                 if (result.isSuccess) {
                     lastPulledKey = key
                     Log.d(TAG, "Startup sync completed for key=$key")
+                    syncCompleted = true
                     return@repeat
                 }
 
@@ -125,6 +127,7 @@ class StartupSyncService @Inject constructor(
                     delay(3000)
                 }
             }
+            if (syncCompleted) return@launch
 
             // After completing, check if a re-sync was requested while we were running
             val resyncKey = pendingResyncKey
@@ -149,25 +152,36 @@ class StartupSyncService @Inject constructor(
             Log.d(TAG, "Pulled profiles from remote")
 
             pluginManager.isSyncingFromRemote = true
-            val remotePluginUrls = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
-            pluginManager.reconcileWithRemoteRepoUrls(
-                remoteUrls = remotePluginUrls,
-                removeMissingLocal = false
-            )
-            pluginManager.isSyncingFromRemote = false
-            Log.d(TAG, "Pulled ${remotePluginUrls.size} plugin repos from remote for profile $profileId")
+            try {
+                val remotePluginUrls = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+                pluginManager.reconcileWithRemoteRepoUrls(
+                    remoteUrls = remotePluginUrls,
+                    removeMissingLocal = true
+                )
+                Log.d(TAG, "Pulled ${remotePluginUrls.size} plugin repos from remote for profile $profileId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to pull plugins from remote, keeping local cache", e)
+            } finally {
+                pluginManager.isSyncingFromRemote = false
+            }
 
             addonRepository.isSyncingFromRemote = true
-            val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
-            addonRepository.reconcileWithRemoteAddonUrls(
-                remoteUrls = remoteAddonUrls,
-                removeMissingLocal = false
-            )
-            addonRepository.isSyncingFromRemote = false
-            Log.d(TAG, "Pulled ${remoteAddonUrls.size} addons from remote for profile $profileId")
+            try {
+                val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                addonRepository.reconcileWithRemoteAddonUrls(
+                    remoteUrls = remoteAddonUrls,
+                    removeMissingLocal = true
+                )
+                Log.d(TAG, "Pulled ${remoteAddonUrls.size} addons from remote for profile $profileId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to pull addons from remote, keeping local cache", e)
+            } finally {
+                addonRepository.isSyncingFromRemote = false
+            }
 
-            val isTraktConnected = traktAuthDataStore.isAuthenticated.first()
-            Log.d(TAG, "Watch progress sync: isTraktConnected=$isTraktConnected")
+            val isPrimaryProfile = profileManager.activeProfileId.value == 1
+            val isTraktConnected = isPrimaryProfile && traktAuthDataStore.isAuthenticated.first()
+            Log.d(TAG, "Watch progress sync: isTraktConnected=$isTraktConnected isPrimaryProfile=$isPrimaryProfile")
             if (!isTraktConnected) {
                 // Pull library and watched items first — these are lightweight and critical.
                 // Watch progress is pulled last because the table is large and may time out;
