@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.Lazy
 
 @Singleton
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -45,7 +46,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val authManager: AuthManager,
     private val metaRepository: MetaRepository,
-    private val tvRecommendationManager: TvRecommendationManager
+    private val tvRecommendationManagerLazy: Lazy<TvRecommendationManager>
 ) : WatchProgressRepository {
     companion object {
         private const val TAG = "WatchProgressRepo"
@@ -488,7 +489,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private fun triggerRecommendationUpdate(progress: WatchProgress) {
         syncScope.launch {
             try {
-                tvRecommendationManager.onProgressUpdated(progress)
+                tvRecommendationManagerLazy.get().onProgressUpdated(progress)
             } catch (_: Exception) {
             }
         }
@@ -501,7 +502,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private fun triggerRecommendationRemoval(contentId: String) {
         syncScope.launch {
             try {
-                tvRecommendationManager.onProgressRemoved(contentId)
+                tvRecommendationManagerLazy.get().onProgressRemoved(contentId)
             } catch (_: Exception) {
             }
         }
