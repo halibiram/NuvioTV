@@ -156,10 +156,20 @@ class ProgramBuilder @Inject constructor(
             .setLastEngagementTimeUtcMillis(progress.lastWatched)
             .setInternalProviderId("wn_${progress.contentId}")
             .setIntentUri(buildPlayUri(progress))
-            .setPosterArtAspectRatio(TvContractCompat.PreviewPrograms.ASPECT_RATIO_2_3)
+        // Play Next row should natively present horizontal (16:9) backdrop cards.
+        builder.setPosterArtAspectRatio(TvContractCompat.PreviewPrograms.ASPECT_RATIO_16_9)
 
-        progress.poster?.let { builder.setPosterArtUri(Uri.parse(it)) }
-        progress.backdrop?.let { builder.setThumbnailUri(Uri.parse(it)) }
+        // Prioritize backdrop (which is horizontal) over the vertical poster.
+        val horizontalArt = progress.backdrop ?: progress.poster
+        horizontalArt?.let {
+            // Android TV caches Watch Next images heavily based on URI.
+            // If the user was stuck on the vertical layout, we append a dummy query parameter
+            // to trick the system launcher into fetching and rendering the new horizontal image.
+            val uriWithCacheBuster = Uri.parse(it).buildUpon()
+                .appendQueryParameter("v", "horizontal_fix")
+                .build()
+            builder.setPosterArtUri(uriWithCacheBuster)
+        }
 
         if (progress.duration > 0) {
             builder.setLastPlaybackPositionMillis(progress.position.toInt())

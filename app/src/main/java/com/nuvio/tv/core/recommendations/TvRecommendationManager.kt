@@ -69,6 +69,9 @@ class TvRecommendationManager @Inject constructor(
                     RecommendationConstants.CHANNEL_TRENDING,
                     RecommendationConstants.CHANNEL_DISPLAY_TRENDING
                 )
+                
+                // Force sync Watch Next items right on startup to refresh launcher UI and bust caches
+                updateWatchNext()
             } catch (_: Exception) {
             }
         }
