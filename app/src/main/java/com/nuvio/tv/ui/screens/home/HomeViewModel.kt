@@ -680,18 +680,6 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Push resolved Next Up items to TV Home Screen recommendation channel
-        val resolvedNextUp = mergeMutex.withLock {
-            nextUpByContent.values.map { it.info }
-        }
-        if (resolvedNextUp.isNotEmpty()) {
-            launch(Dispatchers.IO) {
-                try {
-                    tvRecommendationManager.updateNextUp(resolvedNextUp)
-                } catch (_: Exception) {
-                }
-            }
-        }
     }
 
     private fun mergeContinueWatchingItems(
@@ -1240,6 +1228,28 @@ class HomeViewModel @Inject constructor(
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     tvRecommendationManager.updateTrending(trendingItems)
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        // Row at index 2 is typically "New Movies", and index 3 is "New Series".
+        // We take these two rows and interleave their items 
+        // (1 movie, 1 series, 1 movie, 1 series...) so both are reflected on the screen.
+        val newMovies = displayRows.getOrNull(2)?.items.orEmpty()
+        val newSeries = displayRows.getOrNull(3)?.items.orEmpty()
+
+        val newReleases = buildList {
+            val maxSize = maxOf(newMovies.size, newSeries.size)
+            for (i in 0 until maxSize) {
+                if (i < newMovies.size) add(newMovies[i])
+                if (i < newSeries.size) add(newSeries[i])
+            }
+        }.distinctBy { it.id }
+        if (newReleases.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    tvRecommendationManager.updateNewReleases(newReleases)
                 } catch (_: Exception) {
                 }
             }

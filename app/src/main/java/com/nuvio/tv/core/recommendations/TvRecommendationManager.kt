@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.WatchProgressRepository
-import com.nuvio.tv.ui.screens.home.NextUpInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -38,6 +37,10 @@ class TvRecommendationManager @Inject constructor(
     @Volatile
     private var lastTrendingSignature: String? = null
 
+    /** Tracks the last set of new release items to avoid redundant ContentProvider writes. */
+    @Volatile
+    private var lastNewReleasesSignature: String? = null
+
     // ────────────────────────────────────────────────────────────────
     //  Public API
     // ────────────────────────────────────────────────────────────────
@@ -50,13 +53,17 @@ class TvRecommendationManager @Inject constructor(
         if (!isTvDevice()) return
         withContext(Dispatchers.IO) {
             try {
-                channelManager.getOrCreateChannel(
-                    RecommendationConstants.CHANNEL_CONTINUE_WATCHING,
-                    RecommendationConstants.CHANNEL_DISPLAY_CONTINUE_WATCHING
+                // Clean up obsolete/legacy channels by aggressively sweeping all channels
+                // owned by the app except the valid ones
+                val validIds = listOf(
+                    RecommendationConstants.CHANNEL_NEW_RELEASES,
+                    RecommendationConstants.CHANNEL_TRENDING
                 )
+                channelManager.cleanupLegacyChannels(validIds)
+
                 channelManager.getOrCreateChannel(
-                    RecommendationConstants.CHANNEL_NEXT_UP,
-                    RecommendationConstants.CHANNEL_DISPLAY_NEXT_UP
+                    RecommendationConstants.CHANNEL_NEW_RELEASES,
+                    RecommendationConstants.CHANNEL_DISPLAY_NEW_RELEASES
                 )
                 channelManager.getOrCreateChannel(
                     RecommendationConstants.CHANNEL_TRENDING,
@@ -68,30 +75,30 @@ class TvRecommendationManager @Inject constructor(
     }
 
     /**
-     * Updates the **Continue Watching** channel with the latest in-progress items.
-     * Deduplicates series so only the latest episode per show appears.
+     * Updates the **New Releases** channel with new movies and series combined.
+     * Called from [HomeViewModel] after catalog rows are loaded.
+     * Skips redundant writes when the item set hasn't changed.
      */
-    suspend fun updateContinueWatching() {
+    suspend fun updateNewReleases(items: List<MetaPreview>) {
         if (!shouldRun()) return
+        val trimmed = items.take(RecommendationConstants.MAX_NEW_RELEASES_ITEMS)
+        val signature = trimmed.joinToString("|") { it.id }
+        if (signature == lastNewReleasesSignature) return
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 try {
                     val channelId = channelManager.getOrCreateChannel(
-                        RecommendationConstants.CHANNEL_CONTINUE_WATCHING,
-                        RecommendationConstants.CHANNEL_DISPLAY_CONTINUE_WATCHING
+                        RecommendationConstants.CHANNEL_NEW_RELEASES,
+                        RecommendationConstants.CHANNEL_DISPLAY_NEW_RELEASES
                     ) ?: return@withContext
 
-                    val items = deduplicateByContent(
-                        watchProgressRepository.continueWatching.first()
-                    ).take(RecommendationConstants.MAX_CONTINUE_WATCHING_ITEMS)
-
-                    // Replace all programs in one shot
                     channelManager.clearProgramsForChannel(channelId)
 
-                    val programs = items.map { progress ->
-                        programBuilder.buildContinueWatchingProgram(channelId, progress)
-                    }
+                    val programs = trimmed
+                        .map { programBuilder.buildTrendingProgram(channelId, it) }
+
                     channelManager.insertPrograms(programs)
+                    lastNewReleasesSignature = signature
                 } catch (_: Exception) {
                 }
             }
@@ -132,36 +139,7 @@ class TvRecommendationManager @Inject constructor(
      */
     suspend fun onProgressUpdated(progress: WatchProgress) {
         if (!shouldRun()) return
-        updateContinueWatching()
         updateWatchNext()
-    }
-
-    /**
-     * Publishes Next Up items to their dedicated channel.
-     * Must be called with already-resolved [NextUpInfo] items (the caller is
-     * responsible for the meta-data look-ups required to determine next episodes).
-     */
-    suspend fun updateNextUp(nextUpItems: List<NextUpInfo>) {
-        if (!shouldRun()) return
-        mutex.withLock {
-            withContext(Dispatchers.IO) {
-                try {
-                    val channelId = channelManager.getOrCreateChannel(
-                        RecommendationConstants.CHANNEL_NEXT_UP,
-                        RecommendationConstants.CHANNEL_DISPLAY_NEXT_UP
-                    ) ?: return@withContext
-
-                    channelManager.clearProgramsForChannel(channelId)
-
-                    val programs = nextUpItems
-                        .take(RecommendationConstants.MAX_NEXT_UP_ITEMS)
-                        .map { programBuilder.buildNextUpProgram(channelId, it) }
-
-                    channelManager.insertPrograms(programs)
-                } catch (_: Exception) {
-                }
-            }
-        }
     }
 
     /**
@@ -201,9 +179,8 @@ class TvRecommendationManager @Inject constructor(
     suspend fun syncAllChannels() {
         if (!shouldRun()) return
         initializeChannels()
-        updateContinueWatching()
         updateWatchNext()
-        // Note: Next Up and Trending are updated from HomeViewModel where the
+        // Note: New Releases and Trending are updated from HomeViewModel where the
         // required meta / catalog data is already available.
     }
 
@@ -212,21 +189,20 @@ class TvRecommendationManager @Inject constructor(
      */
     suspend fun clearAll() {
         withContext(Dispatchers.IO) {
-            channelManager.deleteChannel(RecommendationConstants.CHANNEL_CONTINUE_WATCHING)
-            channelManager.deleteChannel(RecommendationConstants.CHANNEL_NEXT_UP)
+            channelManager.deleteChannel(RecommendationConstants.CHANNEL_NEW_RELEASES)
             channelManager.deleteChannel(RecommendationConstants.CHANNEL_TRENDING)
             programBuilder.clearAllWatchNextPrograms()
             lastTrendingSignature = null
+            lastNewReleasesSignature = null
         }
     }
 
     /**
      * Called when a watch progress entry is removed by the user.
-     * Refreshes the Continue Watching channel and removes the Watch Next entry.
+     * Removes the Watch Next entry.
      */
     suspend fun onProgressRemoved(contentId: String) {
         if (!shouldRun()) return
-        updateContinueWatching()
         withContext(Dispatchers.IO) {
             try {
                 programBuilder.removeWatchNextProgram("wn_$contentId")

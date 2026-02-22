@@ -138,6 +138,37 @@ class ChannelManager @Inject constructor(
         }
     }
 
+    suspend fun cleanupLegacyChannels(validIds: List<String>) {
+        var cursor: Cursor? = null
+        try {
+            cursor = context.contentResolver.query(
+                TvContractCompat.Channels.CONTENT_URI,
+                arrayOf(
+                    TvContractCompat.Channels._ID,
+                    TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID
+                ),
+                null, null, null
+            )
+            cursor?.let {
+                while (it.moveToNext()) {
+                    val idIndex = it.getColumnIndex(TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID)
+                    val channelIdIndex = it.getColumnIndex(TvContractCompat.Channels._ID)
+                    if (idIndex >= 0 && channelIdIndex >= 0) {
+                        val internalId = it.getString(idIndex)
+                        if (internalId !in validIds) {
+                            val channelId = it.getLong(channelIdIndex)
+                            context.contentResolver.delete(TvContractCompat.buildChannelUri(channelId), null, null)
+                            try { dataStore.clearChannelId(internalId) } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            cursor?.close()
+        }
+    }
+
     private fun findChannelByInternalId(internalId: String): Long? {
         var cursor: Cursor? = null
         return try {

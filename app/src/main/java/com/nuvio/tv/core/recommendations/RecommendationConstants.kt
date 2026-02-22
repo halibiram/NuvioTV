@@ -6,13 +6,11 @@ package com.nuvio.tv.core.recommendations
 object RecommendationConstants {
 
     // ── Channel internal IDs (used as internalProviderId for channel lookup) ──
-    const val CHANNEL_CONTINUE_WATCHING = "continue_watching"
-    const val CHANNEL_NEXT_UP = "next_up"
+    const val CHANNEL_NEW_RELEASES = "new_releases"
     const val CHANNEL_TRENDING = "trending"
 
     // ── Channel display names shown on the TV launcher ──
-    const val CHANNEL_DISPLAY_CONTINUE_WATCHING = "Continue Watching"
-    const val CHANNEL_DISPLAY_NEXT_UP = "Next Up"
+    const val CHANNEL_DISPLAY_NEW_RELEASES = "New Releases"
     const val CHANNEL_DISPLAY_TRENDING = "Trending"
 
     // ── Deep link URI components ──
@@ -36,8 +34,7 @@ object RecommendationConstants {
     const val SYNC_INTERVAL_MINUTES = 30L
 
     // ── Item limits per channel ──
-    const val MAX_CONTINUE_WATCHING_ITEMS = 15
-    const val MAX_NEXT_UP_ITEMS = 10
+    const val MAX_NEW_RELEASES_ITEMS = 25
     const val MAX_TRENDING_ITEMS = 20
     const val MAX_WATCH_NEXT_ITEMS = 10
 }

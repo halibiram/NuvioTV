@@ -24,10 +24,8 @@ class RecommendationDataStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
-        private val KEY_CONTINUE_WATCHING_CHANNEL_ID =
-            longPreferencesKey("continue_watching_channel_id")
-        private val KEY_NEXT_UP_CHANNEL_ID =
-            longPreferencesKey("next_up_channel_id")
+        private val KEY_NEW_RELEASES_CHANNEL_ID =
+            longPreferencesKey("new_releases_channel_id")
         private val KEY_TRENDING_CHANNEL_ID =
             longPreferencesKey("trending_channel_id")
         private val KEY_RECOMMENDATIONS_ENABLED =
@@ -67,8 +65,7 @@ class RecommendationDataStore @Inject constructor(
     // ── Helpers ──
 
     private fun keyForType(channelType: String) = when (channelType) {
-        RecommendationConstants.CHANNEL_CONTINUE_WATCHING -> KEY_CONTINUE_WATCHING_CHANNEL_ID
-        RecommendationConstants.CHANNEL_NEXT_UP -> KEY_NEXT_UP_CHANNEL_ID
+        RecommendationConstants.CHANNEL_NEW_RELEASES -> KEY_NEW_RELEASES_CHANNEL_ID
         RecommendationConstants.CHANNEL_TRENDING -> KEY_TRENDING_CHANNEL_ID
         else -> throw IllegalArgumentException("Unknown channel type: $channelType")
     }
