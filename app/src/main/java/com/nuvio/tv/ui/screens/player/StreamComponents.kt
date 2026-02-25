@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
+import com.nuvio.tv.ui.theme.rememberPulsingFocusBorderColor
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
@@ -60,11 +61,15 @@ internal fun StreamItem(
     isCurrentStream: Boolean = false,
     onClick: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    val animatedBorderColor = rememberPulsingFocusBorderColor(isFocused = isFocused)
+
     Card(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (requestInitialFocus) Modifier.focusRequester(focusRequester) else Modifier),
+            .then(if (requestInitialFocus) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundElevated,
             focusedContainerColor = NuvioColors.BackgroundElevated
@@ -79,7 +84,7 @@ internal fun StreamItem(
                 shape = RoundedCornerShape(12.dp)
             ),
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                border = BorderStroke(2.dp, animatedBorderColor),
                 shape = RoundedCornerShape(12.dp)
             )
         ),
@@ -234,6 +239,7 @@ internal fun AddonChip(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val animatedBorderColor = rememberPulsingFocusBorderColor(isFocused = isFocused)
 
     FilterChip(
         selected = isSelected,
@@ -255,7 +261,7 @@ internal fun AddonChip(
                 shape = RoundedCornerShape(20.dp)
             ),
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                border = BorderStroke(2.dp, animatedBorderColor),
                 shape = RoundedCornerShape(20.dp)
             ),
             selectedBorder = Border(
@@ -263,7 +269,7 @@ internal fun AddonChip(
                 shape = RoundedCornerShape(20.dp)
             ),
             focusedSelectedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                border = BorderStroke(2.dp, animatedBorderColor),
                 shape = RoundedCornerShape(20.dp)
             )
         ),

@@ -46,6 +46,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.theme.rememberPulsingFocusBorderColor
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -71,6 +72,7 @@ fun GridContentCard(
     val requestHeightPx = remember(density, posterCardStyle.height) { with(density) { posterCardStyle.height.roundToPx() } }
     var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
+    val animatedBorderColor = rememberPulsingFocusBorderColor(isFocused = isFocused)
     val watchedIconEndPadding by animateDpAsState(
         targetValue = if (isFocused) 14.dp else 8.dp,
         animationSpec = tween(durationMillis = 180),
@@ -136,7 +138,7 @@ fun GridContentCard(
             ),
             border = CardDefaults.border(
                 focusedBorder = Border(
-                    border = BorderStroke(posterCardStyle.focusedBorderWidth, NuvioColors.FocusRing),
+                    border = BorderStroke(posterCardStyle.focusedBorderWidth, animatedBorderColor),
                     shape = cardShape
                 )
             ),

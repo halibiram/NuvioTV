@@ -76,6 +76,7 @@ import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.theme.rememberPulsingFocusBorderColor
 import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -535,11 +536,11 @@ private fun ModernCarouselCard(
         label = "modernCardWatchedIconEndPadding"
     )
     val backgroundCardColor = NuvioColors.BackgroundCard
-    val focusRingColor = NuvioColors.FocusRing
+    val animatedBorderColor = rememberPulsingFocusBorderColor(isFocused = isFocused)
     val titleMedium = MaterialTheme.typography.titleMedium
-    val focusedBorder = remember(cardShape, focusRingColor) {
+    val focusedBorder = remember(cardShape, animatedBorderColor) {
         Border(
-            border = BorderStroke(2.dp, focusRingColor),
+            border = BorderStroke(2.dp, animatedBorderColor),
             shape = cardShape
         )
     }

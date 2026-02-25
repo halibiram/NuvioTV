@@ -59,6 +59,7 @@ import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
+import com.nuvio.tv.ui.theme.rememberPulsingFocusBorderColor
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.screens.detail.formatReleaseDate
 import androidx.compose.material.icons.Icons
@@ -410,6 +411,7 @@ private fun EpisodesSeasonTabs(
         items(sortedSeasons, key = { it }) { season ->
             val isSelected = selectedSeason == season
             var isFocused by remember { mutableStateOf(false) }
+            val animatedBorderColor = rememberPulsingFocusBorderColor(isFocused = isFocused)
 
             Card(
                 onClick = { onSeasonSelected(season) },
@@ -427,7 +429,7 @@ private fun EpisodesSeasonTabs(
                         shape = RoundedCornerShape(24.dp)
                     ),
                     focusedBorder = Border(
-                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                        border = BorderStroke(2.dp, animatedBorderColor),
                         shape = RoundedCornerShape(24.dp)
                     )
                 ),
@@ -462,6 +464,8 @@ private fun EpisodeItem(
     val formattedDate = remember(episode.released) {
         episode.released?.let { formatReleaseDate(it) }?.takeIf { it.isNotBlank() }
     }
+    var isFocused by remember { mutableStateOf(false) }
+    val animatedBorderColor = rememberPulsingFocusBorderColor(isFocused = isFocused)
     val episodeCode = remember(episode.season, episode.episode) {
         val s = episode.season
         val e = episode.episode
@@ -476,14 +480,15 @@ private fun EpisodeItem(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (requestInitialFocus) Modifier.focusRequester(focusRequester) else Modifier),
+            .then(if (requestInitialFocus) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundCard,
             focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                border = BorderStroke(2.dp, animatedBorderColor),
                 shape = RoundedCornerShape(16.dp)
             )
         ),
