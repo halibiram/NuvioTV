@@ -516,6 +516,7 @@ private fun ModernCarouselCard(
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
+                .memoryCacheKey("card_${it}_${requestWidthPx}x${requestHeightPx}")
                 .size(width = requestWidthPx, height = requestHeightPx)
                 .build()
         }
@@ -532,6 +533,7 @@ private fun ModernCarouselCard(
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
+                .memoryCacheKey("logo_${it}_${maxLogoWidthPx}x${logoHeightPx}")
                 .size(width = maxLogoWidthPx, height = logoHeightPx)
                 .build()
         }
@@ -626,17 +628,21 @@ private fun ModernCarouselCard(
             scale = CardDefaults.scale(focusedScale = 1f)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                val mediaLayerModifier = if (hasLandscapeLogo) {
-                    Modifier
-                        .fillMaxSize()
-                        .drawWithCache {
-                            onDrawWithContent {
-                                drawContent()
-                                drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size)
+                // Pre-compute the gradient overlay modifier to avoid allocating a new
+                // drawWithCache lambda on every recomposition for non-landscape cards.
+                val mediaLayerModifier = remember(hasLandscapeLogo) {
+                    if (hasLandscapeLogo) {
+                        Modifier
+                            .fillMaxSize()
+                            .drawWithCache {
+                                onDrawWithContent {
+                                    drawContent()
+                                    drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size)
+                                }
                             }
-                        }
-                } else {
-                    Modifier.fillMaxSize()
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
                 }
 
                 Box(modifier = mediaLayerModifier) {
@@ -704,6 +710,8 @@ private fun ModernCarouselCard(
         }
 
         if (showLabels && !isBackdropExpanded) {
+            // Hoist the labelMedium read so it isn't re-read per-subtitle Text node.
+            val labelMediumStyle = MaterialTheme.typography.labelMedium
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -720,7 +728,7 @@ private fun ModernCarouselCard(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = labelMediumStyle,
                         color = NuvioColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

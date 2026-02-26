@@ -1,12 +1,7 @@
 package com.nuvio.tv.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,9 +41,7 @@ fun TrailerPlayer(
     onRemoteKey: (keyCode: Int, action: Int, repeatCount: Int) -> Boolean = { _, _, _ -> false },
     cropToFill: Boolean = false,
     overscanZoom: Float = 1f,
-    modifier: Modifier = Modifier,
-    enter: EnterTransition = fadeIn(animationSpec = tween(800)),
-    exit: ExitTransition = fadeOut(animationSpec = tween(500))
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -178,12 +171,13 @@ fun TrailerPlayer(
         }
     }
 
+    // Replace AnimatedVisibility (which uses SubcomposeLayout and forces a second
+    // measurement pass) with a simple graphicsLayer alpha toggle. This eliminates
+    // SubcomposeLayout overhead and avoids creating/destroying the AndroidView on
+    // every visibility change, which is expensive for ExoPlayer's PlayerView.
     if (trailerUrl != null) {
-        AnimatedVisibility(
-            visible = isPlaying,
-            enter = enter,
-            exit = exit
-        ) {
+        val showPlayer = isPlaying || playerAlpha > 0f
+        if (showPlayer) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
