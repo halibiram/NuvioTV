@@ -98,6 +98,14 @@ internal data class ModernCatalogRowBuildCacheEntry(
     val mappedRow: HeroCarouselRow
 )
 
+/**
+ * A non-snapshot mutable container. Writing to [value] does NOT trigger recomposition,
+ * making it ideal for values that are only read inside callbacks or LaunchedEffects
+ * (e.g., key-repeat timestamps, last-focused indices used only in side-effects).
+ */
+@Stable
+internal class Ref<T>(var value: T)
+
 @Stable
 internal class ModernHomeUiCaches {
     val focusedItemByRow = mutableMapOf<String, Int>()
