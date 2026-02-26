@@ -537,12 +537,20 @@ private fun ModernCarouselCard(
     val hasImage = !imageUrl.isNullOrBlank()
     val hasLandscapeLogo = useLandscapePosters && !item.heroPreview.logo.isNullOrBlank()
     var isFocused by remember { mutableStateOf(false) }
-    var longPressTriggered by remember { mutableStateOf(false) }
-    val watchedIconEndPadding by animateDpAsState(
-        targetValue = if (isFocused) 16.dp else 8.dp,
-        animationSpec = tween(durationMillis = 180),
-        label = "modernCardWatchedIconEndPadding"
-    )
+    // Use Ref for longPressTriggered: it is only read/written inside key-event callbacks,
+    // never during composition, so it must not trigger recomposition.
+    val longPressTriggeredRef = remember { Ref(false) }
+    // Only run the watched-icon padding animation when the item is actually watched.
+    // For the vast majority of cards (~95%+) this avoids allocating an animation entirely.
+    val watchedIconEndPadding = if (isWatched) {
+        animateDpAsState(
+            targetValue = if (isFocused) 16.dp else 8.dp,
+            animationSpec = tween(durationMillis = 180),
+            label = "modernCardWatchedIconEndPadding"
+        ).value
+    } else {
+        8.dp
+    }
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
@@ -562,8 +570,8 @@ private fun ModernCarouselCard(
     ) {
         Card(
             onClick = {
-                if (longPressTriggered) {
-                    longPressTriggered = false
+                if (longPressTriggeredRef.value) {
+                    longPressTriggeredRef.value = false
                 } else {
                     onClick()
                 }
@@ -585,19 +593,19 @@ private fun ModernCarouselCard(
                             onBackdropInteraction()
                         }
                         if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
-                            longPressTriggered = true
+                            longPressTriggeredRef.value = true
                             onLongPress()
                             return@onPreviewKeyEvent true
                         }
                         val isLongPress = native.isLongPress || native.repeatCount > 0
                         if (isLongPress && isSelectKey(native.keyCode)) {
-                            longPressTriggered = true
+                            longPressTriggeredRef.value = true
                             onLongPress()
                             return@onPreviewKeyEvent true
                         }
                     }
                     if (native.action == AndroidKeyEvent.ACTION_UP &&
-                        longPressTriggered &&
+                        longPressTriggeredRef.value &&
                         isSelectKey(native.keyCode)
                     ) {
                         return@onPreviewKeyEvent true

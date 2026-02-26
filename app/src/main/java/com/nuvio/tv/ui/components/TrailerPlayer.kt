@@ -66,71 +66,65 @@ fun TrailerPlayer(
         label = "trailerFirstFrameAlpha"
     )
 
-    val trailerPlayer = remember(trailerUrl) {
-        if (trailerUrl != null) {
-            ExoPlayer.Builder(context)
-                .build()
-                .apply {
-                    repeatMode = Player.REPEAT_MODE_OFF
-                    volume = if (muted) 0f else 1f
-                    videoScalingMode = if (cropToFill) {
-                        C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                    } else {
-                        C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-                    }
+    // Reuse a single ExoPlayer instance across URL changes to avoid the expensive cost of
+    // building and releasing players every time the user focuses a new poster card.
+    // The player is created once and only released when the composable leaves composition.
+    val trailerPlayer = remember {
+        ExoPlayer.Builder(context)
+            .build()
+            .apply {
+                repeatMode = Player.REPEAT_MODE_OFF
+                volume = if (muted) 0f else 1f
+                videoScalingMode = if (cropToFill) {
+                    C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                } else {
+                    C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                 }
-        } else {
-            null
-        }
+            }
     }
-    val releaseCalled = remember(trailerPlayer) { AtomicBoolean(false) }
+    val releaseCalled = remember { AtomicBoolean(false) }
 
     LaunchedEffect(isPlaying, trailerUrl, muted) {
-        val player = trailerPlayer ?: return@LaunchedEffect
-        player.volume = if (muted) 0f else 1f
+        trailerPlayer.volume = if (muted) 0f else 1f
         if (isPlaying && trailerUrl != null) {
             hasRenderedFirstFrame = false
-            player.setMediaItem(MediaItem.fromUri(trailerUrl))
-            player.prepare()
-            player.playWhenReady = true
+            trailerPlayer.setMediaItem(MediaItem.fromUri(trailerUrl))
+            trailerPlayer.prepare()
+            trailerPlayer.playWhenReady = true
         } else {
             hasRenderedFirstFrame = false
-            player.stop()
-            player.clearMediaItems()
+            trailerPlayer.stop()
+            trailerPlayer.clearMediaItems()
         }
     }
 
-    LaunchedEffect(trailerPlayer, cropToFill) {
-        val player = trailerPlayer ?: return@LaunchedEffect
-        player.videoScalingMode = if (cropToFill) {
+    LaunchedEffect(cropToFill) {
+        trailerPlayer.videoScalingMode = if (cropToFill) {
             C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
         } else {
             C.VIDEO_SCALING_MODE_SCALE_TO_FIT
         }
     }
 
-    LaunchedEffect(seekRequestToken, seekDeltaMs, trailerPlayer) {
-        val player = trailerPlayer ?: return@LaunchedEffect
+    LaunchedEffect(seekRequestToken, seekDeltaMs) {
         if (seekRequestToken <= 0) return@LaunchedEffect
-        val duration = player.duration.takeIf { it > 0 } ?: 0L
-        val current = player.currentPosition
+        val duration = trailerPlayer.duration.takeIf { it > 0 } ?: 0L
+        val current = trailerPlayer.currentPosition
         val target = (current + seekDeltaMs).coerceIn(0L, duration.coerceAtLeast(0L))
-        player.seekTo(target)
+        trailerPlayer.seekTo(target)
     }
 
-    LaunchedEffect(trailerPlayer, isPlaying) {
-        val player = trailerPlayer ?: return@LaunchedEffect
+    LaunchedEffect(isPlaying) {
         while (isPlaying) {
-            val position = player.currentPosition.coerceAtLeast(0L)
-            val duration = player.duration.takeIf { it > 0 } ?: 0L
+            val position = trailerPlayer.currentPosition.coerceAtLeast(0L)
+            val duration = trailerPlayer.duration.takeIf { it > 0 } ?: 0L
             currentOnProgressChanged(position, duration)
             delay(250)
         }
         currentOnProgressChanged(0L, 0L)
     }
 
-    DisposableEffect(lifecycleOwner, trailerPlayer) {
-        val player = trailerPlayer ?: return@DisposableEffect onDispose {}
+    DisposableEffect(lifecycleOwner) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
@@ -147,44 +141,44 @@ fun TrailerPlayer(
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     if (currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
-                        if (player.currentMediaItem == null) {
-                            player.setMediaItem(MediaItem.fromUri(currentTrailerUrl!!))
-                            player.prepare()
+                        if (trailerPlayer.currentMediaItem == null) {
+                            trailerPlayer.setMediaItem(MediaItem.fromUri(currentTrailerUrl!!))
+                            trailerPlayer.prepare()
                         }
-                        player.playWhenReady = true
+                        trailerPlayer.playWhenReady = true
                     }
                 }
                 Lifecycle.Event.ON_PAUSE,
                 Lifecycle.Event.ON_STOP -> {
-                    player.playWhenReady = false
-                    player.pause()
-                    player.stop()
-                    player.clearMediaItems()
+                    trailerPlayer.playWhenReady = false
+                    trailerPlayer.pause()
+                    trailerPlayer.stop()
+                    trailerPlayer.clearMediaItems()
                 }
                 Lifecycle.Event.ON_DESTROY -> {
                     if (releaseCalled.compareAndSet(false, true)) {
-                        runCatching { player.stop() }
-                        runCatching { player.clearMediaItems() }
-                        runCatching { player.release() }
+                        runCatching { trailerPlayer.stop() }
+                        runCatching { trailerPlayer.clearMediaItems() }
+                        runCatching { trailerPlayer.release() }
                     }
                 }
                 else -> Unit
             }
         }
-        player.addListener(listener)
+        trailerPlayer.addListener(listener)
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             runCatching { lifecycleOwner.lifecycle.removeObserver(observer) }
-            runCatching { player.removeListener(listener) }
+            runCatching { trailerPlayer.removeListener(listener) }
             if (releaseCalled.compareAndSet(false, true)) {
-                runCatching { player.stop() }
-                runCatching { player.clearMediaItems() }
-                runCatching { player.release() }
+                runCatching { trailerPlayer.stop() }
+                runCatching { trailerPlayer.clearMediaItems() }
+                runCatching { trailerPlayer.release() }
             }
         }
     }
 
-    if (trailerPlayer != null) {
+    if (trailerUrl != null) {
         AnimatedVisibility(
             visible = isPlaying,
             enter = enter,
@@ -193,7 +187,7 @@ fun TrailerPlayer(
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
-                        player = trailerPlayer
+                        this.player = trailerPlayer
                         useController = false
                         isFocusable = true
                         isFocusableInTouchMode = true

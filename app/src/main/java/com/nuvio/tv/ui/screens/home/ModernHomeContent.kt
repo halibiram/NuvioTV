@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -60,6 +59,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.key.Key
@@ -307,8 +307,10 @@ fun ModernHomeContent(
     var heroItem by remember { mutableStateOf<HeroPreview?>(null) }
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
-    var lastFocusedContinueWatchingIndex by remember { mutableStateOf(-1) }
-    var lastKeyRepeatTime by remember { mutableStateOf(0L) }
+    // Use Ref (non-snapshot) for values only read inside callbacks/key-handlers
+    // to avoid triggering recomposition on every D-pad key event.
+    val lastFocusedContinueWatchingIndexRef = remember { Ref(-1) }
+    val lastKeyRepeatTimeRef = remember { Ref(0L) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
@@ -527,9 +529,18 @@ fun ModernHomeContent(
     val continueWatchingCardWidth = portraitBaseWidth * 1.24f * continueWatchingScale
     val continueWatchingCardHeight = continueWatchingCardWidth / 1.77f
 
-    BoxWithConstraints(
+    // Use LocalConfiguration instead of BoxWithConstraints to avoid SubcomposeLayout overhead.
+    // SubcomposeLayout forces a second measurement pass and prevents the Compose compiler from
+    // skipping child recompositions, which is catastrophic for a complex TV home screen.
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.dp
+    val screenHeightDp = configuration.screenHeightDp.dp
+
+    Box(
         modifier = Modifier.fillMaxSize()
     ) {
+        val maxWidth = screenWidthDp
+        val maxHeight = screenHeightDp
         val rowHorizontalPadding = 52.dp
 
         val resolvedHero by remember(heroItem, activeRow, clampedActiveItemIndex) {
@@ -664,10 +675,10 @@ fun ModernHomeContent(
                         val native = event.nativeKeyEvent
                         if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0) {
                             val now = System.currentTimeMillis()
-                            if (now - lastKeyRepeatTime < KEY_REPEAT_THROTTLE_MS) {
+                            if (now - lastKeyRepeatTimeRef.value < KEY_REPEAT_THROTTLE_MS) {
                                 return@onPreviewKeyEvent true
                             }
-                            lastKeyRepeatTime = now
+                            lastKeyRepeatTimeRef.value = now
                         }
                         false
                     },
@@ -704,8 +715,8 @@ fun ModernHomeContent(
                                 activeItemIndex = index
                             }
                             if (isContinueWatchingRow) {
-                                if (lastFocusedContinueWatchingIndex != index) {
-                                    lastFocusedContinueWatchingIndex = index
+                                    if (lastFocusedContinueWatchingIndexRef.value != index) {
+                                        lastFocusedContinueWatchingIndexRef.value = index
                                 }
                                 if (focusedCatalogSelection != null) {
                                     focusedCatalogSelection = null
@@ -756,7 +767,7 @@ fun ModernHomeContent(
                 val targetIndex = if (uiState.continueWatchingItems.size <= 1) {
                     null
                 } else {
-                    minOf(lastFocusedContinueWatchingIndex, uiState.continueWatchingItems.size - 2)
+                    minOf(lastFocusedContinueWatchingIndexRef.value, uiState.continueWatchingItems.size - 2)
                         .coerceAtLeast(0)
                 }
                 pendingRowFocusKey = if (targetIndex != null) "continue_watching" else null
