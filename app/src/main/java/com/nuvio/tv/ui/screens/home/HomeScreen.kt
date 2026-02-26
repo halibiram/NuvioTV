@@ -200,18 +200,27 @@ fun HomeScreen(
                                 }
                             )
 
-                            HomeLayout.MODERN -> ModernHomeRoute(
-                                viewModel = viewModel,
-                                uiState = uiState,
-                                onNavigateToDetail = onNavigateToDetail,
-                                onContinueWatchingClick = onContinueWatchingClick,
-                                isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                },
-                                onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                            HomeLayout.MODERN -> {
+                                // Memoize the watched-status lookup lambda so it only changes
+                                // when movieWatchedStatus itself changes, not on every uiState
+                                // update (which fires frequently for loading/catalog changes).
+                                val movieWatchedStatus = uiState.movieWatchedStatus
+                                val modernIsCatalogItemWatched = remember(movieWatchedStatus) {
+                                    { item: MetaPreview ->
+                                        movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                    }
                                 }
-                            )
+                                ModernHomeRoute(
+                                    viewModel = viewModel,
+                                    uiState = uiState,
+                                    onNavigateToDetail = onNavigateToDetail,
+                                    onContinueWatchingClick = onContinueWatchingClick,
+                                    isCatalogItemWatched = modernIsCatalogItemWatched,
+                                    onCatalogItemLongPress = { item, addonBaseUrl ->
+                                        posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
