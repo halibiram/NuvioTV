@@ -157,6 +157,7 @@ internal fun HeroTitleBlock(
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
+                .memoryCacheKey("hero_title_logo_${it}_${logoMaxWidthPx}x${logoHeightPx}")
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
         }
@@ -164,6 +165,7 @@ internal fun HeroTitleBlock(
     val imdbLogoModel = remember(context) {
         ImageRequest.Builder(context)
             .data(com.nuvio.tv.R.raw.imdb_logo_2016)
+            .memoryCacheKey("imdb_logo_svg")
             .decoderFactory(SvgDecoder.Factory())
             .build()
     }
