@@ -282,17 +282,17 @@ internal fun ModernRowSection(
             val requester = requesterFor(row.key, targetItemKey)
             var didFocus = false
             var didScrollToTarget = false
-            // Reduced from 20 to 12 retries — 20 frames of withFrameNanos is ~330ms of
-            // blocking the composition which itself causes frame drops.  12 retries
-            // (~200ms) is sufficient for items to be laid out after scrollToItem.
-            repeat(12) {
+            // Use a time-based budget (350ms) instead of a fixed retry count so that
+            // slow devices with longer frame times still get enough attempts while fast
+            // devices don't waste frames.  This replaces the previous fixed-12 retry
+            // which could be insufficient on low-end hardware.
+            val deadlineNanos = System.nanoTime() + 350_000_000L // 350ms
+            while (System.nanoTime() < deadlineNanos) {
                 didFocus = runCatching {
                     requester.requestFocus()
                     true
                 }.getOrDefault(false)
-                if (didFocus) {
-                    return@repeat
-                }
+                if (didFocus) break
                 if (!didScrollToTarget) {
                     runCatching { rowListState.scrollToItem(targetIndex) }
                     didScrollToTarget = true
@@ -542,6 +542,7 @@ private fun ModernCarouselCard(
                 .crossfade(false)
                 .size(width = requestWidthPx, height = requestHeightPx)
                 .memoryCacheKey("card_${it}_${requestWidthPx}x${requestHeightPx}")
+                .diskCacheKey(it)
                 .build()
         }
     }
@@ -559,6 +560,7 @@ private fun ModernCarouselCard(
                 .crossfade(false)
                 .size(width = maxLogoWidthPx, height = logoHeightPx)
                 .memoryCacheKey("logo_${it}_${maxLogoWidthPx}x${logoHeightPx}")
+                .diskCacheKey(it)
                 .build()
         }
     }

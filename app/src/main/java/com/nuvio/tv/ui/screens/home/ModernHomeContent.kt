@@ -354,8 +354,13 @@ fun ModernHomeContent(
                 // Always reset expansion on any change
                 expandedCatalogFocusKey = null
 
-                // Fire trailer preview request immediately when autoplay is active
+                // Debounce rapid focus transitions before firing trailer preview
+                // requests — a short delay prevents unnecessary network requests when
+                // the user is quickly scrolling through items.
                 if (snapshot.autoplay && !snapshot.scrolling && snapshot.selection != null) {
+                    delay(150)
+                    // Re-verify the selection hasn't changed during the debounce window
+                    if (focusedCatalogSelection?.focusKey != snapshot.focusKey) return@collect
                     latestOnRequestTrailerPreview(
                         snapshot.selection.payload.itemId,
                         snapshot.selection.payload.trailerTitle,
@@ -565,15 +570,27 @@ fun ModernHomeContent(
     // Replace BoxWithConstraints (SubcomposeLayout) with a regular Box to
     // eliminate subcomposition overhead.  SubcomposeLayout forces synchronous
     // composition during the layout phase and prevents the Compose compiler
-    // from efficiently skipping unchanged children.  Since this is a full-screen
-    // TV layout the available size equals the screen dimensions, which we obtain
-    // from LocalConfiguration (immediate, no one-frame delay).
+    // from efficiently skipping unchanged children.
+    //
+    // We use LocalConfiguration as the initial size and refine via onSizeChanged
+    // so that non-fullscreen contexts (e.g. dialogs, overlays) self-correct
+    // after the first layout pass without a one-frame visual glitch.
     val configuration = LocalConfiguration.current
-    val maxWidth = configuration.screenWidthDp.dp
-    val maxHeight = configuration.screenHeightDp.dp
+    val configWidthDp = configuration.screenWidthDp.dp
+    val configHeightDp = configuration.screenHeightDp.dp
+    val localDensityForSize = LocalDensity.current
+    var measuredSize by remember { mutableStateOf<IntSize?>(null) }
+    val maxWidth = measuredSize?.let { with(localDensityForSize) { it.width.toDp() } } ?: configWidthDp
+    val maxHeight = measuredSize?.let { with(localDensityForSize) { it.height.toDp() } } ?: configHeightDp
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { size ->
+                if (measuredSize != size) {
+                    measuredSize = size
+                }
+            }
     ) {
         val rowHorizontalPadding = 52.dp
 

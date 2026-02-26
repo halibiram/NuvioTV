@@ -69,6 +69,7 @@ internal fun ModernHeroMediaLayer(
                     .crossfade(false)
                     .size(width = requestWidthPx, height = requestHeightPx)
                     .memoryCacheKey("hero_backdrop_${imageUrl}_${requestWidthPx}x${requestHeightPx}")
+                    .diskCacheKey(imageUrl)
                     .build()
             }
             AsyncImage(
@@ -161,6 +162,7 @@ internal fun HeroTitleBlock(
                 .crossfade(false)
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .memoryCacheKey("hero_title_logo_${it}_${logoMaxWidthPx}x${logoHeightPx}")
+                .diskCacheKey(it)
                 .build()
         }
     }
