@@ -2,7 +2,6 @@
 
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -313,8 +312,14 @@ fun ModernHomeContent(
     val lastKeyRepeatTimeRef = remember { Ref(0L) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
-    var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
+    val expandedCatalogState = remember { ExpandedCatalogState() }
     var expansionInteractionNonce by remember { mutableIntStateOf(0) }
+    // Observable holder for trailer preview URLs. Synced from the incoming map
+    // so that individual row items can read URLs without receiving the full map as a parameter.
+    val trailerPreviewState = remember { TrailerPreviewState() }
+    if (trailerPreviewState.urls !== trailerPreviewUrls) {
+        trailerPreviewState.urls = trailerPreviewUrls
+    }
 
     LaunchedEffect(
         focusedCatalogSelection?.focusKey,
@@ -324,7 +329,7 @@ fun ModernHomeContent(
         uiState.focusedPosterBackdropExpandDelaySeconds,
         isVerticalRowsScrolling
     ) {
-        expandedCatalogFocusKey = null
+        expandedCatalogState.focusKey = null
         if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
         if (isVerticalRowsScrolling) return@LaunchedEffect
         val selection = focusedCatalogSelection ?: return@LaunchedEffect
@@ -333,7 +338,7 @@ fun ModernHomeContent(
             !isVerticalRowsScrolling &&
             focusedCatalogSelection?.focusKey == selection.focusKey
         ) {
-            expandedCatalogFocusKey = selection.focusKey
+            expandedCatalogState.focusKey = selection.focusKey
         }
     }
 
@@ -377,7 +382,7 @@ fun ModernHomeContent(
         }
         if (focusedCatalogSelection?.payload?.itemId !in activeCatalogItemIds) {
             focusedCatalogSelection = null
-            expandedCatalogFocusKey = null
+            expandedCatalogState.focusKey = null
         }
 
         carouselRows.forEach { row ->
@@ -560,24 +565,18 @@ fun ModernHomeContent(
             if (heroItem == null) activeRowFallbackBackdrop else null
         )
     }
-    val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
-        focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
+    val currentExpandedFocusKey = expandedCatalogState.focusKey
+    val expandedFocusedSelection = remember(focusedCatalogSelection, currentExpandedFocusKey) {
+        focusedCatalogSelection?.takeIf { it.focusKey == currentExpandedFocusKey }
     }
     val heroTrailerUrl = remember(expandedFocusedSelection, trailerPreviewUrls) {
         expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
     }
-    val expandedCatalogTrailerUrl = heroTrailerUrl
-    val shouldPlayHeroTrailer = remember(
-        effectiveAutoplayEnabled,
-        trailerPlaybackTarget,
-        heroTrailerUrl,
-        isVerticalRowsScrolling
-    ) {
+    val shouldPlayHeroTrailer =
         effectiveAutoplayEnabled &&
             !isVerticalRowsScrolling &&
             trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
             !heroTrailerUrl.isNullOrBlank()
-    }
     var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
     LaunchedEffect(shouldPlayHeroTrailer) {
         if (!shouldPlayHeroTrailer) {
@@ -631,7 +630,7 @@ fun ModernHomeContent(
             heroTrailerAlpha = heroTrailerAlpha,
             muted = uiState.focusedPosterBackdropTrailerMuted,
             bgColor = bgColor,
-            onTrailerEnded = { expandedCatalogFocusKey = null },
+            onTrailerEnded = { expandedCatalogState.focusKey = null },
             onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
             modifier = heroMediaModifier,
             requestWidthPx = heroMediaWidthPx,
@@ -672,6 +671,37 @@ fun ModernHomeContent(
                 contentPadding = PaddingValues(bottom = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
+                // Bundle infrequently-changing config into a single @Stable object.
+                // This collapses 11 primitive parameters into 1 stable reference,
+                // preventing recomposition of ALL rows when unrelated state changes.
+                val rowSharedConfig = remember(
+                    useLandscapePosters,
+                    uiState.posterLabelsEnabled,
+                    uiState.posterCardCornerRadiusDp,
+                    modernCatalogCardWidth,
+                    modernCatalogCardHeight,
+                    continueWatchingCardWidth,
+                    continueWatchingCardHeight,
+                    uiState.focusedPosterBackdropTrailerMuted,
+                    effectiveExpandEnabled,
+                    effectiveAutoplayEnabled,
+                    trailerPlaybackTarget
+                ) {
+                    ModernRowSharedConfig(
+                        useLandscapePosters = useLandscapePosters,
+                        showLabels = uiState.posterLabelsEnabled,
+                        posterCardCornerRadius = uiState.posterCardCornerRadiusDp.dp,
+                        modernCatalogCardWidth = modernCatalogCardWidth,
+                        modernCatalogCardHeight = modernCatalogCardHeight,
+                        continueWatchingCardWidth = continueWatchingCardWidth,
+                        continueWatchingCardHeight = continueWatchingCardHeight,
+                        focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                        effectiveExpandEnabled = effectiveExpandEnabled,
+                        effectiveAutoplayEnabled = effectiveAutoplayEnabled,
+                        trailerPlaybackTarget = trailerPlaybackTarget
+                    )
+                }
+
                 itemsIndexed(
                     items = carouselRows,
                     key = { _, row -> row.key },
@@ -713,19 +743,9 @@ fun ModernHomeContent(
                                 }
                             }
                         },
-                        useLandscapePosters = useLandscapePosters,
-                        showLabels = uiState.posterLabelsEnabled,
-                        posterCardCornerRadius = uiState.posterCardCornerRadiusDp.dp,
-                        focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
-                        effectiveExpandEnabled = effectiveExpandEnabled,
-                        effectiveAutoplayEnabled = effectiveAutoplayEnabled,
-                        trailerPlaybackTarget = trailerPlaybackTarget,
-                        expandedCatalogFocusKey = expandedCatalogFocusKey,
-                        expandedTrailerPreviewUrl = expandedCatalogTrailerUrl,
-                        modernCatalogCardWidth = modernCatalogCardWidth,
-                        modernCatalogCardHeight = modernCatalogCardHeight,
-                        continueWatchingCardWidth = continueWatchingCardWidth,
-                        continueWatchingCardHeight = continueWatchingCardHeight,
+                        config = rowSharedConfig,
+                        expandedState = expandedCatalogState,
+                        trailerPreviewState = trailerPreviewState,
                         onContinueWatchingClick = onContinueWatchingClick,
                         onContinueWatchingOptions = { optionsItem = it },
                         isCatalogItemWatched = isCatalogItemWatched,
@@ -740,8 +760,7 @@ fun ModernHomeContent(
                         onLoadMoreCatalog = onLoadMoreCatalog,
                         onBackdropInteraction = {
                             expansionInteractionNonce++
-                        },
-                        onExpandedCatalogFocusKeyChange = { expandedCatalogFocusKey = it }
+                        }
                     )
                 }
             }

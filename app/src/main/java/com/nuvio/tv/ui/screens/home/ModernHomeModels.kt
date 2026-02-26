@@ -3,11 +3,16 @@ package com.nuvio.tv.ui.screens.home
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 
 internal val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
@@ -118,6 +123,49 @@ internal class ModernHomeUiCaches {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
         return byIndex.getOrPut(itemKey) { FocusRequester() }
     }
+}
+
+/**
+ * Bundles infrequently-changing configuration that every row and card needs.
+ * Because all fields are vals and the class is @Stable, the Compose compiler
+ * treats it as a single stable parameter – preventing cascading recompositions
+ * when unrelated state (focus key, hero item, etc.) changes in the parent.
+ */
+@Immutable
+internal data class ModernRowSharedConfig(
+    val useLandscapePosters: Boolean,
+    val showLabels: Boolean,
+    val posterCardCornerRadius: Dp,
+    val modernCatalogCardWidth: Dp,
+    val modernCatalogCardHeight: Dp,
+    val continueWatchingCardWidth: Dp,
+    val continueWatchingCardHeight: Dp,
+    val focusedPosterBackdropTrailerMuted: Boolean,
+    val effectiveExpandEnabled: Boolean,
+    val effectiveAutoplayEnabled: Boolean,
+    val trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget
+)
+
+/**
+ * Observable holder for the currently-expanded catalog focus key.
+ * Using a @Stable class with mutableStateOf allows individual row items
+ * to observe only the expansion state change they care about, instead of
+ * receiving the key as a parameter (which forces ALL items to recompose
+ * whenever the expanded key changes).
+ */
+@Stable
+internal class ExpandedCatalogState {
+    var focusKey: String? by mutableStateOf(null)
+}
+
+/**
+ * Observable holder for trailer preview URLs keyed by item ID.
+ * Rows read from this holder instead of receiving the full map as a parameter,
+ * which avoids recomposing every row when a single trailer URL is resolved.
+ */
+@Stable
+internal class TrailerPreviewState {
+    var urls: Map<String, String> by mutableStateOf(emptyMap())
 }
 
 internal class ModernCarouselRowBuildCache {

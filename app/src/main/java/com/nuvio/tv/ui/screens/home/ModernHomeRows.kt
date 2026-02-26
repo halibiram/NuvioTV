@@ -106,61 +106,63 @@ private fun ModernContinueWatchingRowItem(
     )
 }
 
+/**
+ * Catalog row item that reads expansion/trailer state from @Stable holders.
+ * This means the item only recomposes when ITS OWN expansion state changes,
+ * not when any other item's expansion changes.
+ */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun ModernCatalogRowItem(
     item: ModernCarouselItem,
     payload: ModernPayload.Catalog,
     requester: FocusRequester,
-    useLandscapePosters: Boolean,
-    showLabels: Boolean,
-    posterCardCornerRadius: Dp,
-    modernCatalogCardWidth: Dp,
-    modernCatalogCardHeight: Dp,
-    focusedPosterBackdropTrailerMuted: Boolean,
-    effectiveExpandEnabled: Boolean,
-    effectiveAutoplayEnabled: Boolean,
-    trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
-    expandedCatalogFocusKey: String?,
-    expandedTrailerPreviewUrl: String?,
+    config: ModernRowSharedConfig,
+    expandedState: ExpandedCatalogState,
+    trailerPreviewState: TrailerPreviewState,
+    isRowScrolling: Boolean,
     isWatched: Boolean,
     onFocused: () -> Unit,
     onItemFocus: (MetaPreview) -> Unit,
     onCatalogSelectionFocused: (FocusedCatalogSelection) -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onLongPress: () -> Unit,
-    onBackdropInteraction: () -> Unit,
-    onExpandedCatalogFocusKeyChange: (String?) -> Unit
+    onBackdropInteraction: () -> Unit
 ) {
     val focusKey = payload.focusKey
+    // Read from the @Stable holder: only THIS item recomposes when expandedState.focusKey changes
+    // to or from THIS item's focusKey. Other items are NOT invalidated.
+    val effectiveExpandEnabled = config.effectiveExpandEnabled && !isRowScrolling
+    val effectiveAutoplayEnabled = config.effectiveAutoplayEnabled && !isRowScrolling
     val suppressCardExpansionForHeroTrailer =
         effectiveAutoplayEnabled &&
-            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
+            config.trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
     val isBackdropExpanded =
         effectiveExpandEnabled &&
-            expandedCatalogFocusKey == focusKey &&
+            expandedState.focusKey == focusKey &&
             !suppressCardExpansionForHeroTrailer
     val playTrailerInExpandedCard =
         effectiveAutoplayEnabled &&
-            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+            config.trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
             isBackdropExpanded
+    // Read trailer URL from @Stable holder instead of receiving as parameter
     val trailerPreviewUrl = if (playTrailerInExpandedCard) {
-        expandedTrailerPreviewUrl
+        payload.itemId.let { trailerPreviewState.urls[it] }
     } else {
         null
     }
 
     ModernCarouselCard(
         item = item,
-        useLandscapePosters = useLandscapePosters,
-        showLabels = showLabels,
-        cardCornerRadius = posterCardCornerRadius,
-        cardWidth = modernCatalogCardWidth,
-        cardHeight = modernCatalogCardHeight,
+        useLandscapePosters = config.useLandscapePosters,
+        showLabels = config.showLabels,
+        cardCornerRadius = config.posterCardCornerRadius,
+        cardWidth = config.modernCatalogCardWidth,
+        cardHeight = config.modernCatalogCardHeight,
         focusedPosterBackdropExpandEnabled = effectiveExpandEnabled,
         isBackdropExpanded = isBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
-        focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
+        focusedPosterBackdropTrailerMuted = config.focusedPosterBackdropTrailerMuted,
         trailerPreviewUrl = trailerPreviewUrl,
         isWatched = isWatched,
         focusRequester = requester,
@@ -183,10 +185,15 @@ private fun ModernCatalogRowItem(
         },
         onLongPress = onLongPress,
         onBackdropInteraction = onBackdropInteraction,
-        onTrailerEnded = { onExpandedCatalogFocusKeyChange(null) }
+        onTrailerEnded = { expandedState.focusKey = null }
     )
 }
 
+/**
+ * A single row section. Now receives bundled @Stable config + observable holders
+ * instead of 15+ primitive/lambda parameters, dramatically reducing the number of
+ * unstable parameters that can trigger recomposition.
+ */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun ModernRowSection(
@@ -200,19 +207,9 @@ internal fun ModernRowSection(
     pendingRowFocusNonce: Int,
     onPendingRowFocusCleared: () -> Unit,
     onRowItemFocused: (String, Int, Boolean) -> Unit,
-    useLandscapePosters: Boolean,
-    showLabels: Boolean,
-    posterCardCornerRadius: Dp,
-    focusedPosterBackdropTrailerMuted: Boolean,
-    effectiveExpandEnabled: Boolean,
-    effectiveAutoplayEnabled: Boolean,
-    trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
-    expandedCatalogFocusKey: String?,
-    expandedTrailerPreviewUrl: String?,
-    modernCatalogCardWidth: Dp,
-    modernCatalogCardHeight: Dp,
-    continueWatchingCardWidth: Dp,
-    continueWatchingCardHeight: Dp,
+    config: ModernRowSharedConfig,
+    expandedState: ExpandedCatalogState,
+    trailerPreviewState: TrailerPreviewState,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onContinueWatchingOptions: (ContinueWatchingItem) -> Unit,
     isCatalogItemWatched: (MetaPreview) -> Boolean,
@@ -221,8 +218,7 @@ internal fun ModernRowSection(
     onCatalogSelectionFocused: (FocusedCatalogSelection) -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit,
-    onBackdropInteraction: () -> Unit,
-    onExpandedCatalogFocusKeyChange: (String?) -> Unit
+    onBackdropInteraction: () -> Unit
 ) {
     val focusedItemByRow = uiCaches.focusedItemByRow
     val itemFocusRequesters = uiCaches.itemFocusRequesters
@@ -408,8 +404,8 @@ internal fun ModernRowSection(
                             ModernContinueWatchingRowItem(
                                 payload = payload,
                                 requester = requester,
-                                cardWidth = continueWatchingCardWidth,
-                                imageHeight = continueWatchingCardHeight,
+                                cardWidth = config.continueWatchingCardWidth,
+                                imageHeight = config.continueWatchingCardHeight,
                                 onFocused = onFocused,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onShowOptions = onContinueWatchingOptions
@@ -421,17 +417,10 @@ internal fun ModernRowSection(
                                 item = item,
                                 payload = payload,
                                 requester = requester,
-                                useLandscapePosters = useLandscapePosters,
-                                showLabels = showLabels,
-                                posterCardCornerRadius = posterCardCornerRadius,
-                                modernCatalogCardWidth = modernCatalogCardWidth,
-                                modernCatalogCardHeight = modernCatalogCardHeight,
-                                focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
-                                effectiveExpandEnabled = effectiveExpandEnabled && !isRowScrolling,
-                                effectiveAutoplayEnabled = effectiveAutoplayEnabled && !isRowScrolling,
-                                trailerPlaybackTarget = trailerPlaybackTarget,
-                                expandedCatalogFocusKey = expandedCatalogFocusKey,
-                                expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
+                                config = config,
+                                expandedState = expandedState,
+                                trailerPreviewState = trailerPreviewState,
+                                isRowScrolling = isRowScrolling,
                                 isWatched = item.metaPreview?.let(isCatalogItemWatched) == true,
                                 onFocused = onFocused,
                                 onItemFocus = onItemFocus,
@@ -442,8 +431,7 @@ internal fun ModernRowSection(
                                         onCatalogItemLongPress(preview, payload.addonBaseUrl)
                                     }
                                 },
-                                onBackdropInteraction = onBackdropInteraction,
-                                onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange
+                                onBackdropInteraction = onBackdropInteraction
                             )
                         }
                     }

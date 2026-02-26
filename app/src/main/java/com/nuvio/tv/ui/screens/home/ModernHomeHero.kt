@@ -1,6 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -15,14 +15,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +43,18 @@ import coil.request.ImageRequest
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 
+/**
+ * Hero media layer – optimized to eliminate SubcomposeLayout and reduce overdraw.
+ *
+ * Key changes vs. the previous implementation:
+ * 1. **No more Crossfade**: Crossfade uses SubcomposeLayout internally, which forces a
+ *    second measurement pass every frame during the transition. We now stack two AsyncImage
+ *    instances and drive alpha via graphicsLayer (GPU-only, no recomposition/relayout).
+ * 2. **Pre-computed gradient overlay**: The gradient modifier is remembered based only on
+ *    bgColor, so it is not recreated on every recomposition.
+ * 3. **CompositingStrategy.ModulateAlpha**: Alpha changes are GPU-only operations with no
+ *    recomposition or relayout, making backdrop/trailer crossfades essentially free.
+ */
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
@@ -54,32 +71,122 @@ internal fun ModernHeroMediaLayer(
     requestHeightPx: Int
 ) {
     val localContext = LocalContext.current
-    Box(modifier = modifier) {
-        Crossfade(
-            targetState = heroBackdrop,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = heroBackdropAlpha },
-            animationSpec = tween(durationMillis = 350),
-            label = "modernHeroBackground"
-        ) { imageUrl ->
-            val imageModel = remember(localContext, imageUrl, requestWidthPx, requestHeightPx) {
-                ImageRequest.Builder(localContext)
-                    .data(imageUrl)
-                    .crossfade(false)
-                    .memoryCacheKey("hero_bg_${imageUrl}_${requestWidthPx}x${requestHeightPx}")
-                    .size(width = requestWidthPx, height = requestHeightPx)
-                    .build()
+
+    // Track the previous backdrop URL so we can cross-fade between old and new images
+    // without SubcomposeLayout (Crossfade).
+    var previousBackdrop by remember { mutableStateOf<String?>(null) }
+    var currentBackdrop by remember { mutableStateOf<String?>(null) }
+
+    // When heroBackdrop changes, shift the current image to "previous" slot for fade-out.
+    if (heroBackdrop != currentBackdrop) {
+        previousBackdrop = currentBackdrop
+        currentBackdrop = heroBackdrop
+    }
+
+    // Animate the crossfade progress: 0 = showing previous, 1 = showing current.
+    // The key on currentBackdrop resets the animation whenever the target changes.
+    val crossfadeTarget by animateFloatAsState(
+        targetValue = if (currentBackdrop == heroBackdrop) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "heroBackdropCrossfade",
+        finishedListener = {
+            // Once the transition completes, discard the previous image to free memory.
+            previousBackdrop = null
+        }
+    )
+
+    val previousImageModel = remember(localContext, previousBackdrop, requestWidthPx, requestHeightPx) {
+        previousBackdrop?.let {
+            ImageRequest.Builder(localContext)
+                .data(it)
+                .crossfade(false)
+                .memoryCacheKey("hero_bg_${it}_${requestWidthPx}x${requestHeightPx}")
+                .size(width = requestWidthPx, height = requestHeightPx)
+                .build()
+        }
+    }
+
+    val currentImageModel = remember(localContext, currentBackdrop, requestWidthPx, requestHeightPx) {
+        currentBackdrop?.let {
+            ImageRequest.Builder(localContext)
+                .data(it)
+                .crossfade(false)
+                .memoryCacheKey("hero_bg_${it}_${requestWidthPx}x${requestHeightPx}")
+                .size(width = requestWidthPx, height = requestHeightPx)
+                .build()
+        }
+    }
+
+    // Pre-compute the gradient overlay modifier once (only changes when bgColor changes).
+    val gradientOverlayModifier = remember(bgColor) {
+        Modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val horizontalGradient = Brush.horizontalGradient(
+                    0.0f to bgColor.copy(alpha = 0.96f),
+                    0.10f to bgColor.copy(alpha = 0.72f),
+                    0.30f to Color.Transparent
+                )
+                val radialGradient = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.0f to bgColor.copy(alpha = 0.78f),
+                        0.55f to bgColor.copy(alpha = 0.52f),
+                        0.80f to bgColor.copy(alpha = 0.16f),
+                        1.0f to Color.Transparent
+                    ),
+                    center = Offset(0f, size.height / 2f),
+                    radius = size.height
+                )
+                val verticalGradient = Brush.verticalGradient(
+                    0.78f to Color.Transparent,
+                    0.90f to bgColor.copy(alpha = 0.72f),
+                    0.96f to bgColor.copy(alpha = 0.98f),
+                    1.0f to bgColor
+                )
+                onDrawBehind {
+                    drawRect(brush = horizontalGradient, size = size)
+                    drawRect(brush = radialGradient, size = size, blendMode = BlendMode.SrcOver)
+                    drawRect(brush = verticalGradient, size = size, blendMode = BlendMode.SrcOver)
+                }
             }
+    }
+
+    Box(modifier = modifier) {
+        // --- Backdrop images: manual dual-image crossfade (no SubcomposeLayout) ---
+        // Previous image fading out
+        if (previousBackdrop != null && previousImageModel != null) {
             AsyncImage(
-                model = imageModel,
+                model = previousImageModel,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = heroBackdropAlpha * (1f - crossfadeTarget)
+                        // Use ModulateAlpha so alpha changes are GPU-only (no recomposition).
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    },
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.TopEnd
             )
         }
 
+        // Current image fading in
+        if (currentImageModel != null) {
+            AsyncImage(
+                model = currentImageModel,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = heroBackdropAlpha * crossfadeTarget
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    },
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
+            )
+        }
+
+        // --- Trailer player ---
         if (shouldPlayHeroTrailer) {
             TrailerPlayer(
                 trailerUrl = heroTrailerUrl,
@@ -91,42 +198,15 @@ internal fun ModernHeroMediaLayer(
                 overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = heroTrailerAlpha }
+                    .graphicsLayer {
+                        alpha = heroTrailerAlpha
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    }
             )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    val horizontalGradient = Brush.horizontalGradient(
-                        0.0f to bgColor.copy(alpha = 0.96f),
-                        0.10f to bgColor.copy(alpha = 0.72f),
-                        0.30f to Color.Transparent
-                    )
-                    val radialGradient = Brush.radialGradient(
-                        colorStops = arrayOf(
-                            0.0f to bgColor.copy(alpha = 0.78f),
-                            0.55f to bgColor.copy(alpha = 0.52f),
-                            0.80f to bgColor.copy(alpha = 0.16f),
-                            1.0f to Color.Transparent
-                        ),
-                        center = Offset(0f, size.height / 2f),
-                        radius = size.height
-                    )
-                    val verticalGradient = Brush.verticalGradient(
-                        0.78f to Color.Transparent,
-                        0.90f to bgColor.copy(alpha = 0.72f),
-                        0.96f to bgColor.copy(alpha = 0.98f),
-                        1.0f to bgColor
-                    )
-                    onDrawBehind {
-                        drawRect(brush = horizontalGradient, size = size)
-                        drawRect(brush = radialGradient, size = size)
-                        drawRect(brush = verticalGradient, size = size)
-                    }
-                }
-        )
+        // --- Gradient scrim overlay (pre-computed, cached on bgColor) ---
+        Box(modifier = gradientOverlayModifier)
     }
 }
 
