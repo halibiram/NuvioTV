@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +80,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
 import com.nuvio.tv.ui.theme.NuvioColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
@@ -146,17 +148,25 @@ fun ModernHomeContent(
     val visibleCatalogRows = remember(uiState.catalogRows) {
         uiState.catalogRows.filter { it.items.isNotEmpty() }
     }
+    // Row-level cache: only rebuild rows whose source data actually changed.
+    val carouselRowCache = remember { mutableMapOf<String, Pair<Any?, HeroCarouselRow>>() }
     val carouselRows = remember(
         uiState.continueWatchingItems,
         visibleCatalogRows,
         useLandscapePosters,
         showCatalogTypeSuffixInModern
     ) {
+        val newKeys = mutableSetOf<String>()
         buildList {
             if (uiState.continueWatchingItems.isNotEmpty()) {
-                add(
-                    HeroCarouselRow(
-                        key = "continue_watching",
+                val cwKey = "continue_watching"
+                newKeys.add(cwKey)
+                val cached = carouselRowCache[cwKey]
+                if (cached != null && cached.first === uiState.continueWatchingItems) {
+                    add(cached.second)
+                } else {
+                    val row = HeroCarouselRow(
+                        key = cwKey,
                         title = "Continue Watching",
                         globalRowIndex = -1,
                         items = uiState.continueWatchingItems.mapIndexed { index, item ->
@@ -167,36 +177,49 @@ fun ModernHomeContent(
                             )
                         }
                     )
-                )
+                    carouselRowCache[cwKey] = uiState.continueWatchingItems to row
+                    add(row)
+                }
             }
 
-            visibleCatalogRows.forEachIndexed { index, row ->
-                add(
-                    HeroCarouselRow(
-                        key = catalogRowKey(row),
+            visibleCatalogRows.forEachIndexed { index, catalogRow ->
+                val rowKey = catalogRowKey(catalogRow)
+                newKeys.add(rowKey)
+                val cached = carouselRowCache[rowKey]
+                if (cached != null && cached.first === catalogRow) {
+                    // Reuse cached row but update globalRowIndex if position changed
+                    val cachedRow = cached.second
+                    val reused = if (cachedRow.globalRowIndex == index) cachedRow
+                    else cachedRow.copy(globalRowIndex = index)
+                    add(reused)
+                } else {
+                    val row = HeroCarouselRow(
+                        key = rowKey,
                         title = catalogRowTitle(
-                            row = row,
+                            row = catalogRow,
                             showCatalogTypeSuffix = showCatalogTypeSuffixInModern
                         ),
                         globalRowIndex = index,
-                        catalogId = row.catalogId,
-                        addonId = row.addonId,
-                        apiType = row.apiType,
-                        supportsSkip = row.supportsSkip,
-                        hasMore = row.hasMore,
-                        isLoading = row.isLoading,
-                        items = row.items.mapIndexed { itemIndex, item ->
+                        catalogId = catalogRow.catalogId,
+                        addonId = catalogRow.addonId,
+                        apiType = catalogRow.apiType,
+                        supportsSkip = catalogRow.supportsSkip,
+                        hasMore = catalogRow.hasMore,
+                        isLoading = catalogRow.isLoading,
+                        items = catalogRow.items.mapIndexed { itemIndex, item ->
                             buildCatalogItem(
                                 index = itemIndex,
                                 item = item,
-                                row = row,
+                                row = catalogRow,
                                 useLandscapePosters = useLandscapePosters
                             )
                         }
                     )
-                )
+                    carouselRowCache[rowKey] = catalogRow to row
+                    add(row)
+                }
             }
-        }
+        }.also { carouselRowCache.keys.retainAll(newKeys) }
     }
 
     if (carouselRows.isEmpty()) return
@@ -304,9 +327,13 @@ fun ModernHomeContent(
             carouselRows.firstOrNull { it.key == activeKey } ?: carouselRows.firstOrNull()
         }
     }
-    val activeItemIndex = activeRow?.let { row ->
-        focusedItemByRow[row.key]?.coerceIn(0, (row.items.size - 1).coerceAtLeast(0)) ?: 0
-    } ?: 0
+    val activeItemIndex by remember {
+        derivedStateOf {
+            activeRow?.let { row ->
+                focusedItemByRow[row.key]?.coerceIn(0, (row.items.size - 1).coerceAtLeast(0)) ?: 0
+            } ?: 0
+        }
+    }
     val nextRow = remember(carouselRows, activeRow?.key, rowIndexByKey) {
         val index = activeRow?.key?.let { key -> rowIndexByKey[key] ?: -1 } ?: -1
         if (index in carouselRows.indices && index + 1 < carouselRows.size) {
@@ -379,12 +406,42 @@ fun ModernHomeContent(
                 item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
             }
         }
-        val heroBackdrop = resolvedHero?.backdrop?.takeIf { it.isNotBlank() } ?: fallbackBackdrop
+        val instantBackdrop = resolvedHero?.backdrop?.takeIf { it.isNotBlank() } ?: fallbackBackdrop
+        // Debounce backdrop URL during fast horizontal scrolling to avoid
+        // rapid Crossfade animations and unnecessary image loads.
+        var debouncedBackdrop by remember { mutableStateOf(instantBackdrop) }
+        LaunchedEffect(instantBackdrop) {
+            if (debouncedBackdrop == null) {
+                // First load: show immediately
+                debouncedBackdrop = instantBackdrop
+            } else {
+                delay(120)
+                debouncedBackdrop = instantBackdrop
+            }
+        }
+        val heroBackdrop = debouncedBackdrop
         val shouldRenderPreviewRow = showNextRowPreview && nextRow != null
         val catalogBottomPadding = if (shouldRenderPreviewRow) 12.dp else 18.dp
         val heroToCatalogGap = if (shouldRenderPreviewRow) 14.dp else 18.dp
         val localContext = LocalContext.current
         val bgColor = NuvioColors.Background
+
+        // Pre-cache gradient brushes used inside Crossfade to avoid per-frame allocation.
+        val heroLeftEdgeBrush = remember(bgColor) {
+            Brush.horizontalGradient(
+                0.0f to bgColor.copy(alpha = 0.96f),
+                0.10f to bgColor.copy(alpha = 0.72f),
+                0.30f to Color.Transparent
+            )
+        }
+        val heroBottomEdgeBrush = remember(bgColor) {
+            Brush.verticalGradient(
+                0.78f to Color.Transparent,
+                0.90f to bgColor.copy(alpha = 0.72f),
+                0.96f to bgColor.copy(alpha = 0.98f),
+                1.0f to bgColor
+            )
+        }
 
         Crossfade(
             targetState = heroBackdrop,
@@ -395,12 +452,15 @@ fun ModernHomeContent(
             animationSpec = tween(durationMillis = 350),
             label = "modernHeroBackground"
         ) { imageUrl ->
+            val cachedImageRequest = remember(imageUrl) {
+                ImageRequest.Builder(localContext)
+                    .data(imageUrl)
+                    .crossfade(true)
+                    .build()
+            }
             Box(modifier = Modifier.fillMaxSize()) {
                 AsyncImage(
-                    model = ImageRequest.Builder(localContext)
-                        .data(imageUrl)
-                        .crossfade(true)
-                        .build(),
+                    model = cachedImageRequest,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
@@ -411,13 +471,8 @@ fun ModernHomeContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .drawBehind {
-                            // Strong solid cover at the left edge, then arc inward
                             drawRect(
-                                brush = Brush.horizontalGradient(
-                                    0.0f to bgColor.copy(alpha = 0.96f),
-                                    0.10f to bgColor.copy(alpha = 0.72f),
-                                    0.30f to Color.Transparent
-                                ),
+                                brush = heroLeftEdgeBrush,
                                 size = size
                             )
                             drawRect(
@@ -439,14 +494,7 @@ fun ModernHomeContent(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.78f to Color.Transparent,
-                                0.90f to bgColor.copy(alpha = 0.72f),
-                                0.96f to bgColor.copy(alpha = 0.98f),
-                                1.0f to bgColor
-                            )
-                        )
+                        .background(heroBottomEdgeBrush)
                 )
             }
         }
@@ -500,14 +548,22 @@ fun ModernHomeContent(
                 .fillMaxWidth()
                 .padding(bottom = catalogBottomPadding)
         ) {
-            HeroTitleBlock(
-                preview = resolvedHero,
-                portraitMode = !useLandscapePosters,
-                shouldRenderPreviewRow = shouldRenderPreviewRow,
-                modifier = Modifier
-                    .padding(start = rowHorizontalPadding, end = 48.dp, bottom = heroToCatalogGap)
-                    .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
-            )
+            // Use Crossfade keyed on the hero title so the title block transitions
+            // smoothly instead of abruptly recomposing all children on every focus change.
+            Crossfade(
+                targetState = resolvedHero,
+                animationSpec = tween(durationMillis = 200),
+                label = "heroTitleBlock"
+            ) { hero ->
+                HeroTitleBlock(
+                    preview = hero,
+                    portraitMode = !useLandscapePosters,
+                    shouldRenderPreviewRow = shouldRenderPreviewRow,
+                    modifier = Modifier
+                        .padding(start = rowHorizontalPadding, end = 48.dp, bottom = heroToCatalogGap)
+                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                )
+            }
 
             AnimatedContent(
                 targetState = activeRow?.key,
