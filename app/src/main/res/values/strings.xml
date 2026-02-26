@@ -143,6 +143,12 @@
     <string name="playback_pause_overlay_sub">Show details overlay after 5 seconds while paused.</string>
     <string name="playback_show_clock_sub">Show current time and end time while controls are visible.</string>
     <string name="playback_osd_clock">OSD Clock</string>
+    <string name="playback_osd_clock_format">Clock Format</string>
+    <string name="playback_osd_clock_format_12">12-hour</string>
+    <string name="playback_osd_clock_format_12_sub">Display time with AM/PM (e.g., 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24-hour</string>
+    <string name="playback_osd_clock_format_24_sub">Display time in 24-hour format (e.g., 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Don\'t show clock on player controls</string>
     <string name="playback_skip_intro">Skip Intro</string>
     <string name="playback_skip_intro_sub">Use introdb.app to detect intros and recaps.</string>
     <string name="playback_auto_frame_rate">Auto Frame Rate</string>

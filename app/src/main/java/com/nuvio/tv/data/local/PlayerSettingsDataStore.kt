@@ -114,6 +114,14 @@ object AudioLanguageOption {
 }
 
 /**
+ * OSD Clock format options
+ */
+enum class OsdClockFormat {
+    HOUR_12,  // 12-hour format (e.g., 3:45 PM)
+    HOUR_24   // 24-hour format (e.g., 15:45)
+}
+
+/**
  * Data class representing player settings
  */
 data class PlayerSettings(
@@ -130,6 +138,7 @@ data class PlayerSettings(
     val loadingOverlayEnabled: Boolean = true,
     val pauseOverlayEnabled: Boolean = true,
     val osdClockEnabled: Boolean = true,
+    val osdClockFormat: OsdClockFormat = OsdClockFormat.HOUR_24,
     val skipIntroEnabled: Boolean = true,
     // Dolby Vision Profile 7 → HEVC fallback (requires forked ExoPlayer)
     val mapDV7ToHevc: Boolean = false,
@@ -227,6 +236,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val loadingOverlayEnabledKey = booleanPreferencesKey("loading_overlay_enabled")
     private val pauseOverlayEnabledKey = booleanPreferencesKey("pause_overlay_enabled")
     private val osdClockEnabledKey = booleanPreferencesKey("osd_clock_enabled")
+    private val osdClockFormatKey = stringPreferencesKey("osd_clock_format")
     private val skipIntroEnabledKey = booleanPreferencesKey("skip_intro_enabled")
     private val mapDV7ToHevcKey = booleanPreferencesKey("map_dv7_to_hevc")
     private val frameRateMatchingKey = booleanPreferencesKey("frame_rate_matching")
@@ -347,6 +357,9 @@ class PlayerSettingsDataStore @Inject constructor(
                 loadingOverlayEnabled = prefs[loadingOverlayEnabledKey] ?: true,
                 pauseOverlayEnabled = prefs[pauseOverlayEnabledKey] ?: true,
                 osdClockEnabled = prefs[osdClockEnabledKey] ?: true,
+                osdClockFormat = prefs[osdClockFormatKey]?.let {
+                    runCatching { OsdClockFormat.valueOf(it) }.getOrDefault(OsdClockFormat.HOUR_24)
+                } ?: OsdClockFormat.HOUR_24,
                 skipIntroEnabled = prefs[skipIntroEnabledKey] ?: true,
                 mapDV7ToHevc = prefs[mapDV7ToHevcKey] ?: false,
                 frameRateMatchingMode = prefs[frameRateMatchingModeKey]?.let {
@@ -481,6 +494,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setOsdClockEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[osdClockEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setOsdClockFormat(format: OsdClockFormat) {
+        store().edit { prefs ->
+            prefs[osdClockFormatKey] = format.name
         }
     }
 

@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.TrackGroup
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.nuvio.tv.data.local.FrameRateMatchingMode
+import com.nuvio.tv.data.local.OsdClockFormat
 import com.nuvio.tv.data.local.SubtitleOrganizationMode
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.repository.SkipInterval
@@ -37,6 +38,7 @@ data class PlayerUiState(
     val showLoadingOverlay: Boolean = true,
     val pauseOverlayEnabled: Boolean = true,
     val osdClockEnabled: Boolean = true,
+    val osdClockFormat: OsdClockFormat = OsdClockFormat.HOUR_24,
     val showPauseOverlay: Boolean = false,
     val audioTracks: List<TrackInfo> = emptyList(),
     val subtitleTracks: List<TrackInfo> = emptyList(),

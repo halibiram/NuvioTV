@@ -228,6 +228,7 @@ fun PlaybackSettingsContent(
                 onSetLoadingOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setLoadingOverlayEnabled(enabled) } },
                 onSetPauseOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setPauseOverlayEnabled(enabled) } },
                 onSetOsdClockEnabled = { enabled -> coroutineScope.launch { viewModel.setOsdClockEnabled(enabled) } },
+                onSetOsdClockFormat = { format -> coroutineScope.launch { viewModel.setOsdClockFormat(format) } },
                 onSetSkipIntroEnabled = { enabled -> coroutineScope.launch { viewModel.setSkipIntroEnabled(enabled) } },
                 onSetFrameRateMatchingMode = { mode -> coroutineScope.launch { viewModel.setFrameRateMatchingMode(mode) } },
                 onSetTrailerEnabled = { enabled -> coroutineScope.launch { viewModel.setTrailerEnabled(enabled) } },

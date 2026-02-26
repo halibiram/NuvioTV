@@ -125,6 +125,13 @@
     <string name="playback_pause_overlay">Pauzovacia obrazovka</string>
     <string name="playback_pause_overlay_sub">Zobraziť detaily po 5 sekundách pauzy.</string>
     <string name="playback_show_clock_sub">Zobraziť aktuálny čas a čas ukončenia počas zobrazenia ovládacích prvkov.</string>
+    <string name="playback_osd_clock">Hodiny OSD</string>
+    <string name="playback_osd_clock_format">Formát času</string>
+    <string name="playback_osd_clock_format_12">12-hodinový</string>
+    <string name="playback_osd_clock_format_12_sub">Zobraziť čas s AM/PM (napr. 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24-hodinový</string>
+    <string name="playback_osd_clock_format_24_sub">Zobraziť čas v 24-hodinovom formáte (napr. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Nezobrazovať hodiny na ovládacích prvkoch prehrávača</string>
     <string name="playback_skip_intro">Preskočiť intro</string>
     <string name="playback_skip_intro_sub">Použiť introdb.app na detekciu úvodov a rekapitulácií.</string>
     <string name="playback_auto_frame_rate">Automatická snímková frekvencia</string>

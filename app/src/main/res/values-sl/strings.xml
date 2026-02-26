@@ -125,6 +125,13 @@
     <string name="playback_pause_overlay">Prekrivanje ob pavzi</string>
     <string name="playback_pause_overlay_sub">Prikaži prekrivanje s podrobnostmi po 5 sekundah v pavzi.</string>
     <string name="playback_show_clock_sub">Prikaži trenutni čas in čas konca, ko so kontrole vidne.</string>
+    <string name="playback_osd_clock">Ura OSD</string>
+    <string name="playback_osd_clock_format">Format časa</string>
+    <string name="playback_osd_clock_format_12">12-urni</string>
+    <string name="playback_osd_clock_format_12_sub">Prikaži čas z AM/PM (npr. 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24-urni</string>
+    <string name="playback_osd_clock_format_24_sub">Prikaži čas v 24-urnem formatu (npr. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Ne prikazuj ure na kontrolah predvajalnika</string>
     <string name="playback_skip_intro">Preskoči uvod</string>
     <string name="playback_skip_intro_sub">Uporabi introdb.app za zaznavanje uvodov in povzetkov.</string>
     <string name="playback_auto_frame_rate">Samodejna hitrost sličic (AFR)</string>

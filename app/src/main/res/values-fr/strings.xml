@@ -125,6 +125,13 @@
     <string name="playback_pause_overlay">Superposition en pause</string>
     <string name="playback_pause_overlay_sub">Afficher les détails après 5 secondes de pause.</string>
     <string name="playback_show_clock_sub">Afficher l\'heure actuelle et l\'heure de fin lorsque les contrôles sont visibles.</string>
+    <string name="playback_osd_clock">Horloge OSD</string>
+    <string name="playback_osd_clock_format">Format d\'heure</string>
+    <string name="playback_osd_clock_format_12">12 heures</string>
+    <string name="playback_osd_clock_format_12_sub">Afficher l\'heure avec AM/PM (ex. 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24 heures</string>
+    <string name="playback_osd_clock_format_24_sub">Afficher l\'heure au format 24 heures (ex. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Ne pas afficher l\'horloge sur les contrôles du lecteur</string>
     <string name="playback_skip_intro">Passer l\'intro</string>
     <string name="playback_skip_intro_sub">Utiliser introdb.app pour détecter les intros et les récapitulatifs.</string>
     <string name="playback_auto_frame_rate">Fréquence d\'images automatique</string>

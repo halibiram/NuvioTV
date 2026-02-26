@@ -102,6 +102,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.core.player.ExternalPlayerLauncher
+import com.nuvio.tv.data.local.OsdClockFormat
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import java.text.SimpleDateFormat
@@ -599,6 +600,7 @@ fun PlayerScreen(
             type = uiState.contentType,
             description = uiState.description,
             cast = uiState.castMembers,
+            clockFormat = uiState.osdClockFormat,
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(2.5f)
@@ -709,7 +711,8 @@ fun PlayerScreen(
         ) {
             PlayerClockOverlay(
                 currentPosition = uiState.currentPosition,
-                duration = uiState.duration
+                duration = uiState.duration,
+                clockFormat = uiState.osdClockFormat
             )
         }
 
@@ -1373,10 +1376,17 @@ private fun SeekOverlay(uiState: PlayerUiState) {
 @Composable
 private fun PlayerClockOverlay(
     currentPosition: Long,
-    duration: Long
+    duration: Long,
+    clockFormat: OsdClockFormat
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val timeFormatter = remember(clockFormat) {
+        val pattern = when (clockFormat) {
+            OsdClockFormat.HOUR_12 -> "h:mm a"
+            OsdClockFormat.HOUR_24 -> "HH:mm"
+        }
+        SimpleDateFormat(pattern, Locale.getDefault())
+    }
 
     LaunchedEffect(Unit) {
         while (true) {

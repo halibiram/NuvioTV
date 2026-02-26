@@ -141,6 +141,12 @@
     <string name="playback_pause_overlay_sub">Pokaż ekran ze szczegółami po 5 sekundach pauzy.</string>
     <string name="playback_show_clock_sub">Pokaż aktualny czas i czas zakończenia podczas wyświetlania kontrolek.</string>
     <string name="playback_osd_clock">Zegar OSD</string>
+    <string name="playback_osd_clock_format">Format czasu</string>
+    <string name="playback_osd_clock_format_12">12-godzinny</string>
+    <string name="playback_osd_clock_format_12_sub">Wyświetl czas z AM/PM (np. 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24-godzinny</string>
+    <string name="playback_osd_clock_format_24_sub">Wyświetl czas w formacie 24-godzinnym (np. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Nie pokazuj zegara na kontrolkach odtwarzacza</string>
     <string name="playback_skip_intro">Pomiń intro</string>
     <string name="playback_skip_intro_sub">Używaj introdb.app do wykrywania intro i podsumowań.</string>
     <string name="playback_auto_frame_rate">Auto częstotliwość odświeżania</string>

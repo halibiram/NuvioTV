@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +56,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.FrameRateMatchingMode
+import com.nuvio.tv.data.local.OsdClockFormat
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.TrailerSettings
@@ -113,6 +116,7 @@ internal fun PlaybackSettingsSections(
     onSetLoadingOverlayEnabled: (Boolean) -> Unit,
     onSetPauseOverlayEnabled: (Boolean) -> Unit,
     onSetOsdClockEnabled: (Boolean) -> Unit,
+    onSetOsdClockFormat: (OsdClockFormat) -> Unit,
     onSetSkipIntroEnabled: (Boolean) -> Unit,
     onSetFrameRateMatchingMode: (FrameRateMatchingMode) -> Unit,
     onSetTrailerEnabled: (Boolean) -> Unit,
@@ -229,16 +233,40 @@ internal fun PlaybackSettingsSections(
                 )
             }
 
-            item(key = "general_osd_clock") {
-                ToggleSettingsItem(
-                    icon = Icons.Default.Timer,
+            item(key = "general_osd_clock_header") {
+                var osdClockExpanded by rememberSaveable { mutableStateOf(false) }
+                val osdClockHeaderFocus = remember { FocusRequester() }
+                
+                val osdClockLabel = if (playerSettings.osdClockEnabled) {
+                    when (playerSettings.osdClockFormat) {
+                        OsdClockFormat.HOUR_12 -> stringResource(R.string.playback_osd_clock_format_12)
+                        OsdClockFormat.HOUR_24 -> stringResource(R.string.playback_osd_clock_format_24)
+                    }
+                } else {
+                    stringResource(R.string.playback_afr_off)
+                }
+                
+                PlaybackSectionHeader(
                     title = stringResource(R.string.playback_osd_clock),
-                    subtitle = stringResource(R.string.playback_show_clock_sub),
-                    isChecked = playerSettings.osdClockEnabled,
-                    onCheckedChange = onSetOsdClockEnabled,
+                    description = osdClockLabel,
+                    expanded = osdClockExpanded,
+                    onToggle = { osdClockExpanded = !osdClockExpanded },
+                    focusRequester = osdClockHeaderFocus,
                     onFocused = { focusedSection = PlaybackSection.GENERAL },
                     enabled = !generalUi.isExternalPlayer
                 )
+                
+                if (osdClockExpanded) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OsdClockFormatOptionsWithOff(
+                        osdClockEnabled = playerSettings.osdClockEnabled,
+                        selectedFormat = playerSettings.osdClockFormat,
+                        onSetEnabled = onSetOsdClockEnabled,
+                        onSelectFormat = onSetOsdClockFormat,
+                        onFocused = { focusedSection = PlaybackSection.GENERAL },
+                        enabled = !generalUi.isExternalPlayer
+                    )
+                }
             }
 
             item(key = "general_skip_intro") {
@@ -462,6 +490,84 @@ private fun FrameRateMatchingModeOptions(
             subtitle = stringResource(R.string.playback_afr_on_start_stop_sub),
             isSelected = selectedMode == FrameRateMatchingMode.START_STOP,
             onClick = { onSelect(FrameRateMatchingMode.START_STOP) },
+            onFocused = onFocused,
+            enabled = enabled
+        )
+    }
+}
+
+@Composable
+private fun OsdClockFormatOptions(
+    selectedFormat: OsdClockFormat,
+    onSelect: (OsdClockFormat) -> Unit,
+    onFocused: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_osd_clock_format_12),
+            subtitle = stringResource(R.string.playback_osd_clock_format_12_sub),
+            isSelected = selectedFormat == OsdClockFormat.HOUR_12,
+            onClick = { onSelect(OsdClockFormat.HOUR_12) },
+            onFocused = onFocused,
+            enabled = true
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_osd_clock_format_24),
+            subtitle = stringResource(R.string.playback_osd_clock_format_24_sub),
+            isSelected = selectedFormat == OsdClockFormat.HOUR_24,
+            onClick = { onSelect(OsdClockFormat.HOUR_24) },
+            onFocused = onFocused,
+            enabled = true
+        )
+    }
+}
+
+@Composable
+private fun OsdClockFormatOptionsWithOff(
+    osdClockEnabled: Boolean,
+    selectedFormat: OsdClockFormat,
+    onSetEnabled: (Boolean) -> Unit,
+    onSelectFormat: (OsdClockFormat) -> Unit,
+    onFocused: () -> Unit,
+    enabled: Boolean
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_afr_off),
+            subtitle = stringResource(R.string.playback_osd_clock_off_sub),
+            isSelected = !osdClockEnabled,
+            onClick = { onSetEnabled(false) },
+            onFocused = onFocused,
+            enabled = enabled
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_osd_clock_format_12),
+            subtitle = stringResource(R.string.playback_osd_clock_format_12_sub),
+            isSelected = osdClockEnabled && selectedFormat == OsdClockFormat.HOUR_12,
+            onClick = { 
+                onSetEnabled(true)
+                onSelectFormat(OsdClockFormat.HOUR_12)
+            },
+            onFocused = onFocused,
+            enabled = enabled
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_osd_clock_format_24),
+            subtitle = stringResource(R.string.playback_osd_clock_format_24_sub),
+            isSelected = osdClockEnabled && selectedFormat == OsdClockFormat.HOUR_24,
+            onClick = { 
+                onSetEnabled(true)
+                onSelectFormat(OsdClockFormat.HOUR_24)
+            },
             onFocused = onFocused,
             enabled = enabled
         )

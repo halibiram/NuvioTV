@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.data.local.LibassRenderType
+import com.nuvio.tv.data.local.OsdClockFormat
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.PlayerPreference
@@ -92,6 +93,10 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setOsdClockEnabled(enabled: Boolean) {
         playerSettingsDataStore.setOsdClockEnabled(enabled)
+    }
+
+    suspend fun setOsdClockFormat(format: OsdClockFormat) {
+        playerSettingsDataStore.setOsdClockFormat(format)
     }
 
     suspend fun setSkipIntroEnabled(enabled: Boolean) {

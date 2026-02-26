@@ -46,6 +46,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import com.nuvio.tv.data.local.OsdClockFormat
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.ui.theme.NuvioColors
 import java.text.SimpleDateFormat
@@ -67,6 +68,7 @@ fun PauseOverlay(
     type: String?,
     description: String?,
     cast: List<MetaCastMember>,
+    clockFormat: OsdClockFormat,
     modifier: Modifier = Modifier
 ) {
     var selectedCastMember by remember { mutableStateOf<MetaCastMember?>(null) }
@@ -116,6 +118,7 @@ fun PauseOverlay(
                     .padding(start = 56.dp, end = 56.dp, top = 40.dp, bottom = 120.dp)
             ) {
                 PauseOverlayClock(
+                    clockFormat = clockFormat,
                     modifier = Modifier.align(Alignment.TopEnd)
                 )
 
@@ -148,9 +151,15 @@ fun PauseOverlay(
 }
 
 @Composable
-private fun PauseOverlayClock(modifier: Modifier = Modifier) {
+private fun PauseOverlayClock(clockFormat: OsdClockFormat, modifier: Modifier = Modifier) {
     var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
-    val formatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val formatter = remember(clockFormat) {
+        val pattern = when (clockFormat) {
+            OsdClockFormat.HOUR_12 -> "h:mm a"
+            OsdClockFormat.HOUR_24 -> "HH:mm"
+        }
+        SimpleDateFormat(pattern, Locale.getDefault())
+    }
 
     LaunchedEffect(Unit) {
         while (true) {

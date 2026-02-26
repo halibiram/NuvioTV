@@ -91,7 +91,7 @@
     <!-- AboutScreen -->
     <string name="about_title">Hakkında</string>
     <string name="about_subtitle">Uygulama bilgileri, güncellemeler ve yasal bağlantılar</string>
-    <string name="about_made_with_love">Tapframe ve ekibi tarafından ❤️ ile yapıldı</string>
+    <string name="about_made_with_love">Tapframe ve arkadaşları tarafından ❤️ ile yapıldı</string>
     <string name="about_version">Sürüm %1$s</string>
     <string name="about_check_updates">Güncellemeleri kontrol et</string>
     <string name="about_check_updates_subtitle">En son sürümü indir</string>
@@ -138,11 +138,17 @@
     <string name="playback_section_general">Genel</string>
     <string name="playback_section_general_desc">Temel oynatma davranışı.</string>
     <string name="playback_loading_overlay">Yükleme Ekranı</string>
-    <string name="playback_loading_overlay_sub">İlk video karesi görünene kadar yükleme ekranını göster.</string>
+    <string name="playback_loading_overlay_sub">İlk video karesi görünene kadar yükleme ekranını gösterir.</string>
     <string name="playback_pause_overlay">Duraklatma Ekranı</string>
-    <string name="playback_pause_overlay_sub">Duraklatıldığında 5 saniye sonra detaylar ekranını göster.</string>
-    <string name="playback_show_clock_sub">Kontroller görünürken mevcut saati ve bitiş saatini göster.</string>
+    <string name="playback_pause_overlay_sub">Duraklatıldığında 5 saniye sonra detaylar ekranını gösterir.</string>
+    <string name="playback_show_clock_sub">Kontroller görünürken mevcut saati ve bitiş saatini gösterir.</string>
     <string name="playback_osd_clock">Ekran Saati (OSD)</string>
+    <string name="playback_osd_clock_format">Saat Formatı</string>
+    <string name="playback_osd_clock_format_12">12-saat</string>
+    <string name="playback_osd_clock_format_12_sub">Saati ÖÖ/ÖS ile göster (örn. 3:45 ÖS)</string>
+    <string name="playback_osd_clock_format_24">24-saat</string>
+    <string name="playback_osd_clock_format_24_sub">Saati 24 saat formatında göster (örn. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Oynatıcı kontrollerinde saati gösterme</string>
     <string name="playback_skip_intro">İntroyu Atla</string>
     <string name="playback_skip_intro_sub">İntro ve özetleri algılamak için introdb.app kullan.</string>
     <string name="playback_auto_frame_rate">Otomatik Kare Hızı</string>

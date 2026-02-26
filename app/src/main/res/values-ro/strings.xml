@@ -99,6 +99,13 @@
     <string name="playback_pause_overlay">Suprapunere de pauză</string>
     <string name="playback_pause_overlay_sub">Afișează suprapunerea de detalii după 5 secunde în timpul pauzei.</string>
     <string name="playback_show_clock_sub">Afișează timpul curent și timpul de finalizare în timp ce controalele sunt vizibile.</string>
+    <string name="playback_osd_clock">Ceas OSD</string>
+    <string name="playback_osd_clock_format">Format oră</string>
+    <string name="playback_osd_clock_format_12">12 ore</string>
+    <string name="playback_osd_clock_format_12_sub">Afișează ora cu AM/PM (ex. 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24 ore</string>
+    <string name="playback_osd_clock_format_24_sub">Afișează ora în format 24 ore (ex. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Nu afișa ceasul pe controalele playerului</string>
     <string name="playback_skip_intro">Sari peste intro</string>
     <string name="playback_skip_intro_sub">Folosește introdb.app pentru a detecta intro-urile și recapitulările.</string>
     <string name="playback_auto_frame_rate">Rată de cadre automată</string>

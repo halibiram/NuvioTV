@@ -143,6 +143,12 @@
     <string name="playback_pause_overlay_sub">Mostra l\'overlay dei dettagli dopo 5 secondi di pausa.</string>
     <string name="playback_show_clock_sub">Mostra l\'ora attuale e l\'ora di fine quando i controlli sono visibili.</string>
     <string name="playback_osd_clock">Orologio sovraimpressione</string>
+    <string name="playback_osd_clock_format">Formato ora</string>
+    <string name="playback_osd_clock_format_12">12 ore</string>
+    <string name="playback_osd_clock_format_12_sub">Mostra l\'ora con AM/PM (es. 3:45 PM)</string>
+    <string name="playback_osd_clock_format_24">24 ore</string>
+    <string name="playback_osd_clock_format_24_sub">Mostra l\'ora in formato 24 ore (es. 15:45)</string>
+    <string name="playback_osd_clock_off_sub">Non mostrare l\'orologio sui controlli del player</string>
     <string name="playback_skip_intro">Salta intro</string>
     <string name="playback_skip_intro_sub">Usa introdb.app per rilevare intro e riassunti.</string>
     <string name="playback_auto_frame_rate">Frequenza fotogrammi automatica</string>
