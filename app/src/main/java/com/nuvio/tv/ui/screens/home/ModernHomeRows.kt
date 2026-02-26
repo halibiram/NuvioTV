@@ -365,8 +365,11 @@ internal fun ModernRowSection(
             LazyRow(
                 state = rowListState,
                 modifier = Modifier
-                    .focusRestorer {
-                    val rememberedIndex = (focusedItemByRow[row.key] ?: 0)
+                    // Route map access through @Stable uiCaches (instead of the extracted
+                // MutableMap locals) so the Compose compiler captures the stable holder,
+                // enabling automatic lambda memoization for focusRestorer.
+                .focusRestorer {
+                    val rememberedIndex = (uiCaches.focusedItemByRow[row.key] ?: 0)
                         .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
                     val fallbackIndex = rowListState.firstVisibleItemIndex
                         .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
@@ -379,7 +382,7 @@ internal fun ModernRowSection(
                     val safeIndex = if (restoreIndex in visibleIndices) restoreIndex else
                         visibleIndices.minByOrNull { kotlin.math.abs(it - restoreIndex) } ?: fallbackIndex
                     val itemKey = row.items.getOrNull(safeIndex)?.key ?: row.items.first().key
-                    itemFocusRequesters[row.key]?.get(itemKey) ?: FocusRequester.Default
+                    uiCaches.itemFocusRequesters[row.key]?.get(itemKey) ?: FocusRequester.Default
                 },
                 contentPadding = PaddingValues(horizontal = rowStartPadding),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

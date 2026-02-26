@@ -441,22 +441,19 @@ fun ModernHomeContent(
         }
     }
 
-    val activeRow by remember(carouselRows, rowByKey, activeRowKey) {
-        derivedStateOf {
-            val activeKey = activeRowKey
-            if (activeKey == null) {
-                null
-            } else {
-                rowByKey[activeKey] ?: carouselRows.firstOrNull()
-            }
-        }
+    // Plain remember is sufficient here: all dependencies are already remember keys.
+    // derivedStateOf adds snapshot-tracking overhead with zero benefit when no fresh
+    // snapshot state reads occur inside the block (the captured values are already
+    // unwrapped by the remember keys). Removing derivedStateOf eliminates 8 unnecessary
+    // SnapshotState observers and their associated invalidation-scope bookkeeping.
+    val activeRow = remember(carouselRows, rowByKey, activeRowKey) {
+        if (activeRowKey == null) null
+        else rowByKey[activeRowKey] ?: carouselRows.firstOrNull()
     }
-    val clampedActiveItemIndex by remember(activeRow, activeItemIndex) {
-        derivedStateOf {
-            activeRow?.let { row ->
-                activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-            } ?: 0
-        }
+    val clampedActiveItemIndex = remember(activeRow, activeItemIndex) {
+        activeRow?.let { row ->
+            activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
+        } ?: 0
     }
 
     LaunchedEffect(activeRow?.key, activeRow?.items?.size) {
@@ -468,11 +465,9 @@ fun ModernHomeContent(
         focusedItemByRow[row.key] = clampedIndex
     }
 
-    val activeHeroItemKey by remember(activeRow, clampedActiveItemIndex) {
-        derivedStateOf {
-            val row = activeRow ?: return@derivedStateOf null
-            row.items.getOrNull(clampedActiveItemIndex)?.key ?: row.items.firstOrNull()?.key
-        }
+    val activeHeroItemKey = remember(activeRow, clampedActiveItemIndex) {
+        val row = activeRow ?: return@remember null
+        row.items.getOrNull(clampedActiveItemIndex)?.key ?: row.items.firstOrNull()?.key
     }
     val latestHeroRow by rememberUpdatedState(activeRow)
     val latestHeroIndex by rememberUpdatedState(clampedActiveItemIndex)
@@ -543,51 +538,41 @@ fun ModernHomeContent(
         val maxHeight = screenHeightDp
         val rowHorizontalPadding = 52.dp
 
-        val resolvedHero by remember(heroItem, activeRow, clampedActiveItemIndex) {
-            derivedStateOf {
-                heroItem
-                    ?: activeRow?.items?.getOrNull(clampedActiveItemIndex)?.heroPreview
-                    ?: activeRow?.items?.firstOrNull()?.heroPreview
-            }
+        val resolvedHero = remember(heroItem, activeRow, clampedActiveItemIndex) {
+            heroItem
+                ?: activeRow?.items?.getOrNull(clampedActiveItemIndex)?.heroPreview
+                ?: activeRow?.items?.firstOrNull()?.heroPreview
         }
         val activeRowFallbackBackdrop = remember(activeRow?.key, activeRow?.items) {
             activeRow?.items?.firstNotNullOfOrNull { item ->
                 item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
             }
         }
-        val heroBackdrop by remember(heroItem, resolvedHero, activeRowFallbackBackdrop) {
-            derivedStateOf {
-                firstNonBlank(
-                    resolvedHero?.backdrop,
-                    resolvedHero?.imageUrl,
-                    resolvedHero?.poster,
-                    if (heroItem == null) activeRowFallbackBackdrop else null
-                )
-            }
+        val heroBackdrop = remember(heroItem, resolvedHero, activeRowFallbackBackdrop) {
+            firstNonBlank(
+                resolvedHero?.backdrop,
+                resolvedHero?.imageUrl,
+                resolvedHero?.poster,
+                if (heroItem == null) activeRowFallbackBackdrop else null
+            )
         }
-        val expandedFocusedSelection by remember(focusedCatalogSelection, expandedCatalogFocusKey) {
-            derivedStateOf {
-                focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
-            }
+        val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
+            focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
         }
-        val heroTrailerUrl by remember(expandedFocusedSelection, trailerPreviewUrls) {
-            derivedStateOf {
-                expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
-            }
+        val heroTrailerUrl = remember(expandedFocusedSelection, trailerPreviewUrls) {
+            expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
         }
         val expandedCatalogTrailerUrl = heroTrailerUrl
-        val shouldPlayHeroTrailer by remember(
+        val shouldPlayHeroTrailer = remember(
             effectiveAutoplayEnabled,
             trailerPlaybackTarget,
             heroTrailerUrl,
             isVerticalRowsScrolling
         ) {
-            derivedStateOf {
-                effectiveAutoplayEnabled &&
-                    !isVerticalRowsScrolling &&
-                    trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
-                    !heroTrailerUrl.isNullOrBlank()
-            }
+            effectiveAutoplayEnabled &&
+                !isVerticalRowsScrolling &&
+                trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
+                !heroTrailerUrl.isNullOrBlank()
         }
         var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
         LaunchedEffect(shouldPlayHeroTrailer) {
@@ -703,10 +688,13 @@ fun ModernHomeContent(
                             pendingRowFocusKey = null
                             pendingRowFocusIndex = null
                         },
+                        // Route map access through @Stable uiCaches so the Compose
+                        // compiler captures the stable holder rather than the raw
+                        // MutableMap, enabling automatic lambda memoization.
                         onRowItemFocused = { rowKey, index, isContinueWatchingRow ->
                             val rowBecameActive = activeRowKey != rowKey
-                            if (focusedItemByRow[rowKey] != index) {
-                                focusedItemByRow[rowKey] = index
+                            if (uiCaches.focusedItemByRow[rowKey] != index) {
+                                uiCaches.focusedItemByRow[rowKey] = index
                             }
                             if (rowBecameActive) {
                                 activeRowKey = rowKey
