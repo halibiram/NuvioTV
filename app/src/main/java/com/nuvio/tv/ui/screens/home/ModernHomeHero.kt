@@ -67,6 +67,7 @@ internal fun ModernHeroMediaLayer(
                 ImageRequest.Builder(localContext)
                     .data(imageUrl)
                     .crossfade(false)
+                    .memoryCacheKey("hero_bg_${imageUrl}_${requestWidthPx}x${requestHeightPx}")
                     .size(width = requestWidthPx, height = requestHeightPx)
                     .build()
             }

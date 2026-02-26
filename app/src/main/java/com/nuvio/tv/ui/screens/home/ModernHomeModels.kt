@@ -83,6 +83,7 @@ internal data class HeroCarouselRow(
     val isLoading: Boolean = false
 )
 
+@Immutable
 internal data class CarouselRowLookups(
     val rowIndexByKey: Map<String, Int>,
     val rowByKey: Map<String, HeroCarouselRow>,

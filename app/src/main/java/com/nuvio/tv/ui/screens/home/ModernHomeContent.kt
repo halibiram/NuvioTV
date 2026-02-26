@@ -531,90 +531,92 @@ fun ModernHomeContent(
     val screenWidthDp = configuration.screenWidthDp.dp
     val screenHeightDp = configuration.screenHeightDp.dp
 
+    // Pre-compute values outside the Box to avoid recomputation on every recomposition.
+    val maxWidth = screenWidthDp
+    val maxHeight = screenHeightDp
+    val catalogBottomPadding = 0.dp
+    val heroToCatalogGap = 16.dp
+    val rowTitleBottom = 14.dp
+    val rowsViewportHeightFraction = if (useLandscapePosters) 0.50f else 0.54f
+    val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
+    val rowHorizontalPadding = 52.dp
+    val localDensity = LocalDensity.current
+
+    val resolvedHero = remember(heroItem, activeRow, clampedActiveItemIndex) {
+        heroItem
+            ?: activeRow?.items?.getOrNull(clampedActiveItemIndex)?.heroPreview
+            ?: activeRow?.items?.firstOrNull()?.heroPreview
+    }
+    val activeRowFallbackBackdrop = remember(activeRow?.key, activeRow?.items) {
+        activeRow?.items?.firstNotNullOfOrNull { item ->
+            item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
+        }
+    }
+    val heroBackdrop = remember(heroItem, resolvedHero, activeRowFallbackBackdrop) {
+        firstNonBlank(
+            resolvedHero?.backdrop,
+            resolvedHero?.imageUrl,
+            resolvedHero?.poster,
+            if (heroItem == null) activeRowFallbackBackdrop else null
+        )
+    }
+    val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
+        focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
+    }
+    val heroTrailerUrl = remember(expandedFocusedSelection, trailerPreviewUrls) {
+        expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
+    }
+    val expandedCatalogTrailerUrl = heroTrailerUrl
+    val shouldPlayHeroTrailer = remember(
+        effectiveAutoplayEnabled,
+        trailerPlaybackTarget,
+        heroTrailerUrl,
+        isVerticalRowsScrolling
+    ) {
+        effectiveAutoplayEnabled &&
+            !isVerticalRowsScrolling &&
+            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
+            !heroTrailerUrl.isNullOrBlank()
+    }
+    var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
+    LaunchedEffect(shouldPlayHeroTrailer) {
+        if (!shouldPlayHeroTrailer) {
+            heroTrailerFirstFrameRendered = false
+        }
+    }
+    val heroTransitionProgress by animateFloatAsState(
+        targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
+        animationSpec = tween(durationMillis = 480),
+        label = "heroBackdropTrailerCrossfadeProgress"
+    )
+    val heroBackdropAlpha = 1f - heroTransitionProgress
+    val heroTrailerAlpha = heroTransitionProgress
+
+    val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
+        val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
+        object : BringIntoViewSpec {
+            @Suppress("DEPRECATION")
+            override val scrollAnimationSpec: AnimationSpec<Float> =
+                defaultBringIntoViewSpec.scrollAnimationSpec
+
+            override fun calculateScrollDistance(
+                offset: Float,
+                size: Float,
+                containerSize: Float
+            ): Float = offset - topInsetPx
+        }
+    }
+    val bgColor = NuvioColors.Background
+    val heroMediaWidthPx = remember(maxWidth, localDensity) {
+        with(localDensity) { (maxWidth * 0.75f).roundToPx() }
+    }
+    val heroMediaHeightPx = remember(maxHeight, localDensity) {
+        with(localDensity) { (maxHeight * MODERN_HERO_BACKDROP_HEIGHT_FRACTION).roundToPx() }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        val maxWidth = screenWidthDp
-        val maxHeight = screenHeightDp
-        val rowHorizontalPadding = 52.dp
-
-        val resolvedHero = remember(heroItem, activeRow, clampedActiveItemIndex) {
-            heroItem
-                ?: activeRow?.items?.getOrNull(clampedActiveItemIndex)?.heroPreview
-                ?: activeRow?.items?.firstOrNull()?.heroPreview
-        }
-        val activeRowFallbackBackdrop = remember(activeRow?.key, activeRow?.items) {
-            activeRow?.items?.firstNotNullOfOrNull { item ->
-                item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
-            }
-        }
-        val heroBackdrop = remember(heroItem, resolvedHero, activeRowFallbackBackdrop) {
-            firstNonBlank(
-                resolvedHero?.backdrop,
-                resolvedHero?.imageUrl,
-                resolvedHero?.poster,
-                if (heroItem == null) activeRowFallbackBackdrop else null
-            )
-        }
-        val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
-            focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
-        }
-        val heroTrailerUrl = remember(expandedFocusedSelection, trailerPreviewUrls) {
-            expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
-        }
-        val expandedCatalogTrailerUrl = heroTrailerUrl
-        val shouldPlayHeroTrailer = remember(
-            effectiveAutoplayEnabled,
-            trailerPlaybackTarget,
-            heroTrailerUrl,
-            isVerticalRowsScrolling
-        ) {
-            effectiveAutoplayEnabled &&
-                !isVerticalRowsScrolling &&
-                trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
-                !heroTrailerUrl.isNullOrBlank()
-        }
-        var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
-        LaunchedEffect(shouldPlayHeroTrailer) {
-            if (!shouldPlayHeroTrailer) {
-                heroTrailerFirstFrameRendered = false
-            }
-        }
-        val heroTransitionProgress by animateFloatAsState(
-            targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
-            animationSpec = tween(durationMillis = 480),
-            label = "heroBackdropTrailerCrossfadeProgress"
-        )
-        val heroBackdropAlpha = 1f - heroTransitionProgress
-        val heroTrailerAlpha = heroTransitionProgress
-        val catalogBottomPadding = 0.dp
-        val heroToCatalogGap = 16.dp
-        val rowTitleBottom = 14.dp
-        val rowsViewportHeightFraction = if (useLandscapePosters) 0.50f else 0.54f
-        val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
-        val localDensity = LocalDensity.current
-        val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
-            val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
-            object : BringIntoViewSpec {
-                @Suppress("DEPRECATION")
-                override val scrollAnimationSpec: AnimationSpec<Float> =
-                    defaultBringIntoViewSpec.scrollAnimationSpec
-
-                override fun calculateScrollDistance(
-                    offset: Float,
-                    size: Float,
-                    containerSize: Float
-                ): Float = offset - topInsetPx
-            }
-        }
-        val bgColor = NuvioColors.Background
-        val heroMediaWidthPx = remember(maxWidth, localDensity) {
-            with(localDensity) { (maxWidth * 0.75f).roundToPx() }
-        }
-        val heroMediaHeightPx = remember(maxHeight, localDensity) {
-            with(localDensity) { (maxHeight * MODERN_HERO_BACKDROP_HEIGHT_FRACTION).roundToPx() }
-        }
-
         val heroMediaModifier = Modifier
             .align(Alignment.TopEnd)
             .offset(x = 56.dp)

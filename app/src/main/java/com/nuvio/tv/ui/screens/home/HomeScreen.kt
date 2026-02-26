@@ -348,6 +348,9 @@ private fun ModernHomeRoute(
             viewModel.saveFocusState(vi, vo, ri, ii, m)
         }
     }
+    val onItemFocus = remember(viewModel) {
+        { item: MetaPreview -> viewModel.onItemFocus(item) }
+    }
     ModernHomeContent(
         uiState = uiState,
         focusState = focusState,
@@ -359,9 +362,7 @@ private fun ModernHomeRoute(
         onRemoveContinueWatching = removeContinueWatching,
         isCatalogItemWatched = isCatalogItemWatched,
         onCatalogItemLongPress = onCatalogItemLongPress,
-        onItemFocus = { item ->
-            viewModel.onItemFocus(item)
-        },
+        onItemFocus = onItemFocus,
         onSaveFocusState = saveModernFocusState
     )
 }
