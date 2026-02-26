@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalDensity
@@ -90,10 +92,18 @@ private fun ModernContinueWatchingRowItem(
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onShowOptions: (ContinueWatchingItem) -> Unit
 ) {
+    // Stabilize per-item lambdas so ContinueWatchingCard does not recompose
+    // when only the parent row recomposes with the same payload.
+    val stableOnClick = remember(payload.item) {
+        { onContinueWatchingClick(payload.item) }
+    }
+    val stableOnLongPress = remember(payload.item) {
+        { onShowOptions(payload.item) }
+    }
     ContinueWatchingCard(
         item = payload.item,
-        onClick = { onContinueWatchingClick(payload.item) },
-        onLongPress = { onShowOptions(payload.item) },
+        onClick = stableOnClick,
+        onLongPress = stableOnLongPress,
         cardWidth = cardWidth,
         imageHeight = imageHeight,
         modifier = Modifier
@@ -495,7 +505,10 @@ private fun ModernCarouselCard(
     } else {
         cardWidth
     }
-    val animatedCardWidth by if (focusedPosterBackdropExpandEnabled) {
+    // Keep the State reference (no `by` delegation) so we can read the value
+    // in the layout phase instead of composition.  This avoids a full recomposition
+    // on every animation frame during card expansion/collapse — only relayout occurs.
+    val animatedCardWidthState: State<Dp> = if (focusedPosterBackdropExpandEnabled) {
         animateDpAsState(
             targetValue = targetCardWidth,
             animationSpec = tween(durationMillis = 250),
@@ -591,7 +604,18 @@ private fun ModernCarouselCard(
     val cardShapeDefaults = remember(cardShape) { CardDefaults.shape(shape = cardShape) }
 
     Column(
-        modifier = Modifier.width(animatedCardWidth),
+        // Defer the animated width read to the layout phase so that each
+        // animation frame only triggers relayout (cheap) instead of full
+        // recomposition of the entire card tree.
+        modifier = Modifier.layout { measurable, constraints ->
+            val widthPx = animatedCardWidthState.value.roundToPx()
+            val placeable = measurable.measure(
+                constraints.copy(minWidth = widthPx, maxWidth = widthPx)
+            )
+            layout(widthPx, placeable.height) {
+                placeable.placeRelative(0, 0)
+            }
+        },
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Card(

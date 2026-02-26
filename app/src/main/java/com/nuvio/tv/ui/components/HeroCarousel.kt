@@ -285,6 +285,7 @@ private fun HeroCarouselSlide(
                             ImageRequest.Builder(context)
                                 .data(com.nuvio.tv.R.raw.imdb_logo_2016)
                                 .decoderFactory(SvgDecoder.Factory())
+                                .memoryCacheKey("imdb_logo_svg_carousel")
                                 .build()
                         }
                         AsyncImage(

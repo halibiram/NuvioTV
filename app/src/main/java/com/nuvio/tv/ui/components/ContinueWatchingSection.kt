@@ -280,6 +280,7 @@ fun ContinueWatchingCard(
             .data(imageModel)
             .crossfade(false)
             .size(width = requestWidthPx, height = requestHeightPx)
+            .memoryCacheKey("cw_${imageModel}_${requestWidthPx}x${requestHeightPx}")
             .build()
     }
 
@@ -295,6 +296,26 @@ fun ContinueWatchingCard(
         )
     }
     val badgeBackground = remember(bgColor) { bgColor.copy(alpha = 0.8f) }
+
+    // Memoize CardDefaults to avoid recreating these immutable objects on every
+    // recomposition — each call allocates internally.
+    val cwCardShapeDefaults = remember { CardDefaults.shape(shape = CwCardShape) }
+    val cwCardColors = remember {
+        CardDefaults.colors(
+            containerColor = NuvioColors.BackgroundCard,
+            focusedContainerColor = NuvioColors.FocusBackground
+        )
+    }
+    val cwFocusRingColor = NuvioColors.FocusRing
+    val cwCardBorder = remember(cwFocusRingColor) {
+        CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, cwFocusRingColor),
+                shape = CwCardShape
+            )
+        )
+    }
+    val cwCardScale = remember { CardDefaults.scale(focusedScale = 1.02f) }
 
     Card(
         onClick = {
@@ -327,18 +348,10 @@ fun ContinueWatchingCard(
                 }
                 false
             },
-        shape = CardDefaults.shape(shape = CwCardShape),
-        colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = CwCardShape
-            )
-        ),
-        scale = CardDefaults.scale(focusedScale = 1.02f)
+        shape = cwCardShapeDefaults,
+        colors = cwCardColors,
+        border = cwCardBorder,
+        scale = cwCardScale
     ) {
         Column {
             // Thumbnail with progress overlay

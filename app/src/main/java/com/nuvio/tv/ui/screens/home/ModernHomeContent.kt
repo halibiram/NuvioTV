@@ -310,6 +310,16 @@ fun ModernHomeContent(
         return byIndex.getOrPut(itemKey) { FocusRequester() }
     }
 
+    // Stabilize the requesterFor function reference so ModernRowSection receives
+    // the same lambda instance across recompositions (::requesterFor would create
+    // a new reference each time).
+    val stableRequesterFor: (String, String) -> FocusRequester = remember(itemFocusRequesters) {
+        { rowKey: String, itemKey: String ->
+            val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
+            byIndex.getOrPut(itemKey) { FocusRequester() }
+        }
+    }
+
     // Consolidated catalog-expansion + trailer-preview effects into a single
     // snapshotFlow.  Previously two separate LaunchedEffects both keyed on
     // focusedCatalogSelection?.focusKey + isVerticalRowsScrolling would restart
@@ -647,6 +657,17 @@ fun ModernHomeContent(
             .fillMaxWidth(0.75f)
             .fillMaxHeight(MODERN_HERO_BACKDROP_HEIGHT_FRACTION)
 
+        // Stabilize hero media callbacks to avoid recomposing ModernHeroMediaLayer
+        // when unrelated parent state (e.g. row focus) changes.
+        val stableHeroTrailerEnded = remember {
+            { expandedCatalogFocusKey = null }
+        }
+        // heroTrailerFirstFrameRendered is keyed on heroTrailerUrl so its backing
+        // MutableState changes — mirror that key here to capture the current setter.
+        val stableHeroFirstFrameRendered = remember(heroTrailerUrl) {
+            { heroTrailerFirstFrameRendered = true }
+        }
+
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
             heroBackdropAlpha = heroBackdropAlpha,
@@ -655,8 +676,8 @@ fun ModernHomeContent(
             heroTrailerAlpha = heroTrailerAlpha,
             muted = uiState.focusedPosterBackdropTrailerMuted,
             bgColor = bgColor,
-            onTrailerEnded = { expandedCatalogFocusKey = null },
-            onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
+            onTrailerEnded = stableHeroTrailerEnded,
+            onFirstFrameRendered = stableHeroFirstFrameRendered,
             modifier = heroMediaModifier,
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
@@ -784,7 +805,7 @@ fun ModernHomeContent(
                         focusedItemByRow = focusedItemByRow,
                         itemFocusRequesters = itemFocusRequesters,
                         loadMoreRequestedTotals = loadMoreRequestedTotals,
-                        requesterFor = ::requesterFor,
+                        requesterFor = stableRequesterFor,
                         pendingRowFocusKey = pendingRowFocusKey,
                         pendingRowFocusIndex = pendingRowFocusIndex,
                         pendingRowFocusNonce = pendingRowFocusNonce,

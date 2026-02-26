@@ -90,6 +90,20 @@ fun HomeScreen(
         )
     }
 
+    // Stabilize lambdas that are shared across all layout routes to prevent
+    // recomposition propagation when only uiState.movieWatchedStatus changes.
+    val movieWatchedStatus = uiState.movieWatchedStatus
+    val stableIsCatalogItemWatched: (MetaPreview) -> Boolean = remember(movieWatchedStatus) {
+        { item: MetaPreview ->
+            movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+        }
+    }
+    val stableOnCatalogItemLongPress: (MetaPreview, String) -> Unit = remember {
+        { item: MetaPreview, addonBaseUrl: String ->
+            posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -173,12 +187,8 @@ fun HomeScreen(
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
-                                isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                },
-                                onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
-                                }
+                                isCatalogItemWatched = stableIsCatalogItemWatched,
+                                onCatalogItemLongPress = stableOnCatalogItemLongPress
                             )
 
                             HomeLayout.GRID -> GridHomeRoute(
@@ -188,12 +198,8 @@ fun HomeScreen(
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
-                                isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                },
-                                onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
-                                }
+                                isCatalogItemWatched = stableIsCatalogItemWatched,
+                                onCatalogItemLongPress = stableOnCatalogItemLongPress
                             )
 
                             HomeLayout.MODERN -> ModernHomeRoute(
@@ -201,12 +207,8 @@ fun HomeScreen(
                                 uiState = uiState,
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
-                                isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                },
-                                onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
-                                }
+                                isCatalogItemWatched = stableIsCatalogItemWatched,
+                                onCatalogItemLongPress = stableOnCatalogItemLongPress
                             )
                         }
                     }
@@ -344,6 +346,9 @@ private fun ModernHomeRoute(
             viewModel.saveFocusState(vi, vo, ri, ii, m)
         }
     }
+    val onItemFocusStable = remember(viewModel) {
+        { item: MetaPreview -> viewModel.onItemFocus(item) }
+    }
     ModernHomeContent(
         uiState = uiState,
         focusState = focusState,
@@ -355,9 +360,7 @@ private fun ModernHomeRoute(
         onRemoveContinueWatching = removeContinueWatching,
         isCatalogItemWatched = isCatalogItemWatched,
         onCatalogItemLongPress = onCatalogItemLongPress,
-        onItemFocus = { item ->
-            viewModel.onItemFocus(item)
-        },
+        onItemFocus = onItemFocusStable,
         onSaveFocusState = saveModernFocusState
     )
 }
