@@ -41,10 +41,10 @@ import com.nuvio.tv.ui.theme.NuvioColors
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
-    heroBackdropAlpha: Float,
+    heroBackdropAlphaProvider: () -> Float,
     shouldPlayHeroTrailer: Boolean,
     heroTrailerUrl: String?,
-    heroTrailerAlpha: Float,
+    heroTrailerAlphaProvider: () -> Float,
     muted: Boolean,
     bgColor: Color,
     onTrailerEnded: () -> Unit,
@@ -59,7 +59,7 @@ internal fun ModernHeroMediaLayer(
             targetState = heroBackdrop,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = heroBackdropAlpha },
+                .graphicsLayer { alpha = heroBackdropAlphaProvider() },
             animationSpec = tween(durationMillis = 420),
             label = "modernHeroBackground"
         ) { imageUrl ->
@@ -91,7 +91,7 @@ internal fun ModernHeroMediaLayer(
                 overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = heroTrailerAlpha }
+                    .graphicsLayer { alpha = heroTrailerAlphaProvider() }
             )
         }
 

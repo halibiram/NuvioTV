@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -76,7 +75,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
+import androidx.compose.runtime.State
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
@@ -559,7 +562,17 @@ fun ModernHomeContent(
         continueWatchingCardWidth / 1.77f
     }
 
-    BoxWithConstraints(
+    // Replace BoxWithConstraints (SubcomposeLayout) with a regular Box to
+    // eliminate subcomposition overhead.  SubcomposeLayout forces synchronous
+    // composition during the layout phase and prevents the Compose compiler
+    // from efficiently skipping unchanged children.  Since this is a full-screen
+    // TV layout the available size equals the screen dimensions, which we obtain
+    // from LocalConfiguration (immediate, no one-frame delay).
+    val configuration = LocalConfiguration.current
+    val maxWidth = configuration.screenWidthDp.dp
+    val maxHeight = configuration.screenHeightDp.dp
+
+    Box(
         modifier = Modifier.fillMaxSize()
     ) {
         val rowHorizontalPadding = 52.dp
@@ -616,13 +629,18 @@ fun ModernHomeContent(
                 heroTrailerFirstFrameRendered = false
             }
         }
-        val heroTransitionProgress by animateFloatAsState(
+        // Keep the State reference (no `by` delegation) so we can pass
+        // lambda-based alpha providers to ModernHeroMediaLayer.  The lambdas
+        // are read ONLY inside graphicsLayer draw blocks, so changes to the
+        // animated progress never trigger recomposition of the hero layer or
+        // any of its children — only a cheap draw-phase update occurs.
+        // Over a 480 ms crossfade at 60 fps this eliminates ~29 full
+        // recomposition passes of the hero media tree.
+        val heroTransitionProgressState: State<Float> = animateFloatAsState(
             targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
             animationSpec = tween(durationMillis = 480),
             label = "heroBackdropTrailerCrossfadeProgress"
         )
-        val heroBackdropAlpha = 1f - heroTransitionProgress
-        val heroTrailerAlpha = heroTransitionProgress
         val catalogBottomPadding = 0.dp
         val heroToCatalogGap = 16.dp
         val rowTitleBottom = 14.dp
@@ -668,12 +686,22 @@ fun ModernHomeContent(
             { heroTrailerFirstFrameRendered = true }
         }
 
+        // Stable lambda references that read heroTransitionProgressState only
+        // inside graphicsLayer (draw phase).  Using remember ensures the same
+        // lambda instance is passed across recompositions.
+        val stableBackdropAlphaProvider: () -> Float = remember {
+            { 1f - heroTransitionProgressState.value }
+        }
+        val stableTrailerAlphaProvider: () -> Float = remember {
+            { heroTransitionProgressState.value }
+        }
+
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
-            heroBackdropAlpha = heroBackdropAlpha,
+            heroBackdropAlphaProvider = stableBackdropAlphaProvider,
             shouldPlayHeroTrailer = shouldPlayHeroTrailer,
             heroTrailerUrl = heroTrailerUrl,
-            heroTrailerAlpha = heroTrailerAlpha,
+            heroTrailerAlphaProvider = stableTrailerAlphaProvider,
             muted = uiState.focusedPosterBackdropTrailerMuted,
             bgColor = bgColor,
             onTrailerEnded = stableHeroTrailerEnded,
