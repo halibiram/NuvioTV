@@ -58,7 +58,9 @@ fun TrailerPlayer(
     val currentOnFirstFrameRendered by rememberUpdatedState(onFirstFrameRendered)
     val currentOnProgressChanged by rememberUpdatedState(onProgressChanged)
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
-    val zoomScale = if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
+    val zoomScale = remember(cropToFill, overscanZoom) {
+        if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
+    }
     var hasRenderedFirstFrame by remember(trailerUrl) { mutableStateOf(false) }
     val playerAlpha by animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
@@ -124,7 +126,7 @@ fun TrailerPlayer(
             val position = player.currentPosition.coerceAtLeast(0L)
             val duration = player.duration.takeIf { it > 0 } ?: 0L
             currentOnProgressChanged(position, duration)
-            delay(250)
+            delay(500)
         }
         currentOnProgressChanged(0L, 0L)
     }

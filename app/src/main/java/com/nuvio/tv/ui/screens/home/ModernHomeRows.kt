@@ -374,7 +374,8 @@ internal fun ModernRowSection(
                     itemFocusRequesters[row.key]?.get(itemKey) ?: FocusRequester.Default
                 },
                 contentPadding = PaddingValues(horizontal = rowStartPadding),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                beyondBoundsItemCount = 3
             ) {
                 itemsIndexed(
                     items = row.items,
@@ -388,8 +389,9 @@ internal fun ModernRowSection(
                 ) { index, item ->
                     val requester = requesterFor(row.key, item.key)
                     val isContinueWatchingRow = row.key == "continue_watching"
-                    val onFocused = {
-                        onRowItemFocused(row.key, index, isContinueWatchingRow)
+                    val rowKey = row.key
+                    val stableOnFocused = remember(rowKey, index, isContinueWatchingRow) {
+                        { onRowItemFocused(rowKey, index, isContinueWatchingRow) }
                     }
 
                     when (val payload = item.payload) {
@@ -399,13 +401,21 @@ internal fun ModernRowSection(
                                 requester = requester,
                                 cardWidth = continueWatchingCardWidth,
                                 imageHeight = continueWatchingCardHeight,
-                                onFocused = onFocused,
+                                onFocused = stableOnFocused,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onShowOptions = onContinueWatchingOptions
                             )
                         }
 
                         is ModernPayload.Catalog -> {
+                            val stableLongPress = remember(item.metaPreview, payload.addonBaseUrl) {
+                                {
+                                    item.metaPreview?.let { preview ->
+                                        onCatalogItemLongPress(preview, payload.addonBaseUrl)
+                                    }
+                                    Unit
+                                }
+                            }
                             ModernCatalogRowItem(
                                 item = item,
                                 payload = payload,
@@ -422,14 +432,10 @@ internal fun ModernRowSection(
                                 expandedCatalogFocusKey = expandedCatalogFocusKey,
                                 expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
                                 isWatched = item.metaPreview?.let(isCatalogItemWatched) == true,
-                                onFocused = onFocused,
+                                onFocused = stableOnFocused,
                                 onCatalogSelectionFocused = onCatalogSelectionFocused,
                                 onNavigateToDetail = onNavigateToDetail,
-                                onLongPress = {
-                                    item.metaPreview?.let { preview ->
-                                        onCatalogItemLongPress(preview, payload.addonBaseUrl)
-                                    }
-                                },
+                                onLongPress = stableLongPress,
                                 onBackdropInteraction = onBackdropInteraction,
                                 onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange
                             )
@@ -464,10 +470,10 @@ private fun ModernCarouselCard(
     onBackdropInteraction: () -> Unit,
     onTrailerEnded: () -> Unit
 ) {
-    val cardShape = RoundedCornerShape(cardCornerRadius)
+    val cardShape = remember(cardCornerRadius) { RoundedCornerShape(cardCornerRadius) }
     val context = LocalContext.current
     val density = LocalDensity.current
-    val expandedCardWidth = cardHeight * (16f / 9f)
+    val expandedCardWidth = remember(cardHeight) { cardHeight * (16f / 9f) }
     val targetCardWidth = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
         expandedCardWidth
     } else {
@@ -476,6 +482,7 @@ private fun ModernCarouselCard(
     val animatedCardWidth by if (focusedPosterBackdropExpandEnabled) {
         animateDpAsState(
             targetValue = targetCardWidth,
+            animationSpec = tween(durationMillis = 250),
             label = "modernCardWidth"
         )
     } else {
@@ -529,11 +536,18 @@ private fun ModernCarouselCard(
     val hasLandscapeLogo = useLandscapePosters && !item.heroPreview.logo.isNullOrBlank()
     var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
-    val watchedIconEndPadding by animateDpAsState(
-        targetValue = if (isFocused) 16.dp else 8.dp,
-        animationSpec = tween(durationMillis = 180),
-        label = "modernCardWatchedIconEndPadding"
-    )
+    // Only animate watched icon padding when the item is actually watched to avoid
+    // unnecessary animation state overhead for the majority of cards.
+    val watchedIconEndPadding = if (isWatched) {
+        val animated by animateDpAsState(
+            targetValue = if (isFocused) 16.dp else 8.dp,
+            animationSpec = tween(durationMillis = 180),
+            label = "modernCardWatchedIconEndPadding"
+        )
+        animated
+    } else {
+        8.dp
+    }
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
@@ -546,6 +560,17 @@ private fun ModernCarouselCard(
     val titleStyle = remember(titleMedium) {
         titleMedium.copy(fontWeight = FontWeight.Medium)
     }
+    val cardColors = remember(backgroundCardColor) {
+        CardDefaults.colors(
+            containerColor = backgroundCardColor,
+            focusedContainerColor = backgroundCardColor
+        )
+    }
+    val cardBorder = remember(focusedBorder) {
+        CardDefaults.border(focusedBorder = focusedBorder)
+    }
+    val cardScale = remember { CardDefaults.scale(focusedScale = 1f) }
+    val cardShapeDefaults = remember(cardShape) { CardDefaults.shape(shape = cardShape) }
 
     Column(
         modifier = Modifier.width(animatedCardWidth),
@@ -595,15 +620,10 @@ private fun ModernCarouselCard(
                     }
                     false
                 },
-            shape = CardDefaults.shape(shape = cardShape),
-            colors = CardDefaults.colors(
-                containerColor = backgroundCardColor,
-                focusedContainerColor = backgroundCardColor
-            ),
-            border = CardDefaults.border(
-                focusedBorder = focusedBorder
-            ),
-            scale = CardDefaults.scale(focusedScale = 1f)
+            shape = cardShapeDefaults,
+            colors = cardColors,
+            border = cardBorder,
+            scale = cardScale
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 if (hasImage) {

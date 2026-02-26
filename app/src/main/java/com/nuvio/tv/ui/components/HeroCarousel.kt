@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -194,34 +195,10 @@ private fun HeroCarouselSlide(
     }
 
     val bgColor = NuvioColors.Background
-    val bottomGradient = remember(bgColor) {
-        Brush.verticalGradient(
-            colorStops = arrayOf(
-                0.0f to Color.Transparent,
-                0.3f to Color.Transparent,
-                0.6f to bgColor.copy(alpha = 0.5f),
-                0.8f to bgColor.copy(alpha = 0.85f),
-                1.0f to bgColor
-            )
-        )
-    }
-    val leftGradient = remember(bgColor) {
-        Brush.horizontalGradient(
-            colorStops = arrayOf(
-                0.0f to bgColor.copy(alpha = 0.98f),
-                0.16f to bgColor.copy(alpha = 0.88f),
-                0.34f to bgColor.copy(alpha = 0.56f),
-                0.56f to bgColor.copy(alpha = 0.20f),
-                0.72f to Color.Transparent,
-                1.0f to Color.Transparent
-            )
-        )
-    }
 
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Background image
         // Background image
         AsyncImage(
             model = backgroundModel,
@@ -231,18 +208,35 @@ private fun HeroCarouselSlide(
             alignment = Alignment.TopCenter
         )
 
-        // Bottom gradient for text readability
+        // Combined bottom + left gradient overlay in a single draw pass
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(bottomGradient)
-        )
-
-        // Left gradient for extra text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(leftGradient)
+                .drawWithCache {
+                    val bottomGradient = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color.Transparent,
+                            0.3f to Color.Transparent,
+                            0.6f to bgColor.copy(alpha = 0.5f),
+                            0.8f to bgColor.copy(alpha = 0.85f),
+                            1.0f to bgColor
+                        )
+                    )
+                    val leftGradient = Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.0f to bgColor.copy(alpha = 0.98f),
+                            0.16f to bgColor.copy(alpha = 0.88f),
+                            0.34f to bgColor.copy(alpha = 0.56f),
+                            0.56f to bgColor.copy(alpha = 0.20f),
+                            0.72f to Color.Transparent,
+                            1.0f to Color.Transparent
+                        )
+                    )
+                    onDrawBehind {
+                        drawRect(brush = bottomGradient, size = size)
+                        drawRect(brush = leftGradient, size = size)
+                    }
+                }
         )
 
         // Content overlay

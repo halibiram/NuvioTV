@@ -10,7 +10,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
+
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
@@ -136,8 +136,9 @@ fun ModernHomeContent(
         effectiveExpandEnabled ||
             (effectiveAutoplayEnabled &&
                 trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
-    val visibleCatalogRows = remember(uiState.catalogRows) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() }
+    val catalogRows = uiState.catalogRows
+    val visibleCatalogRows = remember(catalogRows) {
+        catalogRows.filter { it.items.isNotEmpty() }
     }
     val strContinueWatching = stringResource(R.string.continue_watching)
     val strAirsDate = stringResource(R.string.cw_airs_date)
@@ -626,48 +627,41 @@ fun ModernHomeContent(
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
         )
-        val leftGradient = remember(bgColor) {
-            Brush.horizontalGradient(
-                colorStops = arrayOf(
-                    0.0f to bgColor.copy(alpha = 0.96f),
-                    0.18f to bgColor.copy(alpha = 0.86f),
-                    0.31f to bgColor.copy(alpha = 0.70f),
-                    0.40f to bgColor.copy(alpha = 0.55f),
-                    0.48f to bgColor.copy(alpha = 0.38f),
-                    0.56f to bgColor.copy(alpha = 0.22f),
-                    0.66f to Color.Transparent,
-                    1.0f to Color.Transparent
-                )
-            )
-        }
-        val bottomGradient = remember(bgColor) {
-            Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0.0f to Color.Transparent,
-                    0.44f to Color.Transparent,
-                    0.62f to bgColor.copy(alpha = 0.38f),
-                    0.78f to bgColor.copy(alpha = 0.74f),
-                    0.92f to bgColor.copy(alpha = 0.94f),
-                    1.0f to bgColor.copy(alpha = 1.0f)
-                )
-            )
-        }
-        val dimColor = remember(bgColor) { bgColor.copy(alpha = 0.08f) }
-
+        // Combine dim, left gradient, and bottom gradient into a single draw pass
+        // to reduce composable count (3 Boxes -> 1) and avoid per-frame layout overhead.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(dimColor)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(leftGradient)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(bottomGradient)
+                .drawWithCache {
+                    val dimBrush = bgColor.copy(alpha = 0.08f)
+                    val leftGradient = Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.0f to bgColor.copy(alpha = 0.96f),
+                            0.18f to bgColor.copy(alpha = 0.86f),
+                            0.31f to bgColor.copy(alpha = 0.70f),
+                            0.40f to bgColor.copy(alpha = 0.55f),
+                            0.48f to bgColor.copy(alpha = 0.38f),
+                            0.56f to bgColor.copy(alpha = 0.22f),
+                            0.66f to Color.Transparent,
+                            1.0f to Color.Transparent
+                        )
+                    )
+                    val bottomGradient = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color.Transparent,
+                            0.44f to Color.Transparent,
+                            0.62f to bgColor.copy(alpha = 0.38f),
+                            0.78f to bgColor.copy(alpha = 0.74f),
+                            0.92f to bgColor.copy(alpha = 0.94f),
+                            1.0f to bgColor.copy(alpha = 1.0f)
+                        )
+                    )
+                    onDrawBehind {
+                        drawRect(color = dimBrush, size = size)
+                        drawRect(brush = leftGradient, size = size)
+                        drawRect(brush = bottomGradient, size = size)
+                    }
+                }
         )
 
         HeroTitleBlock(
@@ -692,13 +686,20 @@ fun ModernHomeContent(
                     .height(rowsViewportHeight)
                     .padding(bottom = catalogBottomPadding),
                 contentPadding = PaddingValues(bottom = 0.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                beyondBoundsItemCount = 2
             ) {
                 itemsIndexed(
                     items = carouselRows,
                     key = { _, row -> row.key },
                     contentType = { _, _ -> "modern_home_row" }
                 ) { _, row ->
+                    val stableOnPendingRowFocusCleared = remember {
+                        {
+                            pendingRowFocusKey = null
+                            pendingRowFocusIndex = null
+                        }
+                    }
                     ModernRowSection(
                         row = row,
                         rowTitleBottom = rowTitleBottom,
@@ -712,10 +713,7 @@ fun ModernHomeContent(
                         pendingRowFocusKey = pendingRowFocusKey,
                         pendingRowFocusIndex = pendingRowFocusIndex,
                         pendingRowFocusNonce = pendingRowFocusNonce,
-                        onPendingRowFocusCleared = {
-                            pendingRowFocusKey = null
-                            pendingRowFocusIndex = null
-                        },
+                        onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                         onRowItemFocused = { rowKey, index, isContinueWatchingRow ->
                             val rowBecameActive = activeRowKey != rowKey
                             if (focusedItemByRow[rowKey] != index) {
