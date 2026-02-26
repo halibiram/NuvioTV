@@ -212,7 +212,9 @@ fun ContinueWatchingCard(
     imageHeight: Dp = 162.dp
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    var longPressTriggered by remember { mutableStateOf(false) }
+    // Use a non-state holder: longPressTriggered is only read/written inside key-event
+    // callbacks, never during composition, so writing to it must not trigger recomposition.
+    val longPressTriggeredHolder = remember { object { var value = false } }
 
     val progress = (item as? ContinueWatchingItem.InProgress)?.progress
     val nextUp = (item as? ContinueWatchingItem.NextUp)?.info
@@ -304,8 +306,8 @@ fun ContinueWatchingCard(
 
     Card(
         onClick = {
-            if (longPressTriggered) {
-                longPressTriggered = false
+            if (longPressTriggeredHolder.value) {
+                longPressTriggeredHolder.value = false
             } else {
                 onClick()
             }
@@ -317,18 +319,18 @@ fun ContinueWatchingCard(
                 val native = event.nativeKeyEvent
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                     if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
-                        longPressTriggered = true
+                        longPressTriggeredHolder.value = true
                         onLongPress()
                         return@onPreviewKeyEvent true
                     }
                     val isLongPress = native.isLongPress || native.repeatCount > 0
                     if (isLongPress && isSelectKey(native.keyCode)) {
-                        longPressTriggered = true
+                        longPressTriggeredHolder.value = true
                         onLongPress()
                         return@onPreviewKeyEvent true
                     }
                 }
-                if (native.action == AndroidKeyEvent.ACTION_UP && longPressTriggered && isSelectKey(native.keyCode)) {
+                if (native.action == AndroidKeyEvent.ACTION_UP && longPressTriggeredHolder.value && isSelectKey(native.keyCode)) {
                     return@onPreviewKeyEvent true
                 }
                 false
