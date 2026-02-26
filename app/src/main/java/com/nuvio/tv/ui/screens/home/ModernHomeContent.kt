@@ -310,45 +310,60 @@ fun ModernHomeContent(
         return byIndex.getOrPut(itemKey) { FocusRequester() }
     }
 
-    LaunchedEffect(
-        focusedCatalogSelection?.focusKey,
-        expansionInteractionNonce,
-        shouldActivateFocusedPosterFlow,
-        trailerPlaybackTarget,
-        uiState.focusedPosterBackdropExpandDelaySeconds,
-        isVerticalRowsScrolling
-    ) {
-        expandedCatalogFocusKey = null
-        if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
-        if (isVerticalRowsScrolling) return@LaunchedEffect
-        val selection = focusedCatalogSelection ?: return@LaunchedEffect
-        delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1) * 1000L)
-        if (shouldActivateFocusedPosterFlow &&
-            !isVerticalRowsScrolling &&
-            focusedCatalogSelection?.focusKey == selection.focusKey
-        ) {
-            expandedCatalogFocusKey = selection.focusKey
+    // Consolidated catalog-expansion + trailer-preview effects into a single
+    // snapshotFlow.  Previously two separate LaunchedEffects both keyed on
+    // focusedCatalogSelection?.focusKey + isVerticalRowsScrolling would restart
+    // simultaneously on every focus change, doubling the coroutine churn.
+    val latestOnRequestTrailerPreview by rememberUpdatedState(onRequestTrailerPreview)
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            data class CatalogFocusSnapshot(
+                val focusKey: String?,
+                val scrolling: Boolean,
+                val nonce: Int,
+                val shouldExpand: Boolean,
+                val autoplay: Boolean,
+                val delaySeconds: Int,
+                val selection: FocusedCatalogSelection?
+            )
+            CatalogFocusSnapshot(
+                focusKey = focusedCatalogSelection?.focusKey,
+                scrolling = isVerticalRowsScrolling,
+                nonce = expansionInteractionNonce,
+                shouldExpand = shouldActivateFocusedPosterFlow,
+                autoplay = effectiveAutoplayEnabled,
+                delaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds,
+                selection = focusedCatalogSelection
+            )
         }
-    }
+            .distinctUntilChanged()
+            .collect { snapshot ->
+                // Always reset expansion on any change
+                expandedCatalogFocusKey = null
 
-    LaunchedEffect(
-        focusedCatalogSelection?.focusKey,
-        effectiveAutoplayEnabled,
-        isVerticalRowsScrolling
-    ) {
-        if (!effectiveAutoplayEnabled) {
-            return@LaunchedEffect
-        }
-        if (isVerticalRowsScrolling) {
-            return@LaunchedEffect
-        }
-        val selection = focusedCatalogSelection ?: return@LaunchedEffect
-        onRequestTrailerPreview(
-            selection.payload.itemId,
-            selection.payload.trailerTitle,
-            selection.payload.trailerReleaseInfo,
-            selection.payload.trailerApiType
-        )
+                // Fire trailer preview request immediately when autoplay is active
+                if (snapshot.autoplay && !snapshot.scrolling && snapshot.selection != null) {
+                    latestOnRequestTrailerPreview(
+                        snapshot.selection.payload.itemId,
+                        snapshot.selection.payload.trailerTitle,
+                        snapshot.selection.payload.trailerReleaseInfo,
+                        snapshot.selection.payload.trailerApiType
+                    )
+                }
+
+                // Delayed expansion
+                if (!snapshot.shouldExpand || snapshot.scrolling || snapshot.selection == null) {
+                    return@collect
+                }
+                delay(snapshot.delaySeconds.coerceAtLeast(1) * 1000L)
+                // Re-verify conditions after delay via latest snapshot state
+                if (shouldActivateFocusedPosterFlow &&
+                    !isVerticalRowsScrolling &&
+                    focusedCatalogSelection?.focusKey == snapshot.focusKey
+                ) {
+                    expandedCatalogFocusKey = snapshot.focusKey
+                }
+            }
     }
 
     LaunchedEffect(carouselRows, focusState.hasSavedFocus, focusState.focusedRowIndex, focusState.focusedItemIndex) {
@@ -454,27 +469,37 @@ fun ModernHomeContent(
         focusedItemByRow[row.key] = clampedIndex
     }
 
-    val activeHeroItemKey by remember(activeRow, clampedActiveItemIndex) {
-        derivedStateOf {
-            val row = activeRow ?: return@derivedStateOf null
-            row.items.getOrNull(clampedActiveItemIndex)?.key ?: row.items.firstOrNull()?.key
-        }
-    }
+    // Use a single stable LaunchedEffect with snapshotFlow to observe hero item changes.
+    // This replaces a LaunchedEffect keyed on (activeHeroItemKey, isVerticalRowsScrolling)
+    // which restarted on every scroll-state toggle, wasting frames.
     val latestHeroRow by rememberUpdatedState(activeRow)
     val latestHeroIndex by rememberUpdatedState(clampedActiveItemIndex)
-    LaunchedEffect(activeHeroItemKey, isVerticalRowsScrolling) {
-        if (isVerticalRowsScrolling) return@LaunchedEffect
-        val targetHeroKey = activeHeroItemKey ?: return@LaunchedEffect
-        delay(MODERN_HERO_FOCUS_DEBOUNCE_MS)
-        if (isVerticalRowsScrolling) return@LaunchedEffect
-        val row = latestHeroRow ?: return@LaunchedEffect
-        val latestKey = row.items.getOrNull(latestHeroIndex)?.key ?: row.items.firstOrNull()?.key
-        if (latestKey != targetHeroKey) return@LaunchedEffect
-        val latestHero =
-            row.items.getOrNull(latestHeroIndex)?.heroPreview ?: row.items.firstOrNull()?.heroPreview
-        if (latestHero != null && heroItem != latestHero) {
-            heroItem = latestHero
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            val row = activeRow
+            val idx = clampedActiveItemIndex
+            val scrolling = isVerticalRowsScrolling
+            Triple(
+                row?.items?.getOrNull(idx)?.key ?: row?.items?.firstOrNull()?.key,
+                scrolling,
+                row to idx
+            )
         }
+            .distinctUntilChanged { old, new -> old.first == new.first && old.second == new.second }
+            .collect { (heroItemKey, scrolling, rowAndIndex) ->
+                if (scrolling || heroItemKey == null) return@collect
+                delay(MODERN_HERO_FOCUS_DEBOUNCE_MS)
+                // Re-read latest state after the debounce
+                val row = latestHeroRow ?: return@collect
+                val idx = latestHeroIndex
+                val latestKey = row.items.getOrNull(idx)?.key ?: row.items.firstOrNull()?.key
+                if (latestKey != heroItemKey) return@collect
+                val latestHero =
+                    row.items.getOrNull(idx)?.heroPreview ?: row.items.firstOrNull()?.heroPreview
+                if (latestHero != null && heroItem != latestHero) {
+                    heroItem = latestHero
+                }
+            }
     }
     val latestActiveRow by rememberUpdatedState(activeRow)
     val latestActiveItemIndex by rememberUpdatedState(clampedActiveItemIndex)
@@ -500,20 +525,29 @@ fun ModernHomeContent(
 
     val portraitBaseWidth = uiState.posterCardWidthDp.dp
     val portraitBaseHeight = uiState.posterCardHeightDp.dp
+    // Memoize card dimensions to avoid redundant floating-point math on every recomposition.
     val modernPosterScale = if (useLandscapePosters) 1.34f else 1.08f
-    val modernCatalogCardWidth = if (useLandscapePosters) {
-        portraitBaseWidth * 1.24f * modernPosterScale
-    } else {
-        portraitBaseWidth * 0.84f * modernPosterScale
+    val modernCatalogCardWidth = remember(portraitBaseWidth, useLandscapePosters, modernPosterScale) {
+        if (useLandscapePosters) {
+            portraitBaseWidth * 1.24f * modernPosterScale
+        } else {
+            portraitBaseWidth * 0.84f * modernPosterScale
+        }
     }
-    val modernCatalogCardHeight = if (useLandscapePosters) {
-        modernCatalogCardWidth / 1.77f
-    } else {
-        portraitBaseHeight * 0.84f * modernPosterScale
+    val modernCatalogCardHeight = remember(modernCatalogCardWidth, portraitBaseHeight, useLandscapePosters, modernPosterScale) {
+        if (useLandscapePosters) {
+            modernCatalogCardWidth / 1.77f
+        } else {
+            portraitBaseHeight * 0.84f * modernPosterScale
+        }
     }
     val continueWatchingScale = 1.34f
-    val continueWatchingCardWidth = portraitBaseWidth * 1.24f * continueWatchingScale
-    val continueWatchingCardHeight = continueWatchingCardWidth / 1.77f
+    val continueWatchingCardWidth = remember(portraitBaseWidth, continueWatchingScale) {
+        portraitBaseWidth * 1.24f * continueWatchingScale
+    }
+    val continueWatchingCardHeight = remember(continueWatchingCardWidth) {
+        continueWatchingCardWidth / 1.77f
+    }
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize()
@@ -700,21 +734,11 @@ fun ModernHomeContent(
                             pendingRowFocusIndex = null
                         }
                     }
-                    ModernRowSection(
-                        row = row,
-                        rowTitleBottom = rowTitleBottom,
-                        defaultBringIntoViewSpec = defaultBringIntoViewSpec,
-                        focusStateCatalogRowScrollStates = focusState.catalogRowScrollStates,
-                        rowListStates = rowListStates,
-                        focusedItemByRow = focusedItemByRow,
-                        itemFocusRequesters = itemFocusRequesters,
-                        loadMoreRequestedTotals = loadMoreRequestedTotals,
-                        requesterFor = ::requesterFor,
-                        pendingRowFocusKey = pendingRowFocusKey,
-                        pendingRowFocusIndex = pendingRowFocusIndex,
-                        pendingRowFocusNonce = pendingRowFocusNonce,
-                        onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
-                        onRowItemFocused = { rowKey, index, isContinueWatchingRow ->
+                    // Stabilize all callback lambdas passed to ModernRowSection to prevent
+                    // unnecessary recomposition of child rows when the parent recomposes
+                    // due to unrelated state changes (e.g. hero backdrop change).
+                    val stableOnRowItemFocused = remember {
+                        { rowKey: String, index: Int, isContinueWatchingRow: Boolean ->
                             val rowBecameActive = activeRowKey != rowKey
                             if (focusedItemByRow[rowKey] != index) {
                                 focusedItemByRow[rowKey] = index
@@ -733,7 +757,39 @@ fun ModernHomeContent(
                                     focusedCatalogSelection = null
                                 }
                             }
-                        },
+                        }
+                    }
+                    val stableOnContinueWatchingOptions = remember {
+                        { item: ContinueWatchingItem -> optionsItem = item }
+                    }
+                    val stableOnCatalogSelectionFocused = remember {
+                        { selection: FocusedCatalogSelection ->
+                            if (focusedCatalogSelection != selection) {
+                                focusedCatalogSelection = selection
+                            }
+                        }
+                    }
+                    val stableOnBackdropInteraction = remember {
+                        { expansionInteractionNonce++ }
+                    }
+                    val stableOnExpandedCatalogFocusKeyChange = remember {
+                        { key: String? -> expandedCatalogFocusKey = key }
+                    }
+                    ModernRowSection(
+                        row = row,
+                        rowTitleBottom = rowTitleBottom,
+                        defaultBringIntoViewSpec = defaultBringIntoViewSpec,
+                        focusStateCatalogRowScrollStates = focusState.catalogRowScrollStates,
+                        rowListStates = rowListStates,
+                        focusedItemByRow = focusedItemByRow,
+                        itemFocusRequesters = itemFocusRequesters,
+                        loadMoreRequestedTotals = loadMoreRequestedTotals,
+                        requesterFor = ::requesterFor,
+                        pendingRowFocusKey = pendingRowFocusKey,
+                        pendingRowFocusIndex = pendingRowFocusIndex,
+                        pendingRowFocusNonce = pendingRowFocusNonce,
+                        onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
+                        onRowItemFocused = stableOnRowItemFocused,
                         useLandscapePosters = useLandscapePosters,
                         showLabels = uiState.posterLabelsEnabled,
                         posterCardCornerRadius = uiState.posterCardCornerRadiusDp.dp,
@@ -748,20 +804,14 @@ fun ModernHomeContent(
                         continueWatchingCardWidth = continueWatchingCardWidth,
                         continueWatchingCardHeight = continueWatchingCardHeight,
                         onContinueWatchingClick = onContinueWatchingClick,
-                        onContinueWatchingOptions = { optionsItem = it },
+                        onContinueWatchingOptions = stableOnContinueWatchingOptions,
                         isCatalogItemWatched = isCatalogItemWatched,
                         onCatalogItemLongPress = onCatalogItemLongPress,
-                        onCatalogSelectionFocused = { selection ->
-                            if (focusedCatalogSelection != selection) {
-                                focusedCatalogSelection = selection
-                            }
-                        },
+                        onCatalogSelectionFocused = stableOnCatalogSelectionFocused,
                         onNavigateToDetail = onNavigateToDetail,
                         onLoadMoreCatalog = onLoadMoreCatalog,
-                        onBackdropInteraction = {
-                            expansionInteractionNonce++
-                        },
-                        onExpandedCatalogFocusKeyChange = { expandedCatalogFocusKey = it }
+                        onBackdropInteraction = stableOnBackdropInteraction,
+                        onExpandedCatalogFocusKeyChange = stableOnExpandedCatalogFocusKeyChange
                     )
                 }
             }

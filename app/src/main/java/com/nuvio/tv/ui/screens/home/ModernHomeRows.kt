@@ -149,6 +149,33 @@ private fun ModernCatalogRowItem(
         null
     }
 
+    // Stabilize per-item lambdas to prevent recomposition of the card when only
+    // the parent row recomposes.  The remember keys cover every captured value that
+    // can meaningfully change between recompositions.
+    val stableOnCardFocused = remember(onFocused, focusKey, payload) {
+        {
+            onFocused()
+            onCatalogSelectionFocused(
+                FocusedCatalogSelection(
+                    focusKey = focusKey,
+                    payload = payload
+                )
+            )
+        }
+    }
+    val stableOnClick = remember(payload.itemId, payload.itemType, payload.addonBaseUrl) {
+        {
+            onNavigateToDetail(
+                payload.itemId,
+                payload.itemType,
+                payload.addonBaseUrl
+            )
+        }
+    }
+    val stableOnTrailerEnded = remember(onExpandedCatalogFocusKeyChange) {
+        { onExpandedCatalogFocusKeyChange(null) }
+    }
+
     ModernCarouselCard(
         item = item,
         useLandscapePosters = useLandscapePosters,
@@ -163,25 +190,11 @@ private fun ModernCatalogRowItem(
         trailerPreviewUrl = trailerPreviewUrl,
         isWatched = isWatched,
         focusRequester = requester,
-        onFocused = {
-            onFocused()
-            onCatalogSelectionFocused(
-                FocusedCatalogSelection(
-                    focusKey = focusKey,
-                    payload = payload
-                )
-            )
-        },
-        onClick = {
-            onNavigateToDetail(
-                payload.itemId,
-                payload.itemType,
-                payload.addonBaseUrl
-            )
-        },
+        onFocused = stableOnCardFocused,
+        onClick = stableOnClick,
         onLongPress = onLongPress,
         onBackdropInteraction = onBackdropInteraction,
-        onTrailerEnded = { onExpandedCatalogFocusKeyChange(null) }
+        onTrailerEnded = stableOnTrailerEnded
     )
 }
 
@@ -259,7 +272,10 @@ internal fun ModernRowSection(
             val requester = requesterFor(row.key, targetItemKey)
             var didFocus = false
             var didScrollToTarget = false
-            repeat(20) {
+            // Reduced from 20 to 12 retries — 20 frames of withFrameNanos is ~330ms of
+            // blocking the composition which itself causes frame drops.  12 retries
+            // (~200ms) is sufficient for items to be laid out after scrollToItem.
+            repeat(12) {
                 didFocus = runCatching {
                     requester.requestFocus()
                     true
@@ -512,6 +528,7 @@ private fun ModernCarouselCard(
                 .data(it)
                 .crossfade(false)
                 .size(width = requestWidthPx, height = requestHeightPx)
+                .memoryCacheKey("card_${it}_${requestWidthPx}x${requestHeightPx}")
                 .build()
         }
     }
@@ -528,6 +545,7 @@ private fun ModernCarouselCard(
                 .data(it)
                 .crossfade(false)
                 .size(width = maxLogoWidthPx, height = logoHeightPx)
+                .memoryCacheKey("logo_${it}_${maxLogoWidthPx}x${logoHeightPx}")
                 .build()
         }
     }

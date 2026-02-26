@@ -212,11 +212,16 @@ fun TrailerPlayer(
                         }
                     }
                 },
+                // Memoize the target resize mode so the update lambda only mutates the
+                // view when the mode actually changes, avoiding per-frame property writes.
                 update = { view ->
-                    view.resizeMode = if (cropToFill) {
+                    val targetMode = if (cropToFill) {
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     } else {
                         AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                    if (view.resizeMode != targetMode) {
+                        view.resizeMode = targetMode
                     }
                 },
                 modifier = modifier

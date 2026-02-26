@@ -68,6 +68,7 @@ internal fun ModernHeroMediaLayer(
                     .data(imageUrl)
                     .crossfade(false)
                     .size(width = requestWidthPx, height = requestHeightPx)
+                    .memoryCacheKey("hero_backdrop_${imageUrl}_${requestWidthPx}x${requestHeightPx}")
                     .build()
             }
             AsyncImage(
@@ -159,6 +160,7 @@ internal fun HeroTitleBlock(
                 .data(it)
                 .crossfade(false)
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
+                .memoryCacheKey("hero_title_logo_${it}_${logoMaxWidthPx}x${logoHeightPx}")
                 .build()
         }
     }
@@ -166,6 +168,7 @@ internal fun HeroTitleBlock(
         ImageRequest.Builder(context)
             .data(com.nuvio.tv.R.raw.imdb_logo_2016)
             .decoderFactory(SvgDecoder.Factory())
+            .memoryCacheKey("imdb_logo_svg")
             .build()
     }
     val scaledTitleStyle = remember(headlineLarge, titleScale) {

@@ -182,6 +182,7 @@ private fun HeroCarouselSlide(
             .data(item.background)
             .crossfade(false)
             .size(width = requestWidthPx, height = requestHeightPx)
+            .memoryCacheKey("hero_carousel_bg_${item.background}_${requestWidthPx}x${requestHeightPx}")
             .build()
     }
     val logoModel = remember(context, item.logo, requestWidthPx, logoRequestHeightPx) {
@@ -190,6 +191,7 @@ private fun HeroCarouselSlide(
                 .data(it)
                 .crossfade(false)
                 .size(width = requestWidthPx, height = logoRequestHeightPx)
+                .memoryCacheKey("hero_carousel_logo_${it}_${requestWidthPx}x${logoRequestHeightPx}")
                 .build()
         }
     }
