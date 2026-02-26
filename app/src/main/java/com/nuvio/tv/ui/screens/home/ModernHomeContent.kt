@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -315,11 +316,15 @@ fun ModernHomeContent(
         }
     }
 
-    DisposableEffect(activeRow?.key, activeItemIndex, carouselRows) {
+    val currentActiveRow by rememberUpdatedState(activeRow)
+    val currentActiveItemIndex by rememberUpdatedState(activeItemIndex)
+    val currentCarouselRows by rememberUpdatedState(carouselRows)
+
+    DisposableEffect(Unit) {
         onDispose {
-            val row = activeRow
+            val row = currentActiveRow
             val focusedRowIndex = row?.globalRowIndex ?: 0
-            val catalogRowScrollStates = carouselRows
+            val catalogRowScrollStates = currentCarouselRows
                 .filter { it.globalRowIndex >= 0 }
                 .associate { rowState -> rowState.key to (focusedItemByRow[rowState.key] ?: 0) }
 
@@ -327,7 +332,7 @@ fun ModernHomeContent(
                 0,
                 0,
                 focusedRowIndex,
-                activeItemIndex,
+                currentActiveItemIndex,
                 catalogRowScrollStates
             )
         }
