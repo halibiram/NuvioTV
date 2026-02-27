@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.delay
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -76,18 +77,28 @@ fun TrailerPlayer(
             }
     }
     val releaseCalled = remember { AtomicBoolean(false) }
+    val preparedTrailerUrlRef = remember { AtomicReference<String?>(null) }
 
     LaunchedEffect(isPlaying, trailerUrl, muted) {
         trailerPlayer.volume = if (muted) 0f else 1f
-        if (isPlaying && trailerUrl != null) {
+        val targetUrl = trailerUrl?.takeIf { it.isNotBlank() }
+        if (isPlaying && targetUrl != null) {
             hasRenderedFirstFrame = false
-            trailerPlayer.setMediaItem(MediaItem.fromUri(trailerUrl))
-            trailerPlayer.prepare()
+            val shouldPrepare =
+                preparedTrailerUrlRef.get() != targetUrl || trailerPlayer.currentMediaItem == null
+            if (shouldPrepare) {
+                trailerPlayer.setMediaItem(MediaItem.fromUri(targetUrl))
+                trailerPlayer.prepare()
+                preparedTrailerUrlRef.set(targetUrl)
+            }
             trailerPlayer.playWhenReady = true
         } else {
             hasRenderedFirstFrame = false
-            trailerPlayer.stop()
-            trailerPlayer.clearMediaItems()
+            if (trailerPlayer.currentMediaItem != null || trailerPlayer.playWhenReady || trailerPlayer.isPlaying) {
+                trailerPlayer.stop()
+                trailerPlayer.clearMediaItems()
+            }
+            preparedTrailerUrlRef.set(null)
         }
     }
 
@@ -137,6 +148,7 @@ fun TrailerPlayer(
                         if (trailerPlayer.currentMediaItem == null) {
                             trailerPlayer.setMediaItem(MediaItem.fromUri(currentTrailerUrl!!))
                             trailerPlayer.prepare()
+                            preparedTrailerUrlRef.set(currentTrailerUrl)
                         }
                         trailerPlayer.playWhenReady = true
                     }
@@ -147,11 +159,13 @@ fun TrailerPlayer(
                     trailerPlayer.pause()
                     trailerPlayer.stop()
                     trailerPlayer.clearMediaItems()
+                    preparedTrailerUrlRef.set(null)
                 }
                 Lifecycle.Event.ON_DESTROY -> {
                     if (releaseCalled.compareAndSet(false, true)) {
                         runCatching { trailerPlayer.stop() }
                         runCatching { trailerPlayer.clearMediaItems() }
+                        preparedTrailerUrlRef.set(null)
                         runCatching { trailerPlayer.release() }
                     }
                 }
@@ -166,6 +180,7 @@ fun TrailerPlayer(
             if (releaseCalled.compareAndSet(false, true)) {
                 runCatching { trailerPlayer.stop() }
                 runCatching { trailerPlayer.clearMediaItems() }
+                preparedTrailerUrlRef.set(null)
                 runCatching { trailerPlayer.release() }
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,8 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+
+private val sidebarSvgDecoderFactory = SvgDecoder.Factory()
 
 @Composable
 internal fun ModernSidebarBlurPanel(
@@ -215,6 +218,7 @@ private fun SidebarNavigationItem(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val onClickState by rememberUpdatedState(onClick)
     val shape = RoundedCornerShape(999.dp)
     val backgroundColor by animateColorAsState(
         targetValue = when {
@@ -242,15 +246,18 @@ private fun SidebarNavigationItem(
             .background(backgroundColor)
             .border(width = 1.5.dp, color = borderColor, shape = shape)
             .onFocusChanged {
-                isFocused = it.isFocused
-                onFocusChanged(it.isFocused)
+                val focused = it.isFocused
+                if (focused != isFocused) {
+                    isFocused = focused
+                    onFocusChanged(focused)
+                }
             }
             .focusable(enabled = focusEnabled)
             .onPreviewKeyEvent { event ->
                 if (focusEnabled && event.type == KeyEventType.KeyUp &&
                     (event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.NumPadEnter)
                 ) {
-                    onClick()
+                    onClickState()
                     true
                 } else false
             }
@@ -312,6 +319,7 @@ private fun SidebarProfileItem(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val onClickState by rememberUpdatedState(onClick)
     val shape = RoundedCornerShape(999.dp)
     val backgroundColor by animateColorAsState(
         targetValue = if (isFocused) Color.White.copy(alpha = 0.18f) else Color.Transparent,
@@ -332,15 +340,18 @@ private fun SidebarProfileItem(
             .background(backgroundColor)
             .border(width = 1.5.dp, color = borderColor, shape = shape)
             .onFocusChanged {
-                isFocused = it.isFocused
-                onFocusChanged(it.isFocused)
+                val focused = it.isFocused
+                if (focused != isFocused) {
+                    isFocused = focused
+                    onFocusChanged(focused)
+                }
             }
             .focusable(enabled = focusEnabled)
             .onPreviewKeyEvent { event ->
                 if (focusEnabled && event.type == KeyEventType.KeyUp &&
                     (event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.NumPadEnter)
                 ) {
-                    onClick()
+                    onClickState()
                     true
                 } else false
             }
@@ -366,8 +377,17 @@ private fun SidebarProfileItem(
 
 @Composable
 private fun rememberRawSvgPainter(rawIconRes: Int): Painter = rememberAsyncImagePainter(
-    model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-        .data(rawIconRes)
-        .decoderFactory(SvgDecoder.Factory())
-        .build()
+    model = rememberRawSvgImageRequest(rawIconRes)
 )
+
+@Composable
+private fun rememberRawSvgImageRequest(rawIconRes: Int): ImageRequest {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context, rawIconRes) {
+        ImageRequest.Builder(context)
+            .data(rawIconRes)
+            .decoderFactory(sidebarSvgDecoderFactory)
+            .memoryCacheKey("sidebar_svg_$rawIconRes")
+            .build()
+    }
+}

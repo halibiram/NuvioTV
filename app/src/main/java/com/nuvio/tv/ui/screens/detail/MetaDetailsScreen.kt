@@ -204,7 +204,8 @@ fun MetaDetailsScreen(
     val trailerSeekOverlayState = remember { TrailerSeekOverlayState() }
     var trailerSeekToken by remember { mutableIntStateOf(0) }
     var trailerSeekDeltaMs by remember { mutableLongStateOf(0L) }
-    var lastUserInteractionDispatchMs by remember { mutableLongStateOf(0L) }
+    // Non-snapshot holder: avoid recomposition for every key down interaction ping.
+    val lastUserInteractionDispatchMsRef = remember { longArrayOf(0L) }
     val onTrailerProgressChanged = remember(trailerSeekOverlayState) {
         { position: Long, duration: Long ->
             trailerSeekOverlayState.positionMs = position
@@ -282,10 +283,10 @@ fun MetaDetailsScreen(
                     val nativeEvent = keyEvent.nativeKeyEvent
                     val shouldDispatch =
                         nativeEvent.repeatCount == 0 &&
-                            (nativeEvent.eventTime - lastUserInteractionDispatchMs) >=
+                            (nativeEvent.eventTime - lastUserInteractionDispatchMsRef[0]) >=
                             USER_INTERACTION_DISPATCH_DEBOUNCE_MS
                     if (shouldDispatch) {
-                        lastUserInteractionDispatchMs = nativeEvent.eventTime
+                        lastUserInteractionDispatchMsRef[0] = nativeEvent.eventTime
                         viewModel.onEvent(MetaDetailsEvent.OnUserInteraction)
                     }
                 }
@@ -638,15 +639,10 @@ private fun MetaDetailsContent(
         pendingRestoreMoreLikeItemId = itemId
     }
 
-    androidx.compose.runtime.DisposableEffect(
-        lifecycleOwner,
-        pendingRestoreType,
-        pendingRestoreEpisodeId,
-        pendingRestoreCastPersonId,
-        pendingRestoreMoreLikeItemId
-    ) {
+    val currentPendingRestoreType by rememberUpdatedState(pendingRestoreType)
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && pendingRestoreType != null) {
+            if (event == Lifecycle.Event.ON_RESUME && currentPendingRestoreType != null) {
                 restoreFocusToken += 1
             }
         }
@@ -1021,9 +1017,11 @@ private fun MetaDetailsContent(
                         isTrailerPlaying = isTrailerPlaying,
                         playButtonFocusRequester = heroPlayFocusRequester,
                         onHeroActionFocused = {
-                            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                            if (!listState.isScrollInProgress &&
+                                (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0)
+                            ) {
                                 coroutineScope.launch {
-                                    listState.animateScrollToItem(0)
+                                    listState.scrollToItem(0)
                                 }
                             }
                             initialHeroFocusRequested = true
