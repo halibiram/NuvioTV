@@ -316,8 +316,8 @@ fun ContinueWatchingCard(
             }
         },
         modifier = modifier
-            .width(cardWidth)
             .onFocusChanged { isFocused = it.isFocused }
+            .width(cardWidth)
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
@@ -350,7 +350,7 @@ fun ContinueWatchingCard(
                 shape = CwCardShape
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.02f)
+        scale = CardDefaults.scale(focusedScale = 1f)
     ) {
         Column {
             // Thumbnail with progress overlay
