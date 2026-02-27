@@ -28,6 +28,7 @@ import com.nuvio.tv.ui.components.CatalogRowSection
 import com.nuvio.tv.ui.components.ContinueWatchingSection
 import com.nuvio.tv.ui.components.HeroCarousel
 import com.nuvio.tv.ui.components.PosterCardStyle
+import com.nuvio.tv.ui.screens.home.Ref
 
 /** Minimum interval between processed key repeat events to prevent HWUI overload. */
 private const val KEY_REPEAT_THROTTLE_MS = 80L
@@ -136,7 +137,8 @@ fun ClassicHomeContent(
     }
 
     // Throttle D-pad key repeats to prevent HWUI overload when a key is held down.
-    var lastKeyRepeatTime by remember { mutableStateOf(0L) }
+    // Non-snapshot ref avoids triggering recomposition on every repeated key event.
+    val lastKeyRepeatTimeRef = remember { Ref(0L) }
 
     LazyColumn(
         state = columnListState,
@@ -146,10 +148,10 @@ fun ClassicHomeContent(
                 val native = event.nativeKeyEvent
                 if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0) {
                     val now = System.currentTimeMillis()
-                    if (now - lastKeyRepeatTime < KEY_REPEAT_THROTTLE_MS) {
+                    if (now - lastKeyRepeatTimeRef.value < KEY_REPEAT_THROTTLE_MS) {
                         return@onPreviewKeyEvent true // consume — too fast
                     }
-                    lastKeyRepeatTime = now
+                    lastKeyRepeatTimeRef.value = now
                 }
                 false
             },
