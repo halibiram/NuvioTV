@@ -4,6 +4,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
@@ -166,6 +167,86 @@ internal class ExpandedCatalogState {
 @Stable
 internal class TrailerPreviewState {
     var urls: Map<String, String> by mutableStateOf(emptyMap())
+}
+
+/**
+ * Observable holder for pending row focus restoration.
+ *
+ * Previously, pendingRowFocusKey / pendingRowFocusIndex / pendingRowFocusNonce
+ * were passed as direct parameters to **every** ModernRowSection, causing ALL
+ * visible rows to recompose whenever focus moved. Now each row reads from this
+ * @Stable holder; only the row whose key matches the pending key actually
+ * recomposes, and the rest skip entirely.
+ */
+@Stable
+internal class PendingRowFocusHolder {
+    var key: String? by mutableStateOf(null)
+    var index: Int? by mutableStateOf(null)
+    var nonce: Int by mutableIntStateOf(0)
+
+    fun request(rowKey: String?, itemIndex: Int?) {
+        key = rowKey
+        index = itemIndex
+        nonce++
+    }
+
+    fun clear() {
+        key = null
+        index = null
+    }
+}
+
+/**
+ * Observable holder for the focused catalog selection.
+ *
+ * Previously stored as a raw `mutableStateOf` in the parent composable, every
+ * D-pad move changed this value and triggered recomposition of the entire
+ * ModernHomeContent (including ALL rows). Now rows and the hero section read
+ * from this @Stable holder, so only composables that actually READ the value
+ * are invalidated when it changes.
+ */
+@Stable
+internal class FocusedCatalogSelectionHolder {
+    var selection: FocusedCatalogSelection? by mutableStateOf(null)
+
+    fun update(newSelection: FocusedCatalogSelection) {
+        if (selection != newSelection) {
+            selection = newSelection
+        }
+    }
+
+    fun clearIfNotIn(activeCatalogItemIds: Set<String>) {
+        val current = selection ?: return
+        if (current.payload.itemId !in activeCatalogItemIds) {
+            selection = null
+        }
+    }
+}
+
+/**
+ * Observable holder for the active row key and item index.
+ *
+ * Prevents full parent recomposition on every D-pad row/item change.
+ * Row sections read activeRowKey from here to determine if they are the
+ * active row, and the hero section reads activeItemIndex for hero preview
+ * resolution — all without forcing sibling rows to recompose.
+ */
+@Stable
+internal class ActiveRowState {
+    var rowKey: String? by mutableStateOf(null)
+    var itemIndex: Int by mutableIntStateOf(0)
+}
+
+/**
+ * Observable holder for the hero preview displayed in the backdrop.
+ *
+ * Previously a raw `mutableStateOf` in the parent, hero changes cascaded
+ * recomposition to rows even though rows don't read the hero. Now the hero
+ * media layer reads from this holder independently.
+ */
+@Stable
+internal class HeroPreviewHolder {
+    var preview: HeroPreview? by mutableStateOf(null)
 }
 
 internal class ModernCarouselRowBuildCache {
