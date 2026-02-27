@@ -77,6 +77,7 @@ import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -301,6 +302,9 @@ internal fun ModernRowSection(
                     val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
                     lastVisible to total
                 }
+                    // Smooth scroll emits many layout snapshots; debounce to avoid repeated
+                    // load-more boundary checks while keeping UX responsive.
+                    .debounce(90)
                     .distinctUntilChanged()
                     .collect { (lastVisible, total) ->
                         if (total <= 0) return@collect
@@ -596,9 +600,12 @@ private fun ModernCarouselCard(
                 .height(cardHeight)
                 .focusRequester(focusRequester)
                 .onFocusChanged {
-                    isFocused = it.isFocused
-                    if (it.isFocused) {
-                        onFocused()
+                    val focused = it.isFocused
+                    if (focused != isFocused) {
+                        isFocused = focused
+                        if (focused) {
+                            onFocused()
+                        }
                     }
                 }
                 .onPreviewKeyEvent { event ->

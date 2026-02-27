@@ -90,6 +90,13 @@ fun HomeScreen(
         )
     }
 
+    val movieWatchedStatus = uiState.movieWatchedStatus
+    val isCatalogItemWatched = remember(movieWatchedStatus) {
+        { item: MetaPreview ->
+            movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -177,9 +184,7 @@ fun HomeScreen(
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
-                                isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                },
+                                isCatalogItemWatched = isCatalogItemWatched,
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
                                 }
@@ -192,30 +197,19 @@ fun HomeScreen(
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
-                                isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                },
+                                isCatalogItemWatched = isCatalogItemWatched,
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
                                 }
                             )
 
                             HomeLayout.MODERN -> {
-                                // Memoize the watched-status lookup lambda so it only changes
-                                // when movieWatchedStatus itself changes, not on every uiState
-                                // update (which fires frequently for loading/catalog changes).
-                                val movieWatchedStatus = uiState.movieWatchedStatus
-                                val modernIsCatalogItemWatched = remember(movieWatchedStatus) {
-                                    { item: MetaPreview ->
-                                        movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
-                                    }
-                                }
                                 ModernHomeRoute(
                                     viewModel = viewModel,
                                     uiState = uiState,
                                     onNavigateToDetail = onNavigateToDetail,
                                     onContinueWatchingClick = onContinueWatchingClick,
-                                    isCatalogItemWatched = modernIsCatalogItemWatched,
+                                    isCatalogItemWatched = isCatalogItemWatched,
                                     onCatalogItemLongPress = { item, addonBaseUrl ->
                                         posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
                                     }

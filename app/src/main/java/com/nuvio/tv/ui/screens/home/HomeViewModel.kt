@@ -86,6 +86,8 @@ class HomeViewModel @Inject constructor(
         private const val MAX_NEXT_UP_CONCURRENCY = 4
         private const val MAX_CATALOG_LOAD_CONCURRENCY = 4
         private const val EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS = 220L
+        private const val POSTER_STATUS_OBSERVER_CAP = 60
+        private const val POSTER_STATUS_OBSERVER_RECONCILE_DEFER_MS = 500L
     }
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -109,7 +111,9 @@ class HomeViewModel @Inject constructor(
     private var disabledHomeCatalogKeys: Set<String> = emptySet()
     private var currentHeroCatalogKeys: List<String> = emptyList()
     private var catalogUpdateJob: Job? = null
+    private var posterObserverReconcileJob: Job? = null
     private var hasRenderedFirstCatalog = false
+    private var hasLoadedDisabledHomeCatalogPreference = false
     private val catalogLoadSemaphore = Semaphore(MAX_CATALOG_LOAD_CONCURRENCY)
     private var pendingCatalogLoads = 0
     private data class TruncatedRowCacheEntry(
@@ -230,7 +234,7 @@ class HomeViewModel @Inject constructor(
                 )
             }
                 .distinctUntilChanged()
-                .debounce(100)
+                .debounce(300)
                 .collectLatest { prefs ->
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
                     false
@@ -463,10 +467,24 @@ class HomeViewModel @Inject constructor(
     private fun loadDisabledHomeCatalogPreference() {
         viewModelScope.launch {
             layoutPreferenceDataStore.disabledHomeCatalogKeys.collectLatest { keys ->
-                disabledHomeCatalogKeys = keys.toSet()
+                val normalizedKeys = keys.toSet()
+                val hasChanged = normalizedKeys != disabledHomeCatalogKeys
+                val isInitialEmission = !hasLoadedDisabledHomeCatalogPreference
+                hasLoadedDisabledHomeCatalogPreference = true
+
+                if (!hasChanged) return@collectLatest
+
+                disabledHomeCatalogKeys = normalizedKeys
                 rebuildCatalogOrder(addonsCache)
+
                 if (addonsCache.isNotEmpty()) {
-                    loadAllCatalogs(addonsCache)
+                    // Guard redundant startup reload: initial DataStore emission should not force
+                    // a second full catalog load when addons flow is already triggering one.
+                    if (!isInitialEmission) {
+                        loadAllCatalogs(addonsCache)
+                    } else {
+                        scheduleUpdateCatalogRows()
+                    }
                 } else {
                     scheduleUpdateCatalogRows()
                 }
@@ -1188,6 +1206,7 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
         catalogOrder.clear()
         catalogsMap.clear()
+        posterObserverReconcileJob?.cancel()
         reconcilePosterStatusObservers(emptyList())
         _fullCatalogRows.value = emptyList()
         truncatedRowCache.clear()
@@ -1529,19 +1548,31 @@ class HomeViewModel @Inject constructor(
             lastHeroEnrichedItems = emptyList()
         }
 
-        reconcilePosterStatusObservers(displayRows)
+        scheduleReconcilePosterStatusObservers(displayRows)
+    }
+
+
+    private fun scheduleReconcilePosterStatusObservers(rows: List<CatalogRow>) {
+        posterObserverReconcileJob?.cancel()
+        posterObserverReconcileJob = viewModelScope.launch {
+            delay(POSTER_STATUS_OBSERVER_RECONCILE_DEFER_MS)
+            reconcilePosterStatusObservers(rows)
+        }
     }
 
     private fun reconcilePosterStatusObservers(rows: List<CatalogRow>) {
         val desiredItemsByKey = linkedMapOf<String, Pair<String, String>>()
-        rows.asSequence()
-            .flatMap { row -> row.items.asSequence() }
-            .forEach { item ->
+        rowsLoop@ for (row in rows) {
+            for (item in row.items) {
                 val key = homeItemStatusKey(item.id, item.apiType)
                 if (key !in desiredItemsByKey) {
                     desiredItemsByKey[key] = item.id to item.apiType
+                    if (desiredItemsByKey.size >= POSTER_STATUS_OBSERVER_CAP) {
+                        break@rowsLoop
+                    }
                 }
             }
+        }
         val desiredKeys = desiredItemsByKey.keys
         val desiredMovieKeys = desiredItemsByKey
             .filterValues { (_, itemType) -> itemType.equals("movie", ignoreCase = true) }

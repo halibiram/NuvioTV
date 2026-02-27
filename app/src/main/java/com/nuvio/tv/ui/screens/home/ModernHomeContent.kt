@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -42,7 +43,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -93,6 +93,8 @@ import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -285,9 +287,13 @@ fun ModernHomeContent(
     val activeRowKeys = carouselLookups.activeRowKeys
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
+    // Prefetch nested row content ahead of vertical scroll to reduce first-focus jank
+    // when a new carousel row enters viewport on low-end TV hardware.
+    val modernNestedPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
     val verticalRowListState = rememberLazyListState(
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
-        initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
+        initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset,
+        prefetchStrategy = modernNestedPrefetchStrategy
     )
     val isVerticalRowsScrolling by remember(verticalRowListState) {
         derivedStateOf { verticalRowListState.isScrollInProgress }
@@ -312,7 +318,7 @@ fun ModernHomeContent(
     val lastKeyRepeatTimeRef = remember { Ref(0L) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     val expandedCatalogState = remember { ExpandedCatalogState() }
-    var expansionInteractionNonce by remember { mutableIntStateOf(0) }
+    val expansionInteractionEvents = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
     // Observable holder for trailer preview URLs. Synced from the incoming map
     // so that individual row items can read URLs without receiving the full map as a parameter.
     val trailerPreviewState = remember { TrailerPreviewState() }
@@ -322,22 +328,34 @@ fun ModernHomeContent(
 
     LaunchedEffect(
         focusedCatalogHolder.selection?.focusKey,
-        expansionInteractionNonce,
         shouldActivateFocusedPosterFlow,
         trailerPlaybackTarget,
         uiState.focusedPosterBackdropExpandDelaySeconds,
         isVerticalRowsScrolling
     ) {
         expandedCatalogState.focusKey = null
-        if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
-        if (isVerticalRowsScrolling) return@LaunchedEffect
-        val selection = focusedCatalogHolder.selection ?: return@LaunchedEffect
-        delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1) * 1000L)
-        if (shouldActivateFocusedPosterFlow &&
-            !isVerticalRowsScrolling &&
-            focusedCatalogHolder.selection?.focusKey == selection.focusKey
-        ) {
-            expandedCatalogState.focusKey = selection.focusKey
+        if (!shouldActivateFocusedPosterFlow || isVerticalRowsScrolling) return@LaunchedEffect
+        expansionInteractionEvents.tryEmit(Unit)
+    }
+
+    LaunchedEffect(
+        expansionInteractionEvents,
+        focusedCatalogHolder,
+        expandedCatalogState,
+        shouldActivateFocusedPosterFlow,
+        uiState.focusedPosterBackdropExpandDelaySeconds,
+        isVerticalRowsScrolling
+    ) {
+        expansionInteractionEvents.collectLatest {
+            if (!shouldActivateFocusedPosterFlow || isVerticalRowsScrolling) return@collectLatest
+            val selection = focusedCatalogHolder.selection ?: return@collectLatest
+            delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1) * 1000L)
+            if (shouldActivateFocusedPosterFlow &&
+                !isVerticalRowsScrolling &&
+                focusedCatalogHolder.selection?.focusKey == selection.focusKey
+            ) {
+                expandedCatalogState.focusKey = selection.focusKey
+            }
         }
     }
 
@@ -369,7 +387,7 @@ fun ModernHomeContent(
         lastRequestedTrailerFocusKey = selection.focusKey
     }
 
-    LaunchedEffect(carouselRows, focusState.hasSavedFocus, focusState.focusedRowIndex, focusState.focusedItemIndex) {
+    LaunchedEffect(carouselRows) {
         focusedItemByRow.keys.retainAll(activeRowKeys)
         itemFocusRequesters.keys.retainAll(activeRowKeys)
         rowListStates.keys.retainAll(activeRowKeys)
@@ -389,7 +407,9 @@ fun ModernHomeContent(
                 focusedItemByRow[row.key] = 0
             }
         }
+    }
 
+    LaunchedEffect(carouselRows, focusState.hasSavedFocus, focusState.focusedRowIndex, focusState.focusedItemIndex) {
         if (!restoredFromSavedState && focusState.hasSavedFocus) {
             val savedRowKey = when {
                 focusState.focusedRowIndex == -1 && uiState.continueWatchingItems.isNotEmpty() -> "continue_watching"
@@ -728,7 +748,7 @@ fun ModernHomeContent(
                         onNavigateToDetail = onNavigateToDetail,
                         onLoadMoreCatalog = onLoadMoreCatalog,
                         onBackdropInteraction = {
-                            expansionInteractionNonce++
+                            expansionInteractionEvents.tryEmit(Unit)
                         }
                     )
                 }
