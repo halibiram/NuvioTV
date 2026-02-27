@@ -11,16 +11,16 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 
 internal val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
-internal const val MODERN_HERO_TEXT_WIDTH_FRACTION = 0.42f
-internal const val MODERN_HERO_BACKDROP_HEIGHT_FRACTION = 0.62f
+internal const val MODERN_HERO_TEXT_WIDTH_FRACTION = 0.44f
+internal const val MODERN_HERO_BACKDROP_HEIGHT_FRACTION = 0.64f
 internal const val MODERN_TRAILER_OVERSCAN_ZOOM = 1.35f
 internal const val MODERN_HERO_FOCUS_DEBOUNCE_MS = 90L
 internal val MODERN_ROW_HEADER_FOCUS_INSET = 56.dp
 internal val MODERN_LANDSCAPE_LOGO_GRADIENT = Brush.verticalGradient(
     colorStops = arrayOf(
         0.0f to Color.Transparent,
-        0.58f to Color.Transparent,
-        1.0f to Color.Black.copy(alpha = 0.75f)
+        0.60f to Color.Transparent,
+        1.0f to Color.Black.copy(alpha = 0.85f)
     )
 )
 

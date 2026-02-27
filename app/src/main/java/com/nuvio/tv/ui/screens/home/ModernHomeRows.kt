@@ -40,6 +40,10 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -380,9 +384,28 @@ internal fun ModernRowSection(
                         visibleIndices.minByOrNull { kotlin.math.abs(it - restoreIndex) } ?: fallbackIndex
                     val itemKey = row.items.getOrNull(safeIndex)?.key ?: row.items.first().key
                     itemFocusRequesters[row.key]?.get(itemKey) ?: FocusRequester.Default
+                }
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            0.0f  to Color.Transparent,
+                            0.03f to Color.Black.copy(alpha = 0.25f),
+                            0.07f to Color.Black.copy(alpha = 0.65f),
+                            0.11f to Color.Black,
+                            0.86f to Color.Black,
+                            0.92f to Color.Black.copy(alpha = 0.65f),
+                            0.97f to Color.Black.copy(alpha = 0.25f),
+                            1.0f  to Color.Transparent
+                        ),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn
+                    )
                 },
                 contentPadding = PaddingValues(horizontal = rowStartPadding),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 itemsIndexed(
                     items = row.items,

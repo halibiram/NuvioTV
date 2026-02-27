@@ -99,25 +99,26 @@ internal fun ModernHeroMediaLayer(
                 .fillMaxSize()
                 .drawWithCache {
                     val horizontalGradient = Brush.horizontalGradient(
-                        0.0f to bgColor.copy(alpha = 0.96f),
-                        0.10f to bgColor.copy(alpha = 0.72f),
-                        0.30f to Color.Transparent
+                        0.0f to bgColor.copy(alpha = 0.98f),
+                        0.08f to bgColor.copy(alpha = 0.82f),
+                        0.22f to bgColor.copy(alpha = 0.45f),
+                        0.38f to Color.Transparent
                     )
                     val radialGradient = Brush.radialGradient(
                         colorStops = arrayOf(
-                            0.0f to bgColor.copy(alpha = 0.78f),
-                            0.55f to bgColor.copy(alpha = 0.52f),
-                            0.80f to bgColor.copy(alpha = 0.16f),
+                            0.0f to bgColor.copy(alpha = 0.70f),
+                            0.50f to bgColor.copy(alpha = 0.40f),
+                            0.75f to bgColor.copy(alpha = 0.10f),
                             1.0f to Color.Transparent
                         ),
-                        center = Offset(0f, size.height / 2f),
-                        radius = size.height
+                        center = Offset(0f, size.height * 0.5f),
+                        radius = size.height * 1.05f
                     )
                     val verticalGradient = Brush.verticalGradient(
-                        0.78f to Color.Transparent,
-                        0.90f to bgColor.copy(alpha = 0.72f),
-                        0.96f to bgColor.copy(alpha = 0.98f),
-                        1.0f to bgColor
+                        0.60f to Color.Transparent,
+                        0.72f to bgColor.copy(alpha = 0.65f),
+                        0.80f to bgColor.copy(alpha = 0.94f),
+                        0.86f to bgColor
                     )
                     onDrawBehind {
                         drawRect(brush = horizontalGradient, size = size)

@@ -597,9 +597,9 @@ fun ModernHomeContent(
         val heroBackdropAlpha = 1f - heroTransitionProgress
         val heroTrailerAlpha = heroTransitionProgress
         val catalogBottomPadding = 0.dp
-        val heroToCatalogGap = 16.dp
-        val rowTitleBottom = 20.dp
-        val rowsViewportHeightFraction = if (useLandscapePosters) 0.50f else 0.54f
+        val heroToCatalogGap = 20.dp
+        val rowTitleBottom = 16.dp
+        val rowsViewportHeightFraction = if (useLandscapePosters) 0.52f else 0.56f
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
         val localDensity = LocalDensity.current
         val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
@@ -672,10 +672,14 @@ fun ModernHomeContent(
                         drawContent()
                         drawRect(
                             brush = Brush.verticalGradient(
-                                0.0f to Color.Transparent,
-                                0.15f to Color.Black,
-                                0.85f to Color.Black,
-                                1.0f to Color.Transparent
+                                0.0f  to Color.Transparent,
+                                0.04f to Color.Black.copy(alpha = 0.20f),
+                                0.08f to Color.Black.copy(alpha = 0.60f),
+                                0.13f to Color.Black,
+                                0.78f to Color.Black,
+                                0.87f to Color.Black.copy(alpha = 0.60f),
+                                0.93f to Color.Black.copy(alpha = 0.20f),
+                                1.0f  to Color.Transparent
                             ),
                             blendMode = androidx.compose.ui.graphics.BlendMode.DstIn
                         )
@@ -691,8 +695,11 @@ fun ModernHomeContent(
                         }
                         false
                     },
-                contentPadding = PaddingValues(bottom = 0.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                contentPadding = PaddingValues(
+                    top = MODERN_ROW_HEADER_FOCUS_INSET,
+                    bottom = rowsViewportHeight * 0.15f
+                ),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 itemsIndexed(
                     items = carouselRows,
