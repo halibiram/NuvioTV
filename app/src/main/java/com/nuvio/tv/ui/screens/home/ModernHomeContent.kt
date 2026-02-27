@@ -646,6 +646,39 @@ fun ModernHomeContent(
                 .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
         )
 
+        val posterCardCornerRadius = uiState.posterCardCornerRadiusDp.dp
+
+        // Bundle infrequently-changing config into a single @Stable object.
+        // This collapses 11 primitive parameters into 1 stable reference,
+        // preventing recomposition of ALL rows when unrelated state changes.
+        val rowSharedConfig = remember(
+            useLandscapePosters,
+            uiState.posterLabelsEnabled,
+            posterCardCornerRadius,
+            modernCatalogCardWidth,
+            modernCatalogCardHeight,
+            continueWatchingCardWidth,
+            continueWatchingCardHeight,
+            uiState.focusedPosterBackdropTrailerMuted,
+            effectiveExpandEnabled,
+            effectiveAutoplayEnabled,
+            trailerPlaybackTarget
+        ) {
+            ModernRowSharedConfig(
+                useLandscapePosters = useLandscapePosters,
+                showLabels = uiState.posterLabelsEnabled,
+                posterCardCornerRadius = posterCardCornerRadius,
+                modernCatalogCardWidth = modernCatalogCardWidth,
+                modernCatalogCardHeight = modernCatalogCardHeight,
+                continueWatchingCardWidth = continueWatchingCardWidth,
+                continueWatchingCardHeight = continueWatchingCardHeight,
+                focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                effectiveExpandEnabled = effectiveExpandEnabled,
+                effectiveAutoplayEnabled = effectiveAutoplayEnabled,
+                trailerPlaybackTarget = trailerPlaybackTarget
+            )
+        }
+
         CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {
             LazyColumn(
                 state = verticalRowListState,
@@ -668,38 +701,6 @@ fun ModernHomeContent(
                 contentPadding = PaddingValues(bottom = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Bundle infrequently-changing config into a single @Stable object.
-                // This collapses 11 primitive parameters into 1 stable reference,
-                // preventing recomposition of ALL rows when unrelated state changes.
-                // NOTE: `remember` inside LazyListScope is valid; it is scoped to the
-                // LazyColumn's composition and re-evaluated only when its keys change.
-                val rowSharedConfig = remember(
-                    useLandscapePosters,
-                    uiState.posterLabelsEnabled,
-                    uiState.posterCardCornerRadiusDp,
-                    modernCatalogCardWidth,
-                    modernCatalogCardHeight,
-                    continueWatchingCardWidth,
-                    continueWatchingCardHeight,
-                    uiState.focusedPosterBackdropTrailerMuted,
-                    effectiveExpandEnabled,
-                    effectiveAutoplayEnabled,
-                    trailerPlaybackTarget
-                ) {
-                    ModernRowSharedConfig(
-                        useLandscapePosters = useLandscapePosters,
-                        showLabels = uiState.posterLabelsEnabled,
-                        posterCardCornerRadius = uiState.posterCardCornerRadiusDp.dp,
-                        modernCatalogCardWidth = modernCatalogCardWidth,
-                        modernCatalogCardHeight = modernCatalogCardHeight,
-                        continueWatchingCardWidth = continueWatchingCardWidth,
-                        continueWatchingCardHeight = continueWatchingCardHeight,
-                        focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
-                        effectiveExpandEnabled = effectiveExpandEnabled,
-                        effectiveAutoplayEnabled = effectiveAutoplayEnabled,
-                        trailerPlaybackTarget = trailerPlaybackTarget
-                    )
-                }
 
                 itemsIndexed(
                     items = carouselRows,
