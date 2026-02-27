@@ -202,11 +202,10 @@ internal fun ModernRowSection(
     defaultBringIntoViewSpec: BringIntoViewSpec,
     focusStateCatalogRowScrollStates: Map<String, Int>,
     uiCaches: ModernHomeUiCaches,
-    pendingRowFocusKey: String?,
-    pendingRowFocusIndex: Int?,
-    pendingRowFocusNonce: Int,
-    onPendingRowFocusCleared: () -> Unit,
-    onRowItemFocused: (String, Int, Boolean) -> Unit,
+    pendingRowFocus: PendingRowFocusHolder,
+    activeRowState: ActiveRowState,
+    focusedCatalogHolder: FocusedCatalogSelectionHolder,
+    lastFocusedContinueWatchingIndexRef: Ref<Int>,
     config: ModernRowSharedConfig,
     expandedState: ExpandedCatalogState,
     trailerPreviewState: TrailerPreviewState,
@@ -215,7 +214,6 @@ internal fun ModernRowSection(
     isCatalogItemWatched: (MetaPreview) -> Boolean,
     onCatalogItemLongPress: (MetaPreview, String) -> Unit,
     onItemFocus: (MetaPreview) -> Unit,
-    onCatalogSelectionFocused: (FocusedCatalogSelection) -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit,
     onBackdropInteraction: () -> Unit
@@ -251,9 +249,11 @@ internal fun ModernRowSection(
             !loadMoreAddonId.isNullOrBlank() &&
             !loadMoreApiType.isNullOrBlank()
 
-        LaunchedEffect(row.key, pendingRowFocusNonce) {
-            if (pendingRowFocusKey != row.key) return@LaunchedEffect
-            val targetIndex = (pendingRowFocusIndex ?: 0)
+        // Read from @Stable holder: only the row whose key matches pendingRowFocus.key
+        // will actually execute the focus-restoration logic. All other rows skip cheaply.
+        LaunchedEffect(row.key, pendingRowFocus.nonce) {
+            if (pendingRowFocus.key != row.key) return@LaunchedEffect
+            val targetIndex = (pendingRowFocus.index ?: 0)
                 .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
             val targetItemKey = row.items.getOrNull(targetIndex)?.key ?: return@LaunchedEffect
             val requester = uiCaches.requesterFor(row.key, targetItemKey)
@@ -285,7 +285,7 @@ internal fun ModernRowSection(
                 }.getOrDefault(false)
             }
             if (didFocus) {
-                onPendingRowFocusCleared()
+                pendingRowFocus.clear()
             }
         }
 
@@ -395,8 +395,28 @@ internal fun ModernRowSection(
                 ) { index, item ->
                     val requester = uiCaches.requesterFor(row.key, item.key)
                     val isContinueWatchingRow = row.key == "continue_watching"
+                    // Write directly to @Stable holders instead of calling
+                    // unstable parent lambdas. This eliminates the need for
+                    // parent-captured closures that reference mutable state.
                     val onFocused = {
-                        onRowItemFocused(row.key, index, isContinueWatchingRow)
+                        val rowBecameActive = activeRowState.rowKey != row.key
+                        if (uiCaches.focusedItemByRow[row.key] != index) {
+                            uiCaches.focusedItemByRow[row.key] = index
+                        }
+                        if (rowBecameActive) {
+                            activeRowState.rowKey = row.key
+                        }
+                        if (rowBecameActive || activeRowState.itemIndex != index) {
+                            activeRowState.itemIndex = index
+                        }
+                        if (isContinueWatchingRow) {
+                            if (lastFocusedContinueWatchingIndexRef.value != index) {
+                                lastFocusedContinueWatchingIndexRef.value = index
+                            }
+                            if (focusedCatalogHolder.selection != null) {
+                                focusedCatalogHolder.selection = null
+                            }
+                        }
                     }
 
                     when (val payload = item.payload) {
@@ -424,7 +444,9 @@ internal fun ModernRowSection(
                                 isWatched = item.metaPreview?.let(isCatalogItemWatched) == true,
                                 onFocused = onFocused,
                                 onItemFocus = onItemFocus,
-                                onCatalogSelectionFocused = onCatalogSelectionFocused,
+                                onCatalogSelectionFocused = { selection ->
+                                    focusedCatalogHolder.update(selection)
+                                },
                                 onNavigateToDetail = onNavigateToDetail,
                                 onLongPress = {
                                     item.metaPreview?.let { preview ->

@@ -298,19 +298,18 @@ fun ModernHomeContent(
     val itemFocusRequesters = uiCaches.itemFocusRequesters
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
-    var activeRowKey by remember { mutableStateOf<String?>(null) }
-    var activeItemIndex by remember { mutableIntStateOf(0) }
-    var pendingRowFocusKey by remember { mutableStateOf<String?>(null) }
-    var pendingRowFocusIndex by remember { mutableStateOf<Int?>(null) }
-    var pendingRowFocusNonce by remember { mutableIntStateOf(0) }
-    var heroItem by remember { mutableStateOf<HeroPreview?>(null) }
+    // @Stable holders: writes to these do NOT trigger recomposition of the parent;
+    // only composables that READ from a specific holder field are invalidated.
+    val activeRowState = remember { ActiveRowState() }
+    val pendingRowFocus = remember { PendingRowFocusHolder() }
+    val heroHolder = remember { HeroPreviewHolder() }
+    val focusedCatalogHolder = remember { FocusedCatalogSelectionHolder() }
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     // Use Ref (non-snapshot) for values only read inside callbacks/key-handlers
     // to avoid triggering recomposition on every D-pad key event.
     val lastFocusedContinueWatchingIndexRef = remember { Ref(-1) }
     val lastKeyRepeatTimeRef = remember { Ref(0L) }
-    var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     val expandedCatalogState = remember { ExpandedCatalogState() }
     var expansionInteractionNonce by remember { mutableIntStateOf(0) }
@@ -322,7 +321,7 @@ fun ModernHomeContent(
     }
 
     LaunchedEffect(
-        focusedCatalogSelection?.focusKey,
+        focusedCatalogHolder.selection?.focusKey,
         expansionInteractionNonce,
         shouldActivateFocusedPosterFlow,
         trailerPlaybackTarget,
@@ -332,18 +331,18 @@ fun ModernHomeContent(
         expandedCatalogState.focusKey = null
         if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
         if (isVerticalRowsScrolling) return@LaunchedEffect
-        val selection = focusedCatalogSelection ?: return@LaunchedEffect
+        val selection = focusedCatalogHolder.selection ?: return@LaunchedEffect
         delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1) * 1000L)
         if (shouldActivateFocusedPosterFlow &&
             !isVerticalRowsScrolling &&
-            focusedCatalogSelection?.focusKey == selection.focusKey
+            focusedCatalogHolder.selection?.focusKey == selection.focusKey
         ) {
             expandedCatalogState.focusKey = selection.focusKey
         }
     }
 
     LaunchedEffect(
-        focusedCatalogSelection?.focusKey,
+        focusedCatalogHolder.selection?.focusKey,
         effectiveAutoplayEnabled,
         isVerticalRowsScrolling
     ) {
@@ -354,7 +353,7 @@ fun ModernHomeContent(
         if (isVerticalRowsScrolling) {
             return@LaunchedEffect
         }
-        val selection = focusedCatalogSelection ?: run {
+        val selection = focusedCatalogHolder.selection ?: run {
             lastRequestedTrailerFocusKey = null
             return@LaunchedEffect
         }
@@ -380,8 +379,8 @@ fun ModernHomeContent(
             val allowedKeys = activeItemKeysByRow[row.key] ?: emptySet()
             rowRequesters.keys.retainAll(allowedKeys)
         }
-        if (focusedCatalogSelection?.payload?.itemId !in activeCatalogItemIds) {
-            focusedCatalogSelection = null
+        focusedCatalogHolder.clearIfNotIn(activeCatalogItemIds)
+        if (focusedCatalogHolder.selection == null) {
             expandedCatalogState.focusKey = null
         }
 
@@ -403,33 +402,29 @@ fun ModernHomeContent(
                 .coerceAtLeast(0)
                 .coerceAtMost((resolvedRow.items.size - 1).coerceAtLeast(0))
 
-            activeRowKey = resolvedRow.key
-            activeItemIndex = resolvedIndex
+            activeRowState.rowKey = resolvedRow.key
+            activeRowState.itemIndex = resolvedIndex
             focusedItemByRow[resolvedRow.key] = resolvedIndex
-            heroItem = resolvedRow.items.getOrNull(resolvedIndex)?.heroPreview
+            heroHolder.preview = resolvedRow.items.getOrNull(resolvedIndex)?.heroPreview
                 ?: resolvedRow.items.firstOrNull()?.heroPreview
-            pendingRowFocusKey = resolvedRow.key
-            pendingRowFocusIndex = resolvedIndex
-            pendingRowFocusNonce++
+            pendingRowFocus.request(resolvedRow.key, resolvedIndex)
             restoredFromSavedState = true
             return@LaunchedEffect
         }
 
-        val hadActiveRow = activeRowKey != null
-        val existingActive = activeRowKey?.let { key -> carouselRows.firstOrNull { it.key == key } }
+        val hadActiveRow = activeRowState.rowKey != null
+        val existingActive = activeRowState.rowKey?.let { key -> carouselRows.firstOrNull { it.key == key } }
         val resolvedActive = existingActive ?: carouselRows.first()
-        activeRowKey = resolvedActive.key
+        activeRowState.rowKey = resolvedActive.key
         val resolvedIndex = focusedItemByRow[resolvedActive.key]
             ?.coerceIn(0, (resolvedActive.items.size - 1).coerceAtLeast(0))
             ?: 0
-        activeItemIndex = resolvedIndex
+        activeRowState.itemIndex = resolvedIndex
         focusedItemByRow[resolvedActive.key] = resolvedIndex
-        heroItem = resolvedActive.items.getOrNull(resolvedIndex)?.heroPreview
+        heroHolder.preview = resolvedActive.items.getOrNull(resolvedIndex)?.heroPreview
             ?: resolvedActive.items.firstOrNull()?.heroPreview
         if (!focusState.hasSavedFocus && !hadActiveRow) {
-            pendingRowFocusKey = resolvedActive.key
-            pendingRowFocusIndex = resolvedIndex
-            pendingRowFocusNonce++
+            pendingRowFocus.request(resolvedActive.key, resolvedIndex)
         }
     }
 
@@ -446,11 +441,11 @@ fun ModernHomeContent(
         }
     }
 
-    // Plain remember is sufficient here: all dependencies are already remember keys.
-    // derivedStateOf adds snapshot-tracking overhead with zero benefit when no fresh
-    // snapshot state reads occur inside the block (the captured values are already
-    // unwrapped by the remember keys). Removing derivedStateOf eliminates 8 unnecessary
-    // SnapshotState observers and their associated invalidation-scope bookkeeping.
+    // Resolve the active row from the @Stable holder. Reading activeRowState.rowKey
+    // here means only this derivation recomposes when the active row changes — not the
+    // entire parent composable (which was the old behavior with raw mutableStateOf).
+    val activeRowKey = activeRowState.rowKey
+    val activeItemIndex = activeRowState.itemIndex
     val activeRow = remember(carouselRows, rowByKey, activeRowKey) {
         if (activeRowKey == null) null
         else rowByKey[activeRowKey] ?: carouselRows.firstOrNull()
@@ -463,9 +458,9 @@ fun ModernHomeContent(
 
     LaunchedEffect(activeRow?.key, activeRow?.items?.size) {
         val row = activeRow ?: return@LaunchedEffect
-        val clampedIndex = activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-        if (activeItemIndex != clampedIndex) {
-            activeItemIndex = clampedIndex
+        val clampedIndex = activeRowState.itemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
+        if (activeRowState.itemIndex != clampedIndex) {
+            activeRowState.itemIndex = clampedIndex
         }
         focusedItemByRow[row.key] = clampedIndex
     }
@@ -486,8 +481,8 @@ fun ModernHomeContent(
         if (latestKey != targetHeroKey) return@LaunchedEffect
         val latestHero =
             row.items.getOrNull(latestHeroIndex)?.heroPreview ?: row.items.firstOrNull()?.heroPreview
-        if (latestHero != null && heroItem != latestHero) {
-            heroItem = latestHero
+        if (latestHero != null && heroHolder.preview != latestHero) {
+            heroHolder.preview = latestHero
         }
     }
     val latestActiveRow by rememberUpdatedState(activeRow)
@@ -547,6 +542,7 @@ fun ModernHomeContent(
     val rowHorizontalPadding = 52.dp
     val localDensity = LocalDensity.current
 
+    val heroItem = heroHolder.preview
     val resolvedHero = remember(heroItem, activeRow, clampedActiveItemIndex) {
         heroItem
             ?: activeRow?.items?.getOrNull(clampedActiveItemIndex)?.heroPreview
@@ -566,6 +562,7 @@ fun ModernHomeContent(
         )
     }
     val currentExpandedFocusKey = expandedCatalogState.focusKey
+    val focusedCatalogSelection = focusedCatalogHolder.selection
     val expandedFocusedSelection = remember(focusedCatalogSelection, currentExpandedFocusKey) {
         focusedCatalogSelection?.takeIf { it.focusKey == currentExpandedFocusKey }
     }
@@ -674,6 +671,8 @@ fun ModernHomeContent(
                 // Bundle infrequently-changing config into a single @Stable object.
                 // This collapses 11 primitive parameters into 1 stable reference,
                 // preventing recomposition of ALL rows when unrelated state changes.
+                // NOTE: `remember` inside LazyListScope is valid; it is scoped to the
+                // LazyColumn's composition and re-evaluated only when its keys change.
                 val rowSharedConfig = remember(
                     useLandscapePosters,
                     uiState.posterLabelsEnabled,
@@ -713,36 +712,10 @@ fun ModernHomeContent(
                         defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                         focusStateCatalogRowScrollStates = focusState.catalogRowScrollStates,
                         uiCaches = uiCaches,
-                        pendingRowFocusKey = pendingRowFocusKey,
-                        pendingRowFocusIndex = pendingRowFocusIndex,
-                        pendingRowFocusNonce = pendingRowFocusNonce,
-                        onPendingRowFocusCleared = {
-                            pendingRowFocusKey = null
-                            pendingRowFocusIndex = null
-                        },
-                        // Route map access through @Stable uiCaches so the Compose
-                        // compiler captures the stable holder rather than the raw
-                        // MutableMap, enabling automatic lambda memoization.
-                        onRowItemFocused = { rowKey, index, isContinueWatchingRow ->
-                            val rowBecameActive = activeRowKey != rowKey
-                            if (uiCaches.focusedItemByRow[rowKey] != index) {
-                                uiCaches.focusedItemByRow[rowKey] = index
-                            }
-                            if (rowBecameActive) {
-                                activeRowKey = rowKey
-                            }
-                            if (rowBecameActive || activeItemIndex != index) {
-                                activeItemIndex = index
-                            }
-                            if (isContinueWatchingRow) {
-                                    if (lastFocusedContinueWatchingIndexRef.value != index) {
-                                        lastFocusedContinueWatchingIndexRef.value = index
-                                }
-                                if (focusedCatalogSelection != null) {
-                                    focusedCatalogSelection = null
-                                }
-                            }
-                        },
+                        pendingRowFocus = pendingRowFocus,
+                        activeRowState = activeRowState,
+                        focusedCatalogHolder = focusedCatalogHolder,
+                        lastFocusedContinueWatchingIndexRef = lastFocusedContinueWatchingIndexRef,
                         config = rowSharedConfig,
                         expandedState = expandedCatalogState,
                         trailerPreviewState = trailerPreviewState,
@@ -751,11 +724,6 @@ fun ModernHomeContent(
                         isCatalogItemWatched = isCatalogItemWatched,
                         onCatalogItemLongPress = onCatalogItemLongPress,
                         onItemFocus = onItemFocus,
-                        onCatalogSelectionFocused = { selection ->
-                            if (focusedCatalogSelection != selection) {
-                                focusedCatalogSelection = selection
-                            }
-                        },
                         onNavigateToDetail = onNavigateToDetail,
                         onLoadMoreCatalog = onLoadMoreCatalog,
                         onBackdropInteraction = {
@@ -779,9 +747,10 @@ fun ModernHomeContent(
                     minOf(lastFocusedContinueWatchingIndexRef.value, uiState.continueWatchingItems.size - 2)
                         .coerceAtLeast(0)
                 }
-                pendingRowFocusKey = if (targetIndex != null) "continue_watching" else null
-                pendingRowFocusIndex = targetIndex
-                pendingRowFocusNonce++
+                pendingRowFocus.request(
+                    if (targetIndex != null) "continue_watching" else null,
+                    targetIndex
+                )
                 onRemoveContinueWatching(
                     selectedOptionsItem.contentId(),
                     selectedOptionsItem.season(),
