@@ -214,8 +214,18 @@ fun ThemeSettingsContent(
                                     .fillMaxWidth()
                                     .then(if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                                    containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundElevated,
                                     contentColor = NuvioColors.TextPrimary
+                                ),
+                                border = ButtonDefaults.border(
+                                    border = androidx.tv.material3.Border(
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                                        shape = androidx.compose.foundation.shape.CircleShape
+                                    ),
+                                    focusedBorder = androidx.tv.material3.Border(
+                                        border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                                        shape = androidx.compose.foundation.shape.CircleShape
+                                    )
                                 )
                             ) {
                                 Text(name)
@@ -255,14 +265,17 @@ private fun ThemeCard(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = if (theme == AppTheme.OLED_BLACK) Color(0xFF000000) else NuvioColors.Background,
+            focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
             border = if (isSelected) Border(
                 border = BorderStroke(1.dp, NuvioColors.FocusRing),
                 shape = RoundedCornerShape(SettingsSecondaryCardRadius)
-            ) else Border.None,
+            ) else Border(
+                border = BorderStroke(1.dp, NuvioColors.Border),
+                shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+            ),
             focusedBorder = Border(
                 border = BorderStroke(2.dp, NuvioColors.FocusRing),
                 shape = RoundedCornerShape(SettingsSecondaryCardRadius)
