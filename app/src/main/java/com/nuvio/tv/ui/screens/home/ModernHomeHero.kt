@@ -16,12 +16,16 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -99,6 +103,9 @@ internal fun ModernHeroMediaLayer(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithCache {
+                    val leftBlendSolidWidth = size.width * 0.018f
+                    val horizontalGradientStartX = leftBlendSolidWidth
+                    val horizontalFadeEndX = horizontalGradientStartX + (size.width * 0.36f)
                     val horizontalGradient = Brush.horizontalGradient(
                         0.0f to bgColor.copy(alpha = 0.98f),
                         0.08f to bgColor.copy(alpha = 0.82f),
@@ -121,7 +128,13 @@ internal fun ModernHeroMediaLayer(
                         0.74f to bgColor.copy(alpha = 0.88f),
                         0.82f to bgColor
                     )
-                    onDrawBehind {
+                    onDrawWithContent {
+                        drawContent()
+                        // Blend strip to avoid visible seam at media start edge.
+                        drawRect(
+                            color = bgColor,
+                            size = Size(leftBlendSolidWidth, size.height)
+                        )
                         drawRect(brush = horizontalGradient, size = size)
                         drawRect(brush = radialGradient, size = size)
                         drawRect(brush = verticalGradient, size = size)
@@ -185,10 +198,13 @@ internal fun HeroTitleBlock(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
-        if (!preview.logo.isNullOrBlank()) {
+        var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
+        val showLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
+        if (showLogo) {
             AsyncImage(
                 model = logoModel,
                 contentDescription = preview.title,
+                onError = { logoLoadFailed = true },
                 modifier = Modifier
                     .height(100.dp)
                     .widthIn(min = 100.dp, max = 220.dp)
