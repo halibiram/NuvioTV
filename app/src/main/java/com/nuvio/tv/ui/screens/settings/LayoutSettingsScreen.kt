@@ -621,20 +621,22 @@ private fun ModernTrailerPlaybackTargetRow(
     onTargetSelected: (FocusedPosterTrailerPlaybackTarget) -> Unit,
     onFocused: () -> Unit
 ) {
-    Text(
-        text = stringResource(R.string.layout_trailer_location),
-        style = MaterialTheme.typography.labelLarge,
-        color = NuvioColors.TextSecondary
-    )
-    Text(
-        text = stringResource(R.string.layout_trailer_location_sub),
-        style = MaterialTheme.typography.bodySmall,
-        color = NuvioColors.TextTertiary
-    )
-    LazyRow(
-        contentPadding = PaddingValues(end = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.layout_trailer_location),
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioColors.TextSecondary
+        )
+        Text(
+            text = stringResource(R.string.layout_trailer_location_sub),
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextTertiary
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        LazyRow(
+            contentPadding = PaddingValues(end = 8.dp, top = 4.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
         item(key = "trailer_target_expanded_card") {
             SettingsChoiceChip(
                 label = stringResource(R.string.layout_trailer_expanded_card),
@@ -656,6 +658,7 @@ private fun ModernTrailerPlaybackTargetRow(
             )
         }
     }
+}
 }
 
 @Composable
@@ -680,7 +683,7 @@ private fun LayoutCard(
         },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
             border = if (isSelected) Border(
@@ -851,10 +854,14 @@ private fun PosterCardStyleControls(
             },
             shape = ButtonDefaults.shape(shape = RoundedCornerShape(SettingsPillRadius)),
             colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.Background,
-                focusedContainerColor = NuvioColors.Background
+                containerColor = NuvioColors.BackgroundElevated,
+                focusedContainerColor = NuvioColors.FocusBackground
             ),
             border = ButtonDefaults.border(
+                border = Border(
+                    border = BorderStroke(1.dp, NuvioColors.Border),
+                    shape = RoundedCornerShape(SettingsPillRadius)
+                ),
                 focusedBorder = Border(
                     border = BorderStroke(2.dp, NuvioColors.FocusRing),
                     shape = RoundedCornerShape(SettingsPillRadius)
@@ -880,26 +887,28 @@ private fun OptionRow(
 ) {
     val selectedLabel = options.firstOrNull { it.value == selectedValue }?.label ?: stringResource(R.string.layout_custom)
 
-    Text(
-        text = "$title ($selectedLabel)",
-        style = MaterialTheme.typography.labelLarge,
-        color = NuvioColors.TextSecondary
-    )
-
-    LazyRow(
-        contentPadding = PaddingValues(end = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(
-            items = options,
-            key = { it.value }
-        ) { option ->
-            ValueChip(
-                label = option.label,
-                isSelected = option.value == selectedValue,
-                onClick = { onSelected(option.value) },
-                onFocused = onFocused
-            )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "$title ($selectedLabel)",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioColors.TextSecondary
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        LazyRow(
+            contentPadding = PaddingValues(end = 8.dp, top = 4.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = options,
+                key = { it.value }
+            ) { option ->
+                ValueChip(
+                    label = option.label,
+                    isSelected = option.value == selectedValue,
+                    onClick = { onSelected(option.value) },
+                    onFocused = onFocused
+                )
+            }
         }
     }
 }

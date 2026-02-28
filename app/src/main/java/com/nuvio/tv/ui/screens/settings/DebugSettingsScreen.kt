@@ -165,7 +165,7 @@ private fun DebugToggleCard(
         modifier = Modifier
             .fillMaxWidth(),
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
+            containerColor = NuvioColors.Background,
             focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
@@ -207,7 +207,7 @@ private fun DebugToggleCard(
                     checkedThumbColor = NuvioColors.Secondary,
                     checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.3f),
                     uncheckedThumbColor = NuvioColors.TextSecondary,
-                    uncheckedTrackColor = NuvioColors.BackgroundCard
+                    uncheckedTrackColor = NuvioColors.Background
                 )
             )
         }
@@ -228,7 +228,7 @@ private fun DebugActionCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
+            containerColor = NuvioColors.Background,
             focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
@@ -273,7 +273,7 @@ private fun DebugDialogButton(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
+            containerColor = NuvioColors.Background,
             focusedContainerColor = NuvioColors.Secondary
         ),
         shape = CardDefaults.shape(RoundedCornerShape(8.dp)),

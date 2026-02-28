@@ -156,7 +156,7 @@ private fun ProfileListItem(
             .heightIn(min = 62.dp),
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -229,7 +229,7 @@ private fun AddProfileButton(
             .height(56.dp),
         colors = CardDefaults.colors(
             containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
             border = Border(

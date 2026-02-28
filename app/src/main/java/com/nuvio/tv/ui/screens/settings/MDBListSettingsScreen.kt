@@ -206,7 +206,7 @@ private fun MDBListApiKeyDialog(
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
                 containerColor = NuvioColors.BackgroundElevated,
-                focusedContainerColor = NuvioColors.BackgroundElevated
+                focusedContainerColor = NuvioColors.FocusBackground
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -263,7 +263,9 @@ private fun MDBListApiKeyDialog(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.BackgroundElevated,
-                    contentColor = NuvioColors.TextPrimary
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
+                    focusedContentColor = NuvioColors.Primary
                 )
             ) {
                 Text(stringResource(R.string.action_cancel))
@@ -273,7 +275,9 @@ private fun MDBListApiKeyDialog(
                 onClick = onClear,
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.BackgroundElevated,
-                    contentColor = NuvioColors.TextPrimary
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
+                    focusedContentColor = NuvioColors.Primary
                 )
             ) {
                 Text(stringResource(R.string.action_clear))
@@ -283,7 +287,9 @@ private fun MDBListApiKeyDialog(
                 onClick = { onSave(value.trim()) },
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.BackgroundCard,
-                    contentColor = NuvioColors.TextPrimary
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
+                    focusedContentColor = NuvioColors.Primary
                 )
             ) {
                 Text(stringResource(R.string.action_save))
