@@ -26,10 +26,10 @@ val LocalNuvioColors = staticCompositionLocalOf {
 
 val LocalNuvioExtendedColors = staticCompositionLocalOf {
     NuvioExtendedColors(
-        backgroundElevated = Color(0xFF1A1A1A),
-        backgroundCard = Color(0xFF242424),
-        textSecondary = Color(0xFFB3B3B3),
-        textTertiary = Color(0xFF808080),
+        backgroundElevated = ThemeColors.Ocean.backgroundElevated,
+        backgroundCard = ThemeColors.Ocean.backgroundCard,
+        textSecondary = ThemeColors.Ocean.textSecondary,
+        textTertiary = ThemeColors.Ocean.textTertiary,
         focusRing = ThemeColors.Ocean.focusRing,
         focusBackground = ThemeColors.Ocean.focusBackground,
         rating = Color(0xFFFFD700)

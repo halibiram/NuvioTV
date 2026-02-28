@@ -17,7 +17,16 @@ data class ThemeColorPalette(
     // Background colors with subtle theme tinting
     val background: Color = Color(0xFF0D0D0D),
     val backgroundElevated: Color = Color(0xFF1A1A1A),
-    val backgroundCard: Color = Color(0xFF242424)
+    val backgroundCard: Color = Color(0xFF242424),
+    // Surface colors
+    val surface: Color = Color(0xFF1E1E1E),
+    val surfaceVariant: Color = Color(0xFF2D2D2D),
+    // Borders
+    val border: Color = Color(0xFF333333),
+    // Typography
+    val textPrimary: Color = Color(0xFFFFFFFF),
+    val textSecondary: Color = Color(0xFFB3B3B3),
+    val textTertiary: Color = Color(0xFF808080)
 )
 
 object ThemeColors {
@@ -94,6 +103,37 @@ object ThemeColors {
         backgroundCard = Color(0xFF222222)
     )
 
+    val OledBlack = ThemeColorPalette(
+        // Accents - Pure hyper-contrast white
+        secondary = Color(0xFFFFFFFF),
+        secondaryVariant = Color(0xFFCCCCCC),
+        onSecondary = Color(0xFF000000),
+        onSecondaryVariant = Color(0xFF000000),
+        
+        // Focus - Luminous anti-bloom ring with an atmospheric deep obsidian background
+        focusRing = Color(0xFFE8E8E8),
+        focusBackground = Color(0xFF0A0A0A),
+        
+        // Backgrounds - Absolute pitch black for maximum OLED pixel-off state
+        background = Color(0xFF000000),
+        backgroundElevated = Color(0xFF000000),
+        backgroundCard = Color(0xFF000000),
+        
+        // Surfaces - Absolute pitch black
+        surface = Color(0xFF000000),
+        surfaceVariant = Color(0xFF000000),
+        
+        // Borders - Extremely polished glass-like thin border
+        border = Color(0xFF222222),
+        
+        // Typography - Anti-Blooming text colors. 
+        // 100% white on 100% black causes astigmatism glare and HDR halation on premium OLEDs.
+        // Dropping these slightly creates butter-smooth readability without eye strain.
+        textPrimary = Color(0xFFEBEBEB),
+        textSecondary = Color(0xFF9E9E9E),
+        textTertiary = Color(0xFF707070)
+    )
+
     fun getColorPalette(theme: AppTheme): ThemeColorPalette {
         return when (theme) {
             AppTheme.CRIMSON -> Crimson
@@ -103,6 +143,7 @@ object ThemeColors {
             AppTheme.AMBER -> Amber
             AppTheme.ROSE -> Rose
             AppTheme.WHITE -> White
+            AppTheme.OLED_BLACK -> OledBlack
         }
     }
 }

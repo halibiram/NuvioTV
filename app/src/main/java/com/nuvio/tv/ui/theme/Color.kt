@@ -16,9 +16,9 @@ class NuvioColorScheme(palette: ThemeColorPalette) {
     val BackgroundElevated = palette.backgroundElevated
     val BackgroundCard = palette.backgroundCard
 
-    // Surface colors (constant)
-    val Surface = Color(0xFF1E1E1E)
-    val SurfaceVariant = Color(0xFF2D2D2D)
+    // Surface colors - Theme dependent
+    val Surface = palette.surface
+    val SurfaceVariant = palette.surfaceVariant
 
     // Primary accent - Neutral Grey (constant)
     val Primary = Color(0xFF9E9E9E)
@@ -31,10 +31,10 @@ class NuvioColorScheme(palette: ThemeColorPalette) {
     val OnSecondary = palette.onSecondary
     val OnSecondaryVariant = palette.onSecondaryVariant
 
-    // Text colors (constant)
-    val TextPrimary = Color(0xFFFFFFFF)
-    val TextSecondary = Color(0xFFB3B3B3)
-    val TextTertiary = Color(0xFF808080)
+    // Text colors - Theme dependent (prevents OLED blooming)
+    val TextPrimary = palette.textPrimary
+    val TextSecondary = palette.textSecondary
+    val TextTertiary = palette.textTertiary
     val TextDisabled = Color(0xFF4D4D4D)
 
     // Focus states - Theme dependent
@@ -47,7 +47,7 @@ class NuvioColorScheme(palette: ThemeColorPalette) {
     val Success = Color(0xFF4CAF50)
 
     // Borders
-    val Border = Color(0xFF333333)
+    val Border = palette.border
     val BorderFocused = palette.focusRing
 }
 
@@ -73,19 +73,38 @@ object NuvioColors {
         @ReadOnlyComposable
         get() = NuvioTheme.colors.BackgroundCard
 
-    // Surface colors (constant)
-    val Surface = Color(0xFF1E1E1E)
-    val SurfaceVariant = Color(0xFF2D2D2D)
+    // Surface colors - Theme dependent
+    val Surface: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = NuvioTheme.colors.Surface
+
+    val SurfaceVariant: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = NuvioTheme.colors.SurfaceVariant
 
     // Primary accent - Neutral Grey (constant)
     val Primary = Color(0xFF9E9E9E)
     val PrimaryVariant = Color(0xFF6F6F6F)
     val OnPrimary = Color(0xFFFFFFFF)
 
-    // Text colors (constant)
-    val TextPrimary = Color(0xFFFFFFFF)
-    val TextSecondary = Color(0xFFB3B3B3)
-    val TextTertiary = Color(0xFF808080)
+    // Text colors - Theme dependent (prevents OLED blooming)
+    val TextPrimary: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = NuvioTheme.colors.TextPrimary
+
+    val TextSecondary: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = NuvioTheme.colors.TextSecondary
+
+    val TextTertiary: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = NuvioTheme.colors.TextTertiary
+
     val TextDisabled = Color(0xFF4D4D4D)
 
     // Status colors (constant)
@@ -93,8 +112,11 @@ object NuvioColors {
     val Error = Color(0xFFCF6679)
     val Success = Color(0xFF4CAF50)
 
-    // Borders (non-focus constant)
-    val Border = Color(0xFF333333)
+    // Borders (non-focus constant but theme dependent)
+    val Border: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = NuvioTheme.colors.Border
 
     // Dynamic accent colors - Theme dependent
     val Secondary: Color
