@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.foundation.lazy.LazyColumn
@@ -981,7 +984,8 @@ private fun PlayerChoiceDialog(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(16.dp))
-                .background(NuvioColors.BackgroundCard)
+                .background(NuvioColors.Background)
+                .border(1.dp, NuvioColors.Border, RoundedCornerShape(16.dp))
         ) {
             Column(
                 modifier = Modifier
@@ -1014,6 +1018,10 @@ private fun PlayerChoiceDialog(
                             focusedContainerColor = NuvioColors.Secondary
                         ),
                         border = CardDefaults.border(
+                            border = Border(
+                                border = BorderStroke(1.dp, NuvioColors.Border.copy(alpha=0.5f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
                             focusedBorder = Border(
                                 border = BorderStroke(2.dp, NuvioColors.FocusRing),
                                 shape = RoundedCornerShape(12.dp)
@@ -1044,6 +1052,10 @@ private fun PlayerChoiceDialog(
                             focusedContainerColor = NuvioColors.Secondary
                         ),
                         border = CardDefaults.border(
+                            border = Border(
+                                border = BorderStroke(1.dp, NuvioColors.Border.copy(alpha=0.5f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
                             focusedBorder = Border(
                                 border = BorderStroke(2.dp, NuvioColors.FocusRing),
                                 shape = RoundedCornerShape(12.dp)
