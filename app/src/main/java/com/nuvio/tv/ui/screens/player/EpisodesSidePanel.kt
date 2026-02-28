@@ -503,7 +503,7 @@ private fun EpisodeItem(
                     .width(130.dp)
                     .height(90.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(NuvioColors.SurfaceVariant)
+                    .background(NuvioColors.BackgroundElevated)
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)

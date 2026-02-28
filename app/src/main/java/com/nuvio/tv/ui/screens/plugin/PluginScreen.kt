@@ -676,7 +676,7 @@ private fun ConfirmRepoChangesDialog(
                 .width(560.dp)
                 .heightIn(max = 640.dp),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant
+                containerColor = NuvioColors.BackgroundElevated
             ),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp))
         ) {

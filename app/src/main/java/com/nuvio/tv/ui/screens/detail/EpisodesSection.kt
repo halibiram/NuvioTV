@@ -148,7 +148,7 @@ fun SeasonTabs(
                     shape = RoundedCornerShape(20.dp)
                 ),
                 colors = CardDefaults.colors(
-                    containerColor = if (isSelected) NuvioColors.SurfaceVariant else NuvioColors.BackgroundCard,
+                    containerColor = if (isSelected) NuvioColors.BackgroundElevated else NuvioColors.BackgroundCard,
                     focusedContainerColor = NuvioColors.Secondary
                 ),
                 border = CardDefaults.border(

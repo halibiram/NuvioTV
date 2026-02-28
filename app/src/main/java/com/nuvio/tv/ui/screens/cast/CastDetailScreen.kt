@@ -247,8 +247,8 @@ private fun HeroSection(person: PersonDetail) {
                 shape = RoundedCornerShape(16.dp)
             ),
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant,
-                focusedContainerColor = NuvioColors.SurfaceVariant
+                containerColor = NuvioColors.Primary.copy(alpha = 0.15f),
+                focusedContainerColor = NuvioColors.Primary.copy(alpha = 0.15f)
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -381,7 +381,7 @@ private fun SectionHeader(title: String, count: Int) {
             color = NuvioColors.TextTertiary,
             modifier = Modifier
                 .background(
-                    color = NuvioColors.SurfaceVariant,
+                    color = NuvioColors.BackgroundElevated,
                     shape = RoundedCornerShape(4.dp)
                 )
                 .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -489,7 +489,7 @@ private fun CastDetailSkeleton(personName: String) {
                         .width(160.dp)
                         .height(240.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(NuvioColors.SurfaceVariant)
+                                .background(NuvioColors.BackgroundElevated)
                 )
 
                 Spacer(modifier = Modifier.width(24.dp))
@@ -515,7 +515,7 @@ private fun CastDetailSkeleton(personName: String) {
                                 .fillMaxWidth(if (it == 0) 0.60f else if (it == 1) 0.48f else 0.72f)
                                 .height(14.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(NuvioColors.SurfaceVariant)
+                                        .background(NuvioColors.BackgroundElevated)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                     }
@@ -525,7 +525,7 @@ private fun CastDetailSkeleton(personName: String) {
                             .fillMaxWidth(0.86f)
                             .height(14.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(NuvioColors.SurfaceVariant)
+                                    .background(NuvioColors.BackgroundElevated)
                     )
                 }
             }
@@ -542,7 +542,7 @@ private fun CastDetailSkeleton(personName: String) {
                         .width(140.dp)
                         .height(20.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(NuvioColors.SurfaceVariant)
+                                .background(NuvioColors.BackgroundElevated)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Box(
@@ -550,7 +550,7 @@ private fun CastDetailSkeleton(personName: String) {
                         .width(36.dp)
                         .height(18.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(NuvioColors.SurfaceVariant)
+                                .background(NuvioColors.BackgroundElevated)
                 )
             }
 
@@ -568,7 +568,7 @@ private fun CastDetailSkeleton(personName: String) {
                                 .width(112.dp)
                                 .height(168.dp)
                                 .clip(RoundedCornerShape(PosterCardDefaults.Style.cornerRadius))
-                                .background(NuvioColors.SurfaceVariant)
+                                        .background(NuvioColors.BackgroundElevated)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Box(
@@ -576,7 +576,7 @@ private fun CastDetailSkeleton(personName: String) {
                                 .fillMaxWidth()
                                 .height(16.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(NuvioColors.SurfaceVariant)
+                                        .background(NuvioColors.BackgroundElevated)
                         )
                     }
                 }
