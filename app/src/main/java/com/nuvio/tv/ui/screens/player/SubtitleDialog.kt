@@ -3,6 +3,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.view.KeyEvent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -124,6 +126,7 @@ internal fun SubtitleSelectionDialog(
                 .width(450.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(NuvioColors.BackgroundElevated)
+                .border(1.dp, NuvioColors.Border.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
         ) {
             Column(
                 modifier = Modifier.padding(24.dp)
@@ -223,6 +226,16 @@ private fun SubtitleTab(
                 else -> NuvioColors.TextPrimary.copy(alpha = 0.06f)
             },
             focusedContainerColor = if (isSelected) NuvioColors.TextPrimary.copy(alpha = 0.22f) else NuvioColors.TextPrimary.copy(alpha = 0.12f)
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, if (isSelected) NuvioColors.Secondary.copy(alpha = 0.5f) else Color.Transparent),
+                shape = RoundedCornerShape(12.dp)
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(12.dp)
+            )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp))
     ) {
@@ -466,6 +479,16 @@ private fun FilterChip(
             },
             focusedContainerColor = if (isSelected) NuvioColors.TextPrimary.copy(alpha = 0.24f) else NuvioColors.TextPrimary.copy(alpha = 0.12f)
         ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, if (isSelected) NuvioColors.Secondary.copy(alpha = 0.5f) else Color.Transparent),
+                shape = RoundedCornerShape(10.dp)
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(10.dp)
+            )
+        ),
         shape = CardDefaults.shape(RoundedCornerShape(10.dp))
     ) {
         Text(
@@ -645,6 +668,16 @@ private fun AddonSubtitleItem(
                 else -> NuvioColors.TextPrimary.copy(alpha = 0.05f)
             },
             focusedContainerColor = NuvioColors.TextPrimary.copy(alpha = 0.15f)
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, if (isSelected) NuvioColors.Secondary.copy(alpha = 0.6f) else NuvioColors.Border.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(12.dp)
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(12.dp)
+            )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp))
     ) {
@@ -993,6 +1026,16 @@ internal fun TrackItem(
         colors = CardDefaults.colors(
             containerColor = if (isSelected) NuvioColors.TextPrimary.copy(alpha = 0.12f) else NuvioColors.TextPrimary.copy(alpha = 0.05f),
             focusedContainerColor = NuvioColors.TextPrimary.copy(alpha = 0.15f)
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, if (isSelected) NuvioColors.Secondary.copy(alpha = 0.6f) else NuvioColors.Border.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(12.dp)
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(12.dp)
+            )
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp))
     ) {
