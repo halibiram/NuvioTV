@@ -265,7 +265,7 @@ private fun ThemeCard(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = if (theme == AppTheme.OLED_BLACK) Color(0xFF000000) else NuvioColors.Background,
+            containerColor = palette.background,
             focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
