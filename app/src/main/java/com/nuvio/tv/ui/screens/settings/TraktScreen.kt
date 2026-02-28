@@ -175,8 +175,19 @@ fun TraktScreen(
                     Button(
                         onClick = { viewModel.onCancelDeviceFlow() },
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = NuvioColors.BackgroundElevated,
+                            focusedContainerColor = NuvioColors.FocusBackground,
                             contentColor = NuvioColors.TextPrimary
+                        ),
+                        border = ButtonDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            ),
+                            focusedBorder = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
                         )
                     ) {
                         Text(stringResource(R.string.action_cancel))
@@ -222,8 +233,19 @@ fun TraktScreen(
                     onClick = { showDisconnectConfirm = true },
                     modifier = Modifier.focusRequester(primaryFocusRequester),
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = NuvioColors.BackgroundElevated,
+                        focusedContainerColor = NuvioColors.FocusBackground,
                         contentColor = NuvioColors.TextPrimary
+                    ),
+                    border = ButtonDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
                     )
                 ) {
                     Text(stringResource(R.string.trakt_disconnect))
@@ -307,8 +329,19 @@ fun TraktScreen(
                 Button(
                     onClick = onBackPress,
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = NuvioColors.BackgroundElevated,
+                        focusedContainerColor = NuvioColors.FocusBackground,
                         contentColor = NuvioColors.TextPrimary
+                    ),
+                    border = ButtonDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
                     )
                 ) {
                     Text(stringResource(R.string.trakt_back))
@@ -340,7 +373,7 @@ fun TraktScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (selected) NuvioColors.Primary else NuvioColors.BackgroundCard,
+                                    containerColor = if (selected) NuvioColors.Primary else NuvioColors.Background,
                                     contentColor = if (selected) Color.Black else NuvioColors.TextPrimary
                                 )
                             ) {
@@ -360,8 +393,19 @@ fun TraktScreen(
                     Button(
                         onClick = { showDaysCapDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = NuvioColors.BackgroundElevated,
+                            focusedContainerColor = NuvioColors.FocusBackground,
                             contentColor = NuvioColors.TextPrimary
+                        ),
+                        border = ButtonDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            ),
+                            focusedBorder = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
                         )
                     ) {
                         Text(stringResource(R.string.action_cancel))
@@ -386,7 +430,7 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showUnairedNextUp) NuvioColors.Primary else NuvioColors.BackgroundCard,
+                        containerColor = if (uiState.showUnairedNextUp) NuvioColors.Primary else NuvioColors.Background,
                         contentColor = if (uiState.showUnairedNextUp) Color.Black else NuvioColors.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
@@ -399,7 +443,7 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showUnairedNextUp) NuvioColors.Primary else NuvioColors.BackgroundCard,
+                        containerColor = if (!uiState.showUnairedNextUp) NuvioColors.Primary else NuvioColors.Background,
                         contentColor = if (!uiState.showUnairedNextUp) Color.Black else NuvioColors.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
@@ -413,8 +457,19 @@ fun TraktScreen(
                     Button(
                         onClick = { showUnairedNextUpDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = NuvioColors.BackgroundElevated,
+                            focusedContainerColor = NuvioColors.FocusBackground,
                             contentColor = NuvioColors.TextPrimary
+                        ),
+                        border = ButtonDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            ),
+                            focusedBorder = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
                         )
                     ) {
                         Text(stringResource(R.string.action_cancel))
@@ -441,8 +496,19 @@ fun TraktScreen(
                         viewModel.onDisconnectClick()
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = NuvioColors.BackgroundElevated,
+                        focusedContainerColor = NuvioColors.FocusBackground,
                         contentColor = NuvioColors.TextPrimary
+                    ),
+                    border = ButtonDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
                     )
                 ) {
                     Text(stringResource(R.string.trakt_disconnect))
@@ -450,8 +516,19 @@ fun TraktScreen(
                 Button(
                     onClick = { showDisconnectConfirm = false },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = NuvioColors.BackgroundElevated,
+                        focusedContainerColor = NuvioColors.FocusBackground,
                         contentColor = NuvioColors.TextPrimary
+                    ),
+                    border = ButtonDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        ),
+                        focusedBorder = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
                     )
                 ) {
                     Text(stringResource(R.string.action_cancel))
