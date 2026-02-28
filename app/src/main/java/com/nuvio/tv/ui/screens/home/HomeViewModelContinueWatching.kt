@@ -123,11 +123,17 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 }
 
 private fun deduplicateInProgress(items: List<WatchProgress>): List<WatchProgress> {
-    val (series, nonSeries) = items.partition { isSeriesTypeCW(it.contentType) }
-    val latestPerShow = series
+    val seen = mutableSetOf<String>()
+    return items
         .sortedByDescending { it.lastWatched }
-        .distinctBy { it.contentId }
-    return (nonSeries + latestPerShow).sortedByDescending { it.lastWatched }
+        .filter { progress ->
+            val uniqueKey = if (isSeriesTypeCW(progress.contentType)) {
+                "${progress.contentId}_${progress.season}_${progress.episode}"
+            } else {
+                progress.contentId
+            }
+            seen.add(uniqueKey)
+        }
 }
 
 private fun shouldTreatAsInProgressForContinueWatching(progress: WatchProgress): Boolean {
@@ -279,19 +285,26 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
 ) = coroutineScope {
     if (inProgressItems.isEmpty()) return@coroutineScope
 
-    val seriesItems = inProgressItems.filter { isSeriesTypeCW(it.progress.contentType) }
-    if (seriesItems.isEmpty()) return@coroutineScope
-
     val metaCache = mutableMapOf<String, Meta?>()
     val enrichedByProgress = linkedMapOf<WatchProgress, ContinueWatchingItem.InProgress>()
     var lastAppliedCount = 0
 
-    for (item in seriesItems) {
-        val description = resolveCurrentEpisodeDescription(item.progress, metaCache)
-        val thumbnail = resolveCurrentEpisodeThumbnail(item.progress, metaCache)
+    for (item in inProgressItems) {
+        val isSeries = isSeriesTypeCW(item.progress.contentType)
+        val meta = resolveMetaForProgress(item.progress, metaCache)
+        val description = if (isSeries && meta != null) {
+            resolveVideoForProgress(item.progress, meta)?.overview?.takeIf { it.isNotBlank() }
+        } else null
+        val thumbnail = if (isSeries && meta != null) {
+            resolveVideoForProgress(item.progress, meta)?.thumbnail?.takeIf { it.isNotBlank() }
+        } else null
         val enrichedItem = item.copy(
-            episodeDescription = description,
-            episodeThumbnail = thumbnail
+            episodeDescription = description ?: item.episodeDescription,
+            episodeThumbnail = thumbnail ?: item.episodeThumbnail,
+            genres = meta?.genres?.takeIf { it.isNotEmpty() } ?: item.genres,
+            releaseInfo = meta?.releaseInfo ?: item.releaseInfo,
+            imdbRating = meta?.imdbRating ?: item.imdbRating,
+            contentDescription = meta?.description ?: item.contentDescription
         )
 
         if (enrichedItem != item) {
@@ -424,7 +437,11 @@ private suspend fun HomeViewModel.buildNextUpItem(
         } else {
             formatEpisodeAirDateLabel(releaseDate)
         },
-        lastWatched = nextUp.lastWatched
+        lastWatched = nextUp.lastWatched,
+        genres = meta.genres,
+        contentReleaseInfo = meta.releaseInfo,
+        imdbRating = meta.imdbRating,
+        contentDescription = meta.description
     )
     return ContinueWatchingItem.NextUp(info)
 }
