@@ -164,7 +164,7 @@ fun CastSection(
                                 .width(1.dp)
                                 .height(72.dp)
                                 .offset(x = -deadSpace / 2)
-                                .background(NuvioColors.SurfaceVariant.copy(alpha = 0.9f))
+                                .background(NuvioColors.Primary.copy(alpha = 0.3f))
                         )
                     }
                 }
@@ -248,7 +248,7 @@ private fun CastMemberItem(
                 shape = CircleShape
             ),
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant,
+                containerColor = NuvioColors.Primary.copy(alpha = 0.15f),
                 focusedContainerColor = NuvioColors.FocusBackground
             ),
             border = CardDefaults.border(

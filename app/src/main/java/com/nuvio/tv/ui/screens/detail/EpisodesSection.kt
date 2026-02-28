@@ -152,6 +152,10 @@ fun SeasonTabs(
                     focusedContainerColor = NuvioColors.Secondary
                 ),
                 border = CardDefaults.border(
+                    border = Border(
+                        border = BorderStroke(1.dp, NuvioColors.Border),
+                        shape = RoundedCornerShape(20.dp)
+                    ),
                     focusedBorder = Border(
                         border = BorderStroke(2.dp, NuvioColors.FocusRing),
                         shape = RoundedCornerShape(20.dp)
@@ -447,7 +451,7 @@ private fun EpisodeCard(
                 .background(NuvioColors.BackgroundCard)
                 .border(
                     width = 1.dp,
-                    color = Color.White.copy(alpha = 0.14f),
+                    color = NuvioColors.Border,
                     shape = shape
                 )
         ) {
@@ -631,6 +635,7 @@ private fun EpisodeCard(
                     )
                 }
             } else if (showNotStartedBadge) {
+                val badgeColor = NuvioColors.TextSecondary.copy(alpha = 0.9f)
                 Canvas(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -641,7 +646,7 @@ private fun EpisodeCard(
                         .size(cardMetrics.statusBadgeSize)
                 ) {
                     drawCircle(
-                        color = NuvioColors.TextSecondary.copy(alpha = 0.9f),
+                        color = badgeColor,
                         style = Stroke(
                             width = 2.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 5f), 0f)

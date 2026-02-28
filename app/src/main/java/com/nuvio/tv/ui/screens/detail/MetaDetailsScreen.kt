@@ -1356,7 +1356,7 @@ private fun TrailerSeekOverlay(
                 .fillMaxWidth()
                 .height(6.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(Color.White.copy(alpha = 0.3f))
+                .background(NuvioColors.TextTertiary.copy(alpha = 0.5f))
         ) {
             Box(
                 modifier = Modifier
@@ -1377,7 +1377,7 @@ private fun TrailerSeekOverlay(
             Text(
                 text = "${formatPlaybackTime(currentPosition)} / ${formatPlaybackTime(duration)}",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.9f)
+                color = NuvioColors.TextPrimary
             )
         }
     }
