@@ -27,7 +27,8 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 _uiState.update {
                     it.copy(
                         currentPosition = displayPosition,
-                        duration = playerDuration.coerceAtLeast(0L)
+                        duration = playerDuration.coerceAtLeast(0L),
+                        bufferedPosition = player.bufferedPosition.coerceAtLeast(0L)
                     )
                 }
                 updateActiveSkipInterval(pos)

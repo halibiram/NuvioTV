@@ -20,6 +20,7 @@ data class PlayerUiState(
     val playbackEnded: Boolean = false,
     val currentPosition: Long = 0L,
     val duration: Long = 0L,
+    val bufferedPosition: Long = 0L,
     val title: String = "",
     val contentName: String? = null, // Series/show name (for series content)
     val releaseYear: String? = null, // Release year for movies
