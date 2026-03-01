@@ -41,7 +41,14 @@ internal fun PlayerRuntimeController.fetchAddonSubtitles() {
                     isLoadingAddonSubtitles = false
                 ) 
             }
+
+            // Pre-fetch ALL subtitle files in background so switching
+            // to any language is instant.
+            val preferred = _uiState.value.subtitleStyle.preferredLanguage
+            subtitleCache.prefetchAll(subtitles, preferred, scope)
+
             tryAutoSelectPreferredSubtitleFromAvailableTracks()
+            startInitialPlaybackIfNeeded()
         } catch (e: Exception) {
             _uiState.update { 
                 it.copy(
@@ -49,6 +56,7 @@ internal fun PlayerRuntimeController.fetchAddonSubtitles() {
                     addonSubtitlesError = e.message
                 ) 
             }
+            startInitialPlaybackIfNeeded()
         }
     }
 }

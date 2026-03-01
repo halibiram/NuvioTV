@@ -5,9 +5,11 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal fun PlayerRuntimeController.filterEpisodeStreamsByAddon(addonName: String?) {
     val allStreams = _uiState.value.episodeAllStreams
@@ -143,59 +145,56 @@ internal fun PlayerRuntimeController.disableSubtitles() {
 }
 
 internal fun PlayerRuntimeController.selectAddonSubtitle(subtitle: com.nuvio.tv.domain.model.Subtitle) {
-    _exoPlayer?.let { player ->
-        val currentlySelected = _uiState.value.selectedAddonSubtitle
-        if (currentlySelected?.id == subtitle.id && currentlySelected.url == subtitle.url) {
-            return@let
-        }
-        Log.d(PlayerRuntimeController.TAG, "Selecting ADDON subtitle lang=${subtitle.lang} id=${subtitle.id}")
+    val player = _exoPlayer ?: return
+    val currentlySelected = _uiState.value.selectedAddonSubtitle
+    if (currentlySelected?.id == subtitle.id && currentlySelected.url == subtitle.url) {
+        return
+    }
+    Log.d(PlayerRuntimeController.TAG, "Selecting ADDON subtitle lang=${subtitle.lang} id=${subtitle.id}")
 
-        val normalizedLang = PlayerSubtitleUtils.normalizeLanguageCode(subtitle.lang)
-        val addonTrackId = "${PlayerRuntimeController.ADDON_SUBTITLE_TRACK_ID_PREFIX}${subtitle.id}"
-        pendingAddonSubtitleLanguage = normalizedLang
-        pendingAddonSubtitleTrackId = addonTrackId
-        pendingAudioSelectionAfterSubtitleRefresh =
-            captureCurrentAudioSelectionForSubtitleRefresh(player)
-        val subtitleMimeType = PlayerSubtitleUtils.mimeTypeFromUrl(subtitle.url)
+    // Keep guards for auto-selection logic
+    autoSubtitleSelected = true
+    pendingResumeProgress = null
 
-        val subtitleConfigBuilder = MediaItem.SubtitleConfiguration.Builder(
-            android.net.Uri.parse(subtitle.url)
+    val normalizedLang = PlayerSubtitleUtils.normalizeLanguageCode(subtitle.lang)
+    val addonTrackId = "${PlayerRuntimeController.ADDON_SUBTITLE_TRACK_ID_PREFIX}${subtitle.id}"
+    pendingAddonSubtitleLanguage = normalizedLang
+    pendingAddonSubtitleTrackId = addonTrackId
+    pendingAudioSelectionAfterSubtitleRefresh = captureCurrentAudioSelectionForSubtitleRefresh(player)
+
+    _uiState.update {
+        it.copy(
+            selectedAddonSubtitle = subtitle,
+            selectedSubtitleTrackIndex = -1
         )
-            .setId(addonTrackId)
-            .setLanguage(normalizedLang)
-            .setMimeType(subtitleMimeType)
-            .setSelectionFlags(0)
-        val subtitleConfig = subtitleConfigBuilder.build()
+    }
 
-        val currentPosition = player.currentPosition
-        val playWhenReady = player.playWhenReady
-
-        player.setMediaSource(
-            mediaSourceFactory.createMediaSource(
-                url = currentStreamUrl,
-                headers = currentHeaders,
-                subtitleConfigurations = listOf(subtitleConfig)
-            ),
-            currentPosition
-        )
-        player.prepare()
-        player.playWhenReady = playWhenReady
-
-        
-        player.trackSelectionParameters = player.trackSelectionParameters
-            .buildUpon()
-            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-            .setPreferredTextLanguage(normalizedLang)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .build()
-        
-        _uiState.update { 
-            it.copy(
-                selectedAddonSubtitle = subtitle,
-                selectedSubtitleTrackIndex = -1 
-            )
+    // Since we injected ALL addon subtitles into the MediaSource during initializePlayer,
+    // we just need to select the track. ExoPlayer handles fetching from our proxy seamlessly.
+    var selectedGroup: androidx.media3.common.Tracks.Group? = null
+    var selectedIndex = -1
+    for (group in player.currentTracks.groups) {
+        if (group.type == C.TRACK_TYPE_TEXT) {
+            for (i in 0 until group.length) {
+                if (group.getTrackFormat(i).id == addonTrackId) {
+                    selectedGroup = group
+                    selectedIndex = i
+                    break
+                }
+            }
         }
     }
+
+    val paramsBuilder = player.trackSelectionParameters.buildUpon()
+        .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+        .setPreferredTextLanguage(normalizedLang)
+
+    if (selectedGroup != null && selectedIndex >= 0) {
+        paramsBuilder.addOverride(TrackSelectionOverride(selectedGroup.mediaTrackGroup, listOf(selectedIndex)))
+    }
+
+    player.trackSelectionParameters = paramsBuilder.build()
 }
 
 internal fun PlayerRuntimeController.captureCurrentAudioSelectionForSubtitleRefresh(

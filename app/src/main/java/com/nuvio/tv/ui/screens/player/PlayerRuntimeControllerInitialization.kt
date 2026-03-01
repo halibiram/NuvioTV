@@ -183,7 +183,27 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 val preferred = playerSettings.subtitleStyle.preferredLanguage
                 val secondary = playerSettings.subtitleStyle.secondaryPreferredLanguage
                 applySubtitlePreferences(preferred, secondary)
-                setMediaSource(mediaSourceFactory.createMediaSource(url, headers))
+
+                // Inject ALL fetched addon subtitles into the ExoPlayer MediaSource up-front.
+                // We use our local SubtitleServer proxy. When a subtitle track is selected,
+                // ExoPlayer hits http://127.0.0.1:8155/... which waits for the file to be
+                // available in SubtitleCache and serves it instantly.
+                val addonSubtitles = _uiState.value.addonSubtitles
+                val subtitleConfigs = addonSubtitles.map { sub ->
+                    val normalizedLang = PlayerSubtitleUtils.normalizeLanguageCode(sub.lang)
+                    val addonTrackId = "${PlayerRuntimeController.ADDON_SUBTITLE_TRACK_ID_PREFIX}${sub.id}"
+                    val proxyUrl = "http://127.0.0.1:8155/subtitle?id=${sub.id}"
+                    val mime = PlayerSubtitleUtils.mimeTypeFromUrl(sub.url)
+                    
+                    androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(proxyUrl))
+                        .setId(addonTrackId)
+                        .setLanguage(normalizedLang)
+                        .setMimeType(mime)
+                        .setSelectionFlags(0)
+                        .build()
+                }
+
+                setMediaSource(mediaSourceFactory.createMediaSource(url, headers, subtitleConfigs))
                 playWhenReady = true
                 prepare()
 

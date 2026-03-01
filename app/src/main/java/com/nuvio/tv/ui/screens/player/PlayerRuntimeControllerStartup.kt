@@ -9,6 +9,11 @@ internal fun PlayerRuntimeController.attachHostActivity(activity: Activity?) {
 
 internal fun PlayerRuntimeController.startInitialPlaybackIfNeeded() {
     if (initialPlaybackStarted) return
+    
+    // DELAY playback start until subtitles are fetched.
+    // This allows us to inject ALL subtitle streams into the initial MediaSource,
+    // so we can switch them seamlessly later without rebuffering.
+    if (_uiState.value.isLoadingAddonSubtitles) return
 
     initialPlaybackStarted = true
     initializePlayer(currentStreamUrl, currentHeaders)

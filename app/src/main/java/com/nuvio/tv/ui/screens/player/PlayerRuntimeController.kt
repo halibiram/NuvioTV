@@ -3,9 +3,12 @@ package com.nuvio.tv.ui.screens.player
 import android.app.Activity
 import android.content.Context
 import android.media.audiofx.LoudnessEnhancer
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import com.nuvio.tv.core.player.SubtitleCache
+import com.nuvio.tv.core.player.SubtitleServer
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
@@ -87,6 +90,10 @@ class PlayerRuntimeController(
     internal val rememberedAudioLanguage: String? = navigationArgs.rememberedAudioLanguage
     internal val rememberedAudioName: String? = navigationArgs.rememberedAudioName
     internal val mediaSourceFactory = PlayerMediaSourceFactory()
+    internal val subtitleCache = SubtitleCache(context)
+    internal val subtitleServer = SubtitleServer(subtitleCache) { id: String ->
+        _uiState.value.addonSubtitles.find { it.id == id }
+    }
 
     internal var currentVideoHash: String? = navigationArgs.videoHash
     internal var currentVideoSize: Long? = navigationArgs.videoSize
@@ -216,12 +223,15 @@ class PlayerRuntimeController(
         fetchMetaDetails(contentId, contentType)
         observeBlurUnwatchedEpisodes()
         observeEpisodeWatchProgress()
+        try { subtitleServer.start() } catch (e: Exception) { Log.e(TAG, "Failed to start SubtitleServer", e) }
     }
     
 
     fun onCleared() {
         releasePlayer()
         mediaSourceFactory.shutdown()
+        subtitleCache.cancelPrefetch()
+        subtitleServer.stop()
         sourceChipErrorDismissJob?.cancel()
     }
 }
