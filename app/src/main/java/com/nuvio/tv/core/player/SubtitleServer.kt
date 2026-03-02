@@ -31,8 +31,11 @@ class SubtitleServer(
             
             Log.d(TAG, "ExoPlayer requested subtitle: ${subtitle.lang} (id=${id})")
             
-            // Blocking wait until the file is pre-fetched or downloaded
-            val file = runBlocking { subtitleCache.getOrDownload(subtitle) }
+            val file = runBlocking { 
+                kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                    subtitleCache.getOrDownload(subtitle) 
+                }
+            }
             
             if (file != null && file.exists() && file.length() > 0) {
                 val mime = when {
@@ -41,11 +44,10 @@ class SubtitleServer(
                     file.name.endsWith(".ssa") || file.name.endsWith(".ass") -> "text/x-ssa"
                     else -> "text/plain"
                 }
-                Log.d(TAG, "Serving ${file.name} to ExoPlayer (${file.length()} bytes)")
-                return newFixedLengthResponse(Response.Status.OK, mime, FileInputStream(file), file.length())
+                return newFixedLengthResponse(Response.Status.OK, mime, FileInputStream(file), file.length().toLong())
             }
-            Log.w(TAG, "Failed to serve ${subtitle.id}, file missing")
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Download failed")
+            val dummyContent = if (subtitle.url.contains(".vtt", ignoreCase = true)) "WEBVTT\n\n" else ""
+            return newFixedLengthResponse(Response.Status.OK, "text/plain", dummyContent)
         }
         return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
     }

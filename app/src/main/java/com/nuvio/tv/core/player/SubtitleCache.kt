@@ -30,7 +30,7 @@ class SubtitleCache(context: Context) {
         private const val TAG = "SubtitleCache"
         private const val CACHE_DIR_NAME = "subtitles"
         private const val MAX_CACHE_SIZE_BYTES = 100L * 1024 * 1024 // 100 MB
-        private const val DOWNLOAD_TIMEOUT_SECONDS = 10L
+        private const val DOWNLOAD_TIMEOUT_SECONDS = 15L
     }
 
     private val cacheDir: File = File(context.cacheDir, CACHE_DIR_NAME).also { it.mkdirs() }

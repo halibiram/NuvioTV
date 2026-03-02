@@ -11,6 +11,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -114,6 +116,13 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
                 .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
 
+            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(8000)
+                .setReadTimeoutMs(15000)
+
+            val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+
             
             subtitleDelayUs.set(_uiState.value.subtitleDelayMs.toLong() * 1000L)
             val renderersFactory = SubtitleOffsetRenderersFactory(
@@ -128,7 +137,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory).setDataSourceFactory(dataSourceFactory))
                     .buildWithAssSupport(
                         context = context,
                         renderType = libassRenderType,
@@ -138,7 +147,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 
                 ExoPlayer.Builder(context)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory).setDataSourceFactory(dataSourceFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .build()
