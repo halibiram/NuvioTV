@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.rememberUpdatedState
@@ -61,6 +62,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -103,13 +105,15 @@ private enum class RestoreTarget {
     HERO,
     EPISODE,
     CAST_MEMBER,
-    MORE_LIKE_THIS
+    MORE_LIKE_THIS,
+    COLLECTION
 }
 
 private enum class PeopleSectionTab {
     CAST,
+    RATINGS,
     MORE_LIKE_THIS,
-    RATINGS
+    COLLECTION
 }
 
 private data class PeopleTabItem(
@@ -329,6 +333,8 @@ fun MetaDetailsScreen(
                     isMovieWatched = uiState.isMovieWatched,
                     isMovieWatchedPending = uiState.isMovieWatchedPending,
                     moreLikeThis = uiState.moreLikeThis,
+                    collection = uiState.collection,
+                    collectionName = uiState.collectionName,
                     episodeImdbRatings = uiState.episodeImdbRatings,
                     isEpisodeRatingsLoading = uiState.isEpisodeRatingsLoading,
                     episodeRatingsError = uiState.episodeRatingsError,
@@ -389,6 +395,7 @@ fun MetaDetailsScreen(
                         viewModel.isSeasonFullyWatched(season)
                     },
                     trailerUrl = uiState.trailerUrl,
+                    trailerAudioUrl = uiState.trailerAudioUrl,
                     isTrailerPlaying = uiState.isTrailerPlaying,
                     showTrailerControls = uiState.showTrailerControls,
                     hideLogoDuringTrailer = uiState.hideLogoDuringTrailer,
@@ -524,6 +531,8 @@ private fun MetaDetailsContent(
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
     moreLikeThis: List<MetaPreview>,
+    collection: List<MetaPreview>,
+    collectionName: String?,
     episodeImdbRatings: Map<Pair<Int, Int>, Double>,
     isEpisodeRatingsLoading: Boolean,
     episodeRatingsError: String?,
@@ -542,6 +551,7 @@ private fun MetaDetailsContent(
     onMarkPreviousEpisodesWatched: (Video) -> Unit,
     isSeasonFullyWatched: (Int) -> Boolean,
     trailerUrl: String?,
+    trailerAudioUrl: String?,
     isTrailerPlaying: Boolean,
     showTrailerControls: Boolean,
     hideLogoDuringTrailer: Boolean,
@@ -572,7 +582,8 @@ private fun MetaDetailsContent(
         }
         byId ?: bySeasonEpisode ?: nextEpisode
     }
-    val listState = rememberLazyListState()
+    val nestedPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
+    val listState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
     // Suppress auto-scroll when hero buttons get focus
     val heroNoScrollResponder = remember {
         object : BringIntoViewResponder {
@@ -584,6 +595,7 @@ private fun MetaDetailsContent(
     val heroPlayFocusRequester = remember { FocusRequester() }
     val castTabFocusRequester = remember { FocusRequester() }
     val moreLikeTabFocusRequester = remember { FocusRequester() }
+    val collectionTabFocusRequester = remember { FocusRequester() }
     val ratingsTabFocusRequester = remember { FocusRequester() }
     val ratingsContentFocusRequester = remember { FocusRequester() }
     var pendingRestoreType by rememberSaveable { mutableStateOf<RestoreTarget?>(null) }
@@ -637,12 +649,22 @@ private fun MetaDetailsContent(
         pendingRestoreMoreLikeItemId = itemId
     }
 
+    var pendingRestoreCollectionItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    fun markCollectionRestore(itemId: String) {
+        pendingRestoreType = RestoreTarget.COLLECTION
+        pendingRestoreEpisodeId = null
+        pendingRestoreCastPersonId = null
+        pendingRestoreMoreLikeItemId = null
+        pendingRestoreCollectionItemId = itemId
+    }
+
     androidx.compose.runtime.DisposableEffect(
         lifecycleOwner,
         pendingRestoreType,
         pendingRestoreEpisodeId,
         pendingRestoreCastPersonId,
-        pendingRestoreMoreLikeItemId
+        pendingRestoreMoreLikeItemId,
+        pendingRestoreCollectionItemId
     ) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && pendingRestoreType != null) {
@@ -752,13 +774,17 @@ private fun MetaDetailsContent(
     val strTabCast = stringResource(R.string.detail_tab_cast)
     val strTabRatings = stringResource(R.string.detail_tab_ratings)
     val strTabMoreLikeThis = stringResource(R.string.detail_tab_more_like_this)
+    val strTabCollection = stringResource(R.string.tmdb_collections_title)
     val peopleTabItems = remember(
         hasCastSection,
         hasMoreLikeThisSection,
         hasRatingsSection,
+        collection,
         castTabFocusRequester,
         ratingsTabFocusRequester,
-        moreLikeTabFocusRequester
+        moreLikeTabFocusRequester,
+        collectionTabFocusRequester,
+        collectionName
     ) {
         buildList {
             if (hasCastSection) {
@@ -788,6 +814,15 @@ private fun MetaDetailsContent(
                     )
                 )
             }
+            if (collection.isNotEmpty()) {
+                add(
+                    PeopleTabItem(
+                        tab = PeopleSectionTab.COLLECTION,
+                        label = collectionName ?: strTabCollection,
+                        focusRequester = collectionTabFocusRequester
+                    )
+                )
+            }
         }
     }
     val availablePeopleTabs = remember(peopleTabItems) { peopleTabItems.map { it.tab } }
@@ -800,6 +835,26 @@ private fun MetaDetailsContent(
     }
     var activePeopleTab by rememberSaveable(meta.id) { mutableStateOf(initialPeopleTab) }
     var seasonOptionsDialogSeason by remember { mutableStateOf<Int?>(null) }
+    val lastFocusedEpisodeIdBySeason = remember(meta.id) { mutableStateMapOf<Int, String>() }
+    val episodeFocusRequestersBySeason = remember(meta.id) { mutableMapOf<Int, MutableMap<String, FocusRequester>>() }
+    val seasonEpisodeFocusRequesters = remember(selectedSeason, episodesForSeason) {
+        val byEpisodeId = episodeFocusRequestersBySeason.getOrPut(selectedSeason) { mutableMapOf() }
+        episodesForSeason.forEach { episode ->
+            if (!byEpisodeId.containsKey(episode.id)) {
+                byEpisodeId[episode.id] = FocusRequester()
+            }
+        }
+        byEpisodeId.keys.retainAll(episodesForSeason.map { it.id }.toSet())
+        byEpisodeId
+    }
+    val seasonDownFocusRequester = remember(selectedSeason, episodesForSeason, seasonEpisodeFocusRequesters, lastFocusedEpisodeIdBySeason[selectedSeason], nextToWatch) {
+        val nextEpisodeId = nextToWatch?.nextVideoId
+            ?: nextToWatch?.let { ntw -> episodesForSeason.firstOrNull { it.season == ntw.nextSeason && it.episode == ntw.nextEpisode }?.id }
+        val preferredEpisodeId = lastFocusedEpisodeIdBySeason[selectedSeason]
+            ?: nextEpisodeId?.takeIf { episodesForSeason.any { ep -> ep.id == it } }
+        (preferredEpisodeId?.let { seasonEpisodeFocusRequesters[it] })
+            ?: episodesForSeason.firstOrNull()?.id?.let { seasonEpisodeFocusRequesters[it] }
+    }
 
     val activePeopleTabFocusRequester = peopleTabItems
         .firstOrNull { it.tab == activePeopleTab }
@@ -954,6 +1009,7 @@ private fun MetaDetailsContent(
             // Trailer video (fades in when trailer plays)
             TrailerPlayer(
                 trailerUrl = trailerUrl,
+                trailerAudioUrl = trailerAudioUrl,
                 isPlaying = isTrailerPlaying,
                 seekRequestToken = if (showTrailerControls) trailerSeekToken else 0,
                 seekDeltaMs = if (showTrailerControls) trailerSeekDeltaMs else 0L,
@@ -1045,7 +1101,8 @@ private fun MetaDetailsContent(
                         selectedSeason = selectedSeason,
                         onSeasonSelected = onSeasonSelected,
                         onSeasonLongPress = { seasonOptionsDialogSeason = it },
-                        selectedTabFocusRequester = selectedSeasonFocusRequester
+                        selectedTabFocusRequester = selectedSeasonFocusRequester,
+                        downFocusRequester = seasonDownFocusRequester
                     )
                 }
                 item(key = "episodes_$selectedSeason", contentType = "episodes") {
@@ -1065,11 +1122,19 @@ private fun MetaDetailsContent(
                         onMarkPreviousEpisodesWatched = onMarkPreviousEpisodesWatched,
                         upFocusRequester = selectedSeasonFocusRequester,
                         downFocusRequester = episodesDownFocusRequester,
+                        episodeFocusRequesters = seasonEpisodeFocusRequesters,
                         restoreEpisodeId = if (pendingRestoreType == RestoreTarget.EPISODE) pendingRestoreEpisodeId else null,
                         restoreFocusToken = if (pendingRestoreType == RestoreTarget.EPISODE) restoreFocusToken else 0,
                         onRestoreFocusHandled = {
                             clearPendingRestore()
-                        }
+                        },
+                        onEpisodeFocused = { episodeId ->
+                            lastFocusedEpisodeIdBySeason[selectedSeason] = episodeId
+                        },
+                        scrollToEpisodeId = if (lastFocusedEpisodeIdBySeason[selectedSeason] == null) {
+                            nextToWatch?.nextVideoId
+                                ?: nextToWatch?.let { ntw -> episodesForSeason.firstOrNull { it.season == ntw.nextSeason && it.episode == ntw.nextEpisode }?.id }
+                        } else null
                     )
                 }
             }
@@ -1081,6 +1146,7 @@ private fun MetaDetailsContent(
                         PeopleSectionTabs(
                             activeTab = activePeopleTab,
                             tabs = peopleTabItems,
+                            upFocusRequester = seasonDownFocusRequester,
                             ratingsDownFocusRequester = ratingsContentFocusRequester,
                             onTabFocused = { tab ->
                                 activePeopleTab = tab
@@ -1107,7 +1173,7 @@ private fun MetaDetailsContent(
                                     cast = normalCastMembers,
                                     title = if (hasPeopleTabs) "" else strTabCast,
                                     leadingCast = directorWriterMembers,
-                                    upFocusRequester = castTabFocusRequester.takeIf { hasPeopleTabs },
+                                    upFocusRequester = if (hasPeopleTabs) castTabFocusRequester else seasonDownFocusRequester,
                                     restorePersonId = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) pendingRestoreCastPersonId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) restoreFocusToken else 0,
                                     onRestoreFocusHandled = {
@@ -1128,7 +1194,7 @@ private fun MetaDetailsContent(
                             PeopleSectionTab.MORE_LIKE_THIS -> {
                                 MoreLikeThisSection(
                                     items = moreLikeThis,
-                                    upFocusRequester = moreLikeTabFocusRequester.takeIf { hasPeopleTabs },
+                                    upFocusRequester = if (hasPeopleTabs) moreLikeTabFocusRequester else seasonDownFocusRequester,
                                     restoreItemId = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) pendingRestoreMoreLikeItemId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) restoreFocusToken else 0,
                                     onRestoreFocusHandled = {
@@ -1136,6 +1202,22 @@ private fun MetaDetailsContent(
                                     },
                                     onItemClick = { item ->
                                         markMoreLikeThisRestore(item.id)
+                                        onNavigateToDetail(item.id, item.apiType, null)
+                                    }
+                                )
+                            }
+                            
+                            PeopleSectionTab.COLLECTION -> {
+                                CollectionSection(
+                                    items = collection,
+                                    upFocusRequester = if (hasPeopleTabs) collectionTabFocusRequester else seasonDownFocusRequester,
+                                    restoreItemId = if (pendingRestoreType == RestoreTarget.COLLECTION) pendingRestoreCollectionItemId else null,
+                                    restoreFocusToken = if (pendingRestoreType == RestoreTarget.COLLECTION) restoreFocusToken else 0,
+                                    onRestoreFocusHandled = {
+                                        clearPendingRestore()
+                                    },
+                                    onItemClick = { item ->
+                                        markCollectionRestore(item.id)
                                         onNavigateToDetail(item.id, item.apiType, null)
                                     }
                                 )
@@ -1151,7 +1233,7 @@ private fun MetaDetailsContent(
                                     upFocusRequester = if (hasPeopleTabs) {
                                         ratingsTabFocusRequester
                                     } else {
-                                        selectedSeasonFocusRequester
+                                        seasonDownFocusRequester ?: selectedSeasonFocusRequester
                                     },
                                     firstItemFocusRequester = ratingsContentFocusRequester
                                 )
@@ -1223,6 +1305,7 @@ private fun MetaDetailsContent(
 private fun PeopleSectionTabs(
     activeTab: PeopleSectionTab,
     tabs: List<PeopleTabItem>,
+    upFocusRequester: FocusRequester? = null,
     ratingsDownFocusRequester: FocusRequester? = null,
     onTabFocused: (PeopleSectionTab) -> Unit
 ) {
@@ -1254,6 +1337,7 @@ private fun PeopleSectionTabs(
                 label = item.label,
                 selected = activeTab == item.tab,
                 focusRequester = item.focusRequester,
+                upFocusRequester = upFocusRequester,
                 downFocusRequester = if (item.tab == PeopleSectionTab.RATINGS) ratingsDownFocusRequester else null,
                 onFocused = { onTabFocused(item.tab) }
             )
@@ -1267,6 +1351,7 @@ private fun PeopleSectionTabButton(
     label: String,
     selected: Boolean,
     focusRequester: FocusRequester,
+    upFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
     onFocused: () -> Unit
 ) {
@@ -1277,6 +1362,9 @@ private fun PeopleSectionTabButton(
         modifier = Modifier
             .focusRequester(focusRequester)
             .focusProperties {
+                if (upFocusRequester != null) {
+                    up = upFocusRequester
+                }
                 if (downFocusRequester != null) {
                     down = downFocusRequester
                 }

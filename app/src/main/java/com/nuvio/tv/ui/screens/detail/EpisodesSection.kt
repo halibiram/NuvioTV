@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.detail
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,9 +19,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -33,8 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -76,15 +80,17 @@ import java.util.Locale
 import java.util.TimeZone
 
 private const val EPISODE_CARD_CONTENT_TYPE = "episode_card"
+private const val EPISODE_SCROLL_REPEAT_THROTTLE_MS = 80L
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SeasonTabs(
     seasons: List<Int>,
     selectedSeason: Int,
     onSeasonSelected: (Int) -> Unit,
     onSeasonLongPress: (Int) -> Unit = {},
-    selectedTabFocusRequester: FocusRequester
+    selectedTabFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester? = null
 ) {
     // Move season 0 (specials) to the end
     val sortedSeasons = remember(seasons) {
@@ -94,7 +100,9 @@ fun SeasonTabs(
     }
 
     LazyRow(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRestorer { selectedTabFocusRequester },
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -113,6 +121,11 @@ fun SeasonTabs(
                 },
                 modifier = Modifier
                     .then(if (isSelected) Modifier.focusRequester(selectedTabFocusRequester) else Modifier)
+                    .focusProperties {
+                        if (isSelected && downFocusRequester != null) {
+                            down = downFocusRequester
+                        }
+                    }
                     .onFocusChanged {
                     val nowFocused = it.isFocused
                     isFocused = nowFocused
@@ -174,7 +187,7 @@ fun SeasonTabs(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun EpisodesRow(
     episodes: List<Video>,
@@ -192,23 +205,61 @@ fun EpisodesRow(
     onMarkPreviousEpisodesWatched: (Video) -> Unit = {},
     upFocusRequester: FocusRequester,
     downFocusRequester: FocusRequester? = null,
+    episodeFocusRequesters: MutableMap<String, FocusRequester> = mutableMapOf(),
     restoreEpisodeId: String? = null,
     restoreFocusToken: Int = 0,
-    onRestoreFocusHandled: () -> Unit = {}
+    onRestoreFocusHandled: () -> Unit = {},
+    onEpisodeFocused: (episodeId: String) -> Unit = {},
+    scrollToEpisodeId: String? = null
 ) {
-    val restoreFocusRequester = remember { FocusRequester() }
+    val restoreTargetRequester = restoreEpisodeId?.let { episodeFocusRequesters[it] }
     var optionsEpisode by remember { mutableStateOf<Video?>(null) }
     val cardMetrics = rememberEpisodeCardMetrics()
+    val density = LocalDensity.current
+    val rowPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
+    val lazyListState = rememberLazyListState(prefetchStrategy = rowPrefetchStrategy)
+    var lastHorizontalKeyRepeatTime by remember { mutableStateOf(0L) }
+    val episodeIds = remember(episodes) { episodes.mapTo(mutableSetOf()) { it.id } }
 
-    LaunchedEffect(restoreFocusToken, restoreEpisodeId, episodes) {
+    LaunchedEffect(episodeIds, episodeFocusRequesters) {
+        episodeFocusRequesters.keys.retainAll(episodeIds)
+    }
+
+    LaunchedEffect(restoreFocusToken, restoreEpisodeId, restoreTargetRequester, episodes) {
         if (restoreFocusToken <= 0 || restoreEpisodeId.isNullOrBlank()) return@LaunchedEffect
         if (episodes.none { it.id == restoreEpisodeId }) return@LaunchedEffect
-        restoreFocusRequester.requestFocusAfterFrames()
+        restoreTargetRequester?.requestFocusAfterFrames()
+    }
+
+    LaunchedEffect(scrollToEpisodeId, episodes) {
+        if (scrollToEpisodeId.isNullOrBlank()) return@LaunchedEffect
+        val index = episodes.indexOfFirst { it.id == scrollToEpisodeId }
+        if (index < 0) return@LaunchedEffect
+        val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
+        lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
     }
 
     LazyRow(
         modifier = Modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                val isHorizontalKey = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
+                    native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                if (
+                    isHorizontalKey &&
+                    native.action == AndroidKeyEvent.ACTION_DOWN &&
+                    native.repeatCount > 0
+                ) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastHorizontalKeyRepeatTime < EPISODE_SCROLL_REPEAT_THROTTLE_MS) {
+                        return@onPreviewKeyEvent true
+                    }
+                    lastHorizontalKeyRepeatTime = now
+                }
+                false
+            },
+        state = lazyListState,
         contentPadding = PaddingValues(
             horizontal = cardMetrics.rowHorizontalPadding,
             vertical = cardMetrics.rowVerticalPadding
@@ -235,6 +286,7 @@ fun EpisodesRow(
                     watchedEpisodes.contains(s to e)
                 }
             } ?: false
+            val episodeFocusRequester = episodeFocusRequesters.getOrPut(episode.id) { FocusRequester() }
             EpisodeCard(
                 episode = episode,
                 watchProgress = progress,
@@ -246,7 +298,10 @@ fun EpisodesRow(
                 onLongPress = { optionsEpisode = episode },
                 upFocusRequester = upFocusRequester,
                 downFocusRequester = downFocusRequester,
-                focusRequester = if (episode.id == restoreEpisodeId) restoreFocusRequester else null,
+                focusRequester = episodeFocusRequester,
+                onFocused = {
+                    onEpisodeFocused(episode.id)
+                },
                 onFocusRestored = if (episode.id == restoreEpisodeId) onRestoreFocusHandled else null
             )
         }
@@ -309,7 +364,8 @@ private fun EpisodeCard(
     onLongPress: () -> Unit,
     upFocusRequester: FocusRequester,
     downFocusRequester: FocusRequester? = null,
-    focusRequester: FocusRequester? = null,
+    focusRequester: FocusRequester,
+    onFocused: (() -> Unit)? = null,
     onFocusRestored: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -389,10 +445,11 @@ private fun EpisodeCard(
         },
         modifier = Modifier
             .width(cardMetrics.cardWidth)
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .focusRequester(focusRequester)
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {
+                    onFocused?.invoke()
                     onFocusRestored?.invoke()
                 }
             }
@@ -461,8 +518,11 @@ private fun EpisodeCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .alpha(overlayAlpha)
-                    .background(overlayBrush)
+                    .drawWithCache {
+                        onDrawBehind {
+                            drawRect(brush = overlayBrush, alpha = overlayAlpha)
+                        }
+                    }
             )
 
             Column(
@@ -591,13 +651,20 @@ private fun EpisodeCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
+                        .padding(
+                            start = cardMetrics.contentPadding,
+                            end = cardMetrics.contentPadding,
+                            bottom = cardMetrics.contentPadding * 0.5f
+                        )
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(cardMetrics.progressBarHeight / 2))
                         .height(cardMetrics.progressBarHeight)
-                        .background(Color.White.copy(alpha = 0.2f))
+                        .background(Color.Black.copy(alpha = 0.45f))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progressPercent)
+                            .clip(RoundedCornerShape(cardMetrics.progressBarHeight / 2))
                             .height(cardMetrics.progressBarHeight)
                             .background(NuvioColors.Primary)
                     )
@@ -793,7 +860,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 rowVerticalPadding = 18.dp,
                 itemSpacing = 20.dp,
                 cardWidth = 400.dp,
-                cardHeight = 280.dp,
+                cardHeight = 263.dp,
                 cornerRadius = 20.dp,
                 contentPadding = 20.dp,
                 contentBottomPadding = 24.dp,
@@ -807,7 +874,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 metadataIconSize = 16.dp,
                 imdbLogoWidth = 28.dp,
                 imdbLogoHeight = 14.dp,
-                progressBarHeight = 3.dp,
+                progressBarHeight = 4.dp,
                 statusBadgeSize = 32.dp,
                 statusIconSize = 20.dp,
                 statusBadgeInset = 16.dp
@@ -818,7 +885,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 rowVerticalPadding = 18.dp,
                 itemSpacing = 18.dp,
                 cardWidth = 360.dp,
-                cardHeight = 250.dp,
+                cardHeight = 235.dp,
                 cornerRadius = 18.dp,
                 contentPadding = 18.dp,
                 contentBottomPadding = 22.dp,
@@ -832,7 +899,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 metadataIconSize = 15.dp,
                 imdbLogoWidth = 26.dp,
                 imdbLogoHeight = 13.dp,
-                progressBarHeight = 3.dp,
+                progressBarHeight = 4.dp,
                 statusBadgeSize = 28.dp,
                 statusIconSize = 18.dp,
                 statusBadgeInset = 14.dp
@@ -843,7 +910,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 rowVerticalPadding = 16.dp,
                 itemSpacing = 16.dp,
                 cardWidth = 320.dp,
-                cardHeight = 220.dp,
+                cardHeight = 207.dp,
                 cornerRadius = 16.dp,
                 contentPadding = 16.dp,
                 contentBottomPadding = 20.dp,
@@ -857,7 +924,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 metadataIconSize = 14.dp,
                 imdbLogoWidth = 24.dp,
                 imdbLogoHeight = 12.dp,
-                progressBarHeight = 3.dp,
+                progressBarHeight = 4.dp,
                 statusBadgeSize = 24.dp,
                 statusIconSize = 16.dp,
                 statusBadgeInset = 12.dp
@@ -868,7 +935,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 rowVerticalPadding = 14.dp,
                 itemSpacing = 14.dp,
                 cardWidth = 280.dp,
-                cardHeight = 190.dp,
+                cardHeight = 179.dp,
                 cornerRadius = 16.dp,
                 contentPadding = 14.dp,
                 contentBottomPadding = 16.dp,
@@ -882,7 +949,7 @@ private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
                 metadataIconSize = 13.dp,
                 imdbLogoWidth = 22.dp,
                 imdbLogoHeight = 11.dp,
-                progressBarHeight = 3.dp,
+                progressBarHeight = 4.dp,
                 statusBadgeSize = 22.dp,
                 statusIconSize = 14.dp,
                 statusBadgeInset = 10.dp

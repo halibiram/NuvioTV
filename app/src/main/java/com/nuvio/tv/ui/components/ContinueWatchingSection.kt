@@ -52,7 +52,6 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
 import androidx.compose.ui.window.Dialog
-import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -245,15 +244,7 @@ fun ContinueWatchingCard(
             }
         }
     }
-    val watchedPercentText = progress?.let {
-        val dbPercent = it.progressPercent ?: (it.progressPercentage * 100f)
-        "${dbPercent.coerceIn(0f, 100f).roundToInt()}%"
-    }
-    val badgeText = if (BuildConfig.IS_DEBUG_BUILD && watchedPercentText != null) {
-        remainingText?.let { "$it · $watchedPercentText" } ?: watchedPercentText
-    } else {
-        remainingText ?: nextUpBadgeText ?: strNextUp
-    }
+    val badgeText = remainingText ?: nextUpBadgeText ?: strNextUp
     val progressFraction = progress?.progressPercentage ?: 0f
     val imageModel = when {
         nextUp != null && !nextUp.hasAired -> firstNonBlank(
@@ -429,21 +420,25 @@ fun ContinueWatchingCard(
                         color = NuvioColors.TextPrimary
                     )
                 }
-            }
 
-            if (progress != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .background(NuvioColors.SurfaceVariant)
-                ) {
+                if (progress != null) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progressFraction)
-                            .height(4.dp)
-                            .background(NuvioColors.Primary)
-                    )
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .height(3.dp)
+                            .background(Color.Black.copy(alpha = 0.3f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progressFraction)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .height(3.dp)
+                                .background(NuvioColors.Primary)
+                        )
+                    }
                 }
             }
         }

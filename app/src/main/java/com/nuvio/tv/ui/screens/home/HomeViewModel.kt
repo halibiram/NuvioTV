@@ -10,6 +10,7 @@ import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
+import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
@@ -37,18 +38,19 @@ import javax.inject.Inject
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val addonRepository: AddonRepository,
-    private val catalogRepository: CatalogRepository,
-    private val watchProgressRepository: WatchProgressRepository,
-    private val libraryRepository: LibraryRepository,
-    private val metaRepository: MetaRepository,
-    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
-    private val tmdbSettingsDataStore: TmdbSettingsDataStore,
-    private val traktSettingsDataStore: TraktSettingsDataStore,
-    private val tmdbService: TmdbService,
-    private val tmdbMetadataService: TmdbMetadataService,
-    private val trailerService: TrailerService,
-    private val tvRecommendationManager: TvRecommendationManager
+    internal val addonRepository: AddonRepository,
+    internal val catalogRepository: CatalogRepository,
+    internal val watchProgressRepository: WatchProgressRepository,
+    internal val libraryRepository: LibraryRepository,
+    internal val metaRepository: MetaRepository,
+    internal val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    internal val tmdbSettingsDataStore: TmdbSettingsDataStore,
+    internal val traktSettingsDataStore: TraktSettingsDataStore,
+    internal val tmdbService: TmdbService,
+    internal val tmdbMetadataService: TmdbMetadataService,
+    internal val trailerService: TrailerService,
+    internal val watchedItemsPreferences: WatchedItemsPreferences
+    internal val tvRecommendationManager: TvRecommendationManager
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -97,6 +99,7 @@ class HomeViewModel @Inject constructor(
     internal val trailerPreviewLoadingIds = mutableSetOf<String>()
     internal val trailerPreviewNegativeCache = mutableSetOf<String>()
     internal val trailerPreviewUrlsState = mutableStateMapOf<String, String>()
+    internal val trailerPreviewAudioUrlsState = mutableStateMapOf<String, String>()
     internal var activeTrailerPreviewItemId: String? = null
     internal var trailerPreviewRequestVersion: Long = 0L
     internal var currentTmdbSettings: TmdbSettings = TmdbSettings()
@@ -116,6 +119,8 @@ class HomeViewModel @Inject constructor(
     internal var startupGracePeriodActive: Boolean = true
     val trailerPreviewUrls: Map<String, String>
         get() = trailerPreviewUrlsState
+    val trailerPreviewAudioUrls: Map<String, String>
+        get() = trailerPreviewAudioUrlsState
 
     init {
         observeLayoutPreferences()

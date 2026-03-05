@@ -29,6 +29,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -98,6 +99,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.ModalNavigationDrawer
 import androidx.tv.material3.Surface
+import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import com.nuvio.tv.core.profile.ProfileManager
@@ -106,6 +108,7 @@ import com.nuvio.tv.data.local.AppOnboardingDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.ThemeDataStore
 import com.nuvio.tv.data.repository.TraktProgressService
+import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.core.sync.ProfileSyncService
@@ -135,6 +138,8 @@ import com.nuvio.tv.core.recommendations.RecommendationConstants
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
+val LocalSidebarExpanded = compositionLocalOf { false }
+
 data class DrawerItem(
     val route: String,
     val label: String,
@@ -144,6 +149,7 @@ data class DrawerItem(
 
 private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,
+    val font: AppFont = AppFont.INTER,
     val hasChosenLayout: Boolean? = null,
     val sidebarCollapsed: Boolean = false,
     val modernSidebarEnabled: Boolean = false,
@@ -229,29 +235,34 @@ class MainActivity : ComponentActivity() {
             val mainUiPrefsFlow = remember(themeDataStore, layoutPreferenceDataStore) {
                 combine(
                     themeDataStore.selectedTheme,
+                    themeDataStore.selectedFont,
                     layoutPreferenceDataStore.hasChosenLayout,
                     layoutPreferenceDataStore.sidebarCollapsedByDefault,
                     layoutPreferenceDataStore.modernSidebarEnabled,
-                    layoutPreferenceDataStore.modernSidebarBlurEnabled
-                ) { theme, hasChosenLayout, sidebarCollapsed, modernSidebarEnabled, modernSidebarBlurPref ->
+                ) { theme, font, hasChosenLayout, sidebarCollapsed, modernSidebarEnabled ->
                     MainUiPrefs(
                         theme = theme,
+                        font = font,
                         hasChosenLayout = hasChosenLayout,
                         sidebarCollapsed = sidebarCollapsed,
                         modernSidebarEnabled = modernSidebarEnabled,
-                        modernSidebarBlurPref = modernSidebarBlurPref
                     )
+                }.combine(layoutPreferenceDataStore.modernSidebarBlurEnabled) { prefs, modernSidebarBlurPref ->
+                    prefs.copy(modernSidebarBlurPref = modernSidebarBlurPref)
                 }
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
 
-            NuvioTheme(appTheme = mainUiPrefs.theme) {
+            NuvioTheme(appTheme = mainUiPrefs.theme, appFont = mainUiPrefs.font) {
                 CompositionLocalProvider(
                     LocalBringIntoViewSpec provides NuvioScrollDefaults.smoothScrollSpec
                 ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    shape = RectangleShape
+                    shape = RectangleShape,
+                    colors = SurfaceDefaults.colors(
+                        containerColor = NuvioColors.Background
+                    )
                 ) {
                     if (hasSeenAuthQrOnFirstLaunch == null) {
                         Box(
@@ -429,6 +440,7 @@ class MainActivity : ComponentActivity() {
                             hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
                             activeProfileName = activeProfile?.name ?: "",
                             activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
+                            showProfileSelector = profiles.size > 1,
                             onSwitchProfile = { hasSelectedProfileThisSession = false },
                             onExitApp = {
                                 finishAffinity()
@@ -447,6 +459,7 @@ class MainActivity : ComponentActivity() {
                             hideBuiltInHeaders = false,
                             activeProfileName = activeProfile?.name ?: "",
                             activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
+                            showProfileSelector = profiles.size > 1,
                             onSwitchProfile = { hasSelectedProfileThisSession = false },
                             onExitApp = {
                                 finishAffinity()
@@ -568,6 +581,7 @@ private fun LegacySidebarScaffold(
     hideBuiltInHeaders: Boolean,
     activeProfileName: String,
     activeProfileColorHex: String,
+    showProfileSelector: Boolean,
     onSwitchProfile: () -> Unit,
     onExitApp: () -> Unit
 ) {
@@ -691,7 +705,7 @@ private fun LegacySidebarScaffold(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    if (isExpanded && activeProfileName.isNotEmpty()) {
+                    if (isExpanded && showProfileSelector && activeProfileName.isNotEmpty()) {
                         var isProfileFocused by remember { mutableStateOf(false) }
                         val profileItemShape = RoundedCornerShape(32.dp)
                         val profileBgColor by animateColorAsState(
@@ -759,11 +773,15 @@ private fun LegacySidebarScaffold(
                     }
                 }
         ) {
-            NuvioNavHost(
-                navController = navController,
-                startDestination = startDestination,
-                hideBuiltInHeaders = hideBuiltInHeaders
-            )
+            CompositionLocalProvider(
+                LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open)
+            ) {
+                NuvioNavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                    hideBuiltInHeaders = hideBuiltInHeaders
+                )
+            }
         }
     }
 }
@@ -851,6 +869,7 @@ private fun ModernSidebarScaffold(
     hideBuiltInHeaders: Boolean,
     activeProfileName: String,
     activeProfileColorHex: String,
+    showProfileSelector: Boolean,
     onSwitchProfile: () -> Unit,
     onExitApp: () -> Unit
 ) {
@@ -1097,11 +1116,15 @@ private fun ModernSidebarScaffold(
                     }
                 }
         ) {
-            NuvioNavHost(
-                navController = navController,
-                startDestination = startDestination,
-                hideBuiltInHeaders = hideBuiltInHeaders
-            )
+            CompositionLocalProvider(
+                LocalSidebarExpanded provides isSidebarExpanded
+            ) {
+                NuvioNavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                    hideBuiltInHeaders = hideBuiltInHeaders
+                )
+            }
         }
 
         if (showSidebar && (sidebarVisible || sidebarWidth > 0.dp)) {
@@ -1177,6 +1200,7 @@ private fun ModernSidebarScaffold(
                         },
                         activeProfileName = activeProfileName,
                         activeProfileColorHex = activeProfileColorHex,
+                        showProfileSelector = showProfileSelector,
                         onSwitchProfile = onSwitchProfile
                     )
                 }
