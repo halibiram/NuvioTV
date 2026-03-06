@@ -183,7 +183,7 @@ class TvRecommendationManager @Inject constructor(
         if (!shouldRun()) return
         initializeChannels()
         updateWatchNext()
-        // Note: New Releases and Trending are updated from HomeViewModel where the
+        // Note: New Releases, Next Up and Trending are updated from HomeViewModel where the
         // required meta / catalog data is already available.
     }
 
