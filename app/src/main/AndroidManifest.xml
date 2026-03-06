@@ -36,6 +36,11 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <provider
+            android:name=".core.recommendations.ExportedImageProvider"
+            android:authorities="${applicationId}.tvimages"
+            android:exported="true" />
+
         <!-- Disable default WorkManager initializer because we supply our own
              via Configuration.Provider in NuvioApplication (needed for HiltWorkerFactory) -->
         <provider
