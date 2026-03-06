@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.core.recommendations.TvRecommendationManager
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -47,7 +48,8 @@ class HomeViewModel @Inject constructor(
     internal val tmdbService: TmdbService,
     internal val tmdbMetadataService: TmdbMetadataService,
     internal val trailerService: TrailerService,
-    internal val watchedItemsPreferences: WatchedItemsPreferences
+    internal val watchedItemsPreferences: WatchedItemsPreferences,
+    internal val tvRecommendationManager: TvRecommendationManager
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
