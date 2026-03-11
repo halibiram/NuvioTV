@@ -53,6 +53,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.data.local.AddonSubtitleStartupMode
 import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.data.local.PlayerSettings
@@ -91,10 +92,11 @@ internal fun PlaybackSettingsSections(
     trailerSettings: TrailerSettings,
     onShowPlayerPreferenceDialog: () -> Unit,
     onShowAudioLanguageDialog: () -> Unit,
+    onShowSecondaryAudioLanguageDialog: () -> Unit,
     onShowDecoderPriorityDialog: () -> Unit,
     onShowLanguageDialog: () -> Unit,
     onShowSecondaryLanguageDialog: () -> Unit,
-    onShowSubtitleOrganizationDialog: () -> Unit,
+    onShowSubtitleStartupModeDialog: () -> Unit,
     onShowTextColorDialog: () -> Unit,
     onShowBackgroundColorDialog: () -> Unit,
     onShowOutlineColorDialog: () -> Unit,
@@ -109,12 +111,14 @@ internal fun PlaybackSettingsSections(
     onSetStreamAutoPlayPreferBingeGroupForNextEpisode: (Boolean) -> Unit,
     onSetNextEpisodeThresholdPercent: (Float) -> Unit,
     onSetNextEpisodeThresholdMinutesBeforeEnd: (Float) -> Unit,
+    onSetStreamAutoPlayTimeoutSeconds: (Int) -> Unit,
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
     onSetLoadingOverlayEnabled: (Boolean) -> Unit,
     onSetPauseOverlayEnabled: (Boolean) -> Unit,
     onSetOsdClockEnabled: (Boolean) -> Unit,
     onSetSkipIntroEnabled: (Boolean) -> Unit,
     onSetFrameRateMatchingMode: (FrameRateMatchingMode) -> Unit,
+    onSetResolutionMatchingEnabled: (Boolean) -> Unit,
     onSetTrailerEnabled: (Boolean) -> Unit,
     onSetTrailerDelaySeconds: (Int) -> Unit,
     onSetSkipSilence: (Boolean) -> Unit,
@@ -269,7 +273,9 @@ internal fun PlaybackSettingsSections(
                 item(key = "general_afr_options") {
                     FrameRateMatchingModeOptions(
                         selectedMode = playerSettings.frameRateMatchingMode,
+                        resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled,
                         onSelect = onSetFrameRateMatchingMode,
+                        onSetResolutionMatchingEnabled = onSetResolutionMatchingEnabled,
                         onFocused = { focusedSection = PlaybackSection.GENERAL },
                         enabled = !generalUi.isExternalPlayer
                     )
@@ -309,6 +315,7 @@ internal fun PlaybackSettingsSections(
                 onSetStreamAutoPlayPreferBingeGroupForNextEpisode = onSetStreamAutoPlayPreferBingeGroupForNextEpisode,
                 onSetNextEpisodeThresholdPercent = onSetNextEpisodeThresholdPercent,
                 onSetNextEpisodeThresholdMinutesBeforeEnd = onSetNextEpisodeThresholdMinutesBeforeEnd,
+                onSetStreamAutoPlayTimeoutSeconds = onSetStreamAutoPlayTimeoutSeconds,
                 onSetReuseLastLinkEnabled = onSetReuseLastLinkEnabled,
                 onItemFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
             )
@@ -327,6 +334,7 @@ internal fun PlaybackSettingsSections(
                 playerSettings = playerSettings,
                 trailerSettings = trailerSettings,
                 onShowAudioLanguageDialog = onShowAudioLanguageDialog,
+                onShowSecondaryAudioLanguageDialog = onShowSecondaryAudioLanguageDialog,
                 onShowDecoderPriorityDialog = onShowDecoderPriorityDialog,
                 onSetTrailerEnabled = onSetTrailerEnabled,
                 onSetTrailerDelaySeconds = onSetTrailerDelaySeconds,
@@ -351,7 +359,7 @@ internal fun PlaybackSettingsSections(
                 playerSettings = playerSettings,
                 onShowLanguageDialog = onShowLanguageDialog,
                 onShowSecondaryLanguageDialog = onShowSecondaryLanguageDialog,
-                onShowSubtitleOrganizationDialog = onShowSubtitleOrganizationDialog,
+                onShowSubtitleStartupModeDialog = onShowSubtitleStartupModeDialog,
                 onShowTextColorDialog = onShowTextColorDialog,
                 onShowBackgroundColorDialog = onShowBackgroundColorDialog,
                 onShowOutlineColorDialog = onShowOutlineColorDialog,
@@ -430,7 +438,9 @@ private fun PlaybackSectionHeader(
 @Composable
 private fun FrameRateMatchingModeOptions(
     selectedMode: FrameRateMatchingMode,
+    resolutionMatchingEnabled: Boolean,
     onSelect: (FrameRateMatchingMode) -> Unit,
+    onSetResolutionMatchingEnabled: (Boolean) -> Unit,
     onFocused: () -> Unit,
     enabled: Boolean
 ) {
@@ -465,6 +475,18 @@ private fun FrameRateMatchingModeOptions(
             onFocused = onFocused,
             enabled = enabled
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        ToggleSettingsItem(
+            icon = Icons.Default.Image,
+            title = stringResource(R.string.playback_resolution_matching),
+            subtitle = stringResource(R.string.playback_resolution_matching_sub),
+            isChecked = resolutionMatchingEnabled,
+            onCheckedChange = onSetResolutionMatchingEnabled,
+            onFocused = onFocused,
+            enabled = enabled
+        )
     }
 }
 
@@ -476,11 +498,12 @@ internal fun PlaybackSettingsDialogsHost(
     showPlayerPreferenceDialog: Boolean,
     showLanguageDialog: Boolean,
     showSecondaryLanguageDialog: Boolean,
-    showSubtitleOrganizationDialog: Boolean,
+    showSubtitleStartupModeDialog: Boolean,
     showTextColorDialog: Boolean,
     showBackgroundColorDialog: Boolean,
     showOutlineColorDialog: Boolean,
     showAudioLanguageDialog: Boolean,
+    showSecondaryAudioLanguageDialog: Boolean,
     showDecoderPriorityDialog: Boolean,
     showStreamAutoPlayModeDialog: Boolean,
     showStreamAutoPlaySourceDialog: Boolean,
@@ -493,11 +516,12 @@ internal fun PlaybackSettingsDialogsHost(
     onDismissPlayerPreferenceDialog: () -> Unit,
     onSetSubtitlePreferredLanguage: (String?) -> Unit,
     onSetSubtitleSecondaryLanguage: (String?) -> Unit,
-    onSetSubtitleOrganizationMode: (com.nuvio.tv.data.local.SubtitleOrganizationMode) -> Unit,
+    onSetAddonSubtitleStartupMode: (AddonSubtitleStartupMode) -> Unit,
     onSetSubtitleTextColor: (Color) -> Unit,
     onSetSubtitleBackgroundColor: (Color) -> Unit,
     onSetSubtitleOutlineColor: (Color) -> Unit,
     onSetPreferredAudioLanguage: (String) -> Unit,
+    onSetSecondaryPreferredAudioLanguage: (String?) -> Unit,
     onSetDecoderPriority: (Int) -> Unit,
     onSetStreamAutoPlayMode: (com.nuvio.tv.data.local.StreamAutoPlayMode) -> Unit,
     onSetStreamAutoPlaySource: (com.nuvio.tv.data.local.StreamAutoPlaySource) -> Unit,
@@ -508,11 +532,12 @@ internal fun PlaybackSettingsDialogsHost(
     onSetReuseLastLinkCacheHours: (Int) -> Unit,
     onDismissLanguageDialog: () -> Unit,
     onDismissSecondaryLanguageDialog: () -> Unit,
-    onDismissSubtitleOrganizationDialog: () -> Unit,
+    onDismissSubtitleStartupModeDialog: () -> Unit,
     onDismissTextColorDialog: () -> Unit,
     onDismissBackgroundColorDialog: () -> Unit,
     onDismissOutlineColorDialog: () -> Unit,
     onDismissAudioLanguageDialog: () -> Unit,
+    onDismissSecondaryAudioLanguageDialog: () -> Unit,
     onDismissDecoderPriorityDialog: () -> Unit,
     onDismissStreamAutoPlayModeDialog: () -> Unit,
     onDismissStreamAutoPlaySourceDialog: () -> Unit,
@@ -536,20 +561,20 @@ internal fun PlaybackSettingsDialogsHost(
     SubtitleSettingsDialogs(
         showLanguageDialog = showLanguageDialog,
         showSecondaryLanguageDialog = showSecondaryLanguageDialog,
-        showSubtitleOrganizationDialog = showSubtitleOrganizationDialog,
+        showSubtitleStartupModeDialog = showSubtitleStartupModeDialog,
         showTextColorDialog = showTextColorDialog,
         showBackgroundColorDialog = showBackgroundColorDialog,
         showOutlineColorDialog = showOutlineColorDialog,
         playerSettings = playerSettings,
         onSetPreferredLanguage = onSetSubtitlePreferredLanguage,
         onSetSecondaryLanguage = onSetSubtitleSecondaryLanguage,
-        onSetSubtitleOrganizationMode = onSetSubtitleOrganizationMode,
+        onSetAddonSubtitleStartupMode = onSetAddonSubtitleStartupMode,
         onSetTextColor = onSetSubtitleTextColor,
         onSetBackgroundColor = onSetSubtitleBackgroundColor,
         onSetOutlineColor = onSetSubtitleOutlineColor,
         onDismissLanguageDialog = onDismissLanguageDialog,
         onDismissSecondaryLanguageDialog = onDismissSecondaryLanguageDialog,
-        onDismissSubtitleOrganizationDialog = onDismissSubtitleOrganizationDialog,
+        onDismissSubtitleStartupModeDialog = onDismissSubtitleStartupModeDialog,
         onDismissTextColorDialog = onDismissTextColorDialog,
         onDismissBackgroundColorDialog = onDismissBackgroundColorDialog,
         onDismissOutlineColorDialog = onDismissOutlineColorDialog
@@ -557,12 +582,16 @@ internal fun PlaybackSettingsDialogsHost(
 
     AudioSettingsDialogs(
         showAudioLanguageDialog = showAudioLanguageDialog,
+        showSecondaryAudioLanguageDialog = showSecondaryAudioLanguageDialog,
         showDecoderPriorityDialog = showDecoderPriorityDialog,
         selectedLanguage = playerSettings.preferredAudioLanguage,
+        selectedSecondaryLanguage = playerSettings.secondaryPreferredAudioLanguage,
         selectedPriority = playerSettings.decoderPriority,
         onSetPreferredAudioLanguage = onSetPreferredAudioLanguage,
+        onSetSecondaryPreferredAudioLanguage = onSetSecondaryPreferredAudioLanguage,
         onSetDecoderPriority = onSetDecoderPriority,
         onDismissAudioLanguageDialog = onDismissAudioLanguageDialog,
+        onDismissSecondaryAudioLanguageDialog = onDismissSecondaryAudioLanguageDialog,
         onDismissDecoderPriorityDialog = onDismissDecoderPriorityDialog
     )
 

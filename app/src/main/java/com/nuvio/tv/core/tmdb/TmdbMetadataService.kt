@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.tmdb
 
 import android.util.Log
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbEpisode
 import com.nuvio.tv.data.remote.api.TmdbImage
@@ -24,7 +25,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "TmdbMetadataService"
-private const val TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c"
+private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
 
 @Singleton
 class TmdbMetadataService @Inject constructor(
@@ -106,6 +107,7 @@ class TmdbMetadataService @Inject constructor(
                 val description = details?.overview?.takeIf { it.isNotBlank() }
                 val releaseInfo = details?.releaseDate
                     ?: details?.firstAirDate
+                val status = details?.status?.trim()?.takeIf { it.isNotBlank() }
                 val rating = details?.voteAverage
                 val runtime = details?.runtime ?: details?.episodeRunTime?.firstOrNull()
                 val countries = details?.productionCountries
@@ -134,6 +136,9 @@ class TmdbMetadataService @Inject constructor(
                     }
                 val poster = buildImageUrl(details?.posterPath, size = "w500")
                 val backdrop = buildImageUrl(details?.backdropPath, size = "w1280")
+                
+                val collectionId = details?.belongsToCollection?.id
+                val collectionName = details?.belongsToCollection?.name
 
                 val logoPath = images?.logos
                     ?.sortedWith(
@@ -259,7 +264,7 @@ class TmdbMetadataService @Inject constructor(
                     genres.isEmpty() && description == null && backdrop == null && logo == null &&
                     poster == null && castMembers.isEmpty() && director.isEmpty() && writer.isEmpty() &&
                     releaseInfo == null && rating == null && runtime == null && countries.isNullOrEmpty() && language == null &&
-                    productionCompanies.isEmpty() && networks.isEmpty() && ageRating == null
+                    productionCompanies.isEmpty() && networks.isEmpty() && ageRating == null && status == null
                 ) {
                     return@withContext null
                 }
@@ -282,8 +287,11 @@ class TmdbMetadataService @Inject constructor(
                     productionCompanies = productionCompanies,
                     networks = networks,
                     ageRating = ageRating,
+                    status = status,
                     countries = countries,
-                    language = language
+                    language = language,
+                    collectionId = collectionId,
+                    collectionName = collectionName
                 )
                 enrichmentCache[cacheKey] = enrichment
                 enrichment
@@ -406,7 +414,20 @@ class TmdbMetadataService @Inject constructor(
 
                         val backdrop = buildImageUrl(localizedBackdropPath ?: rec.backdropPath, size = "w1280")
                         val fallbackPoster = buildImageUrl(rec.posterPath, size = "w780")
-                        val releaseInfo = (rec.releaseDate ?: rec.firstAirDate)?.take(4)
+
+                        val releaseInfo = if (recTmdbType == "tv") {
+                            val startYear = rec.firstAirDate?.take(4)
+                            if (startYear != null) {
+                                val tvDetails = runCatching {
+                                    tmdbApi.getTvDetails(rec.id, TMDB_API_KEY, normalizedLanguage).body()
+                                }.getOrNull()
+                                val status = tvDetails?.status
+                                val endYear = tvDetails?.lastAirDate?.take(4)
+                                buildShowYearRange(startYear, endYear, status)
+                            } else null
+                        } else {
+                            rec.releaseDate?.take(4)
+                        }
 
                         MetaPreview(
                             id = "tmdb:${rec.id}",
@@ -430,6 +451,81 @@ class TmdbMetadataService @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch recommendations for $tmdbId: ${e.message}")
             emptyList()
+        }
+    }
+
+    private val collectionCache = ConcurrentHashMap<String, List<MetaPreview>>()
+
+    suspend fun fetchMovieCollection(
+        collectionId: Int,
+        language: String = "en"
+    ): List<MetaPreview> = withContext(Dispatchers.IO) {
+        val normalizedLanguage = normalizeTmdbLanguage(language)
+        val cacheKey = "$collectionId:$normalizedLanguage:collection"
+        collectionCache[cacheKey]?.let { return@withContext it }
+
+        try {
+            val collectionResponse = tmdbApi.getCollectionDetails(collectionId, TMDB_API_KEY, normalizedLanguage).body()
+            val rawParts = collectionResponse?.parts.orEmpty()
+            
+            // Show in release order
+            val sortedParts = rawParts.sortedBy { it.releaseDate ?: "9999" }
+            
+            val includeImageLanguage = buildString {
+                append(normalizedLanguage.substringBefore("-"))
+                append(",")
+                append(normalizedLanguage)
+                append(",en,null")
+            }
+
+            val items = coroutineScope {
+                sortedParts.map { part ->
+                    async {
+                        val title = part.title ?: return@async null
+
+                        val localizedBackdropPath = runCatching {
+                            tmdbApi.getMovieImages(part.id, TMDB_API_KEY, includeImageLanguage).body()
+                        }.getOrNull()?.let { images ->
+                            selectBestLocalizedImagePath(
+                                images = images.backdrops.orEmpty(),
+                                normalizedLanguage = normalizedLanguage
+                            )
+                        }
+
+                        val backdrop = buildImageUrl(localizedBackdropPath ?: part.backdropPath, size = "w1280")
+                        val fallbackPoster = buildImageUrl(part.posterPath, size = "w780")
+                        val releaseInfo = part.releaseDate?.take(4)
+
+                        MetaPreview(
+                            id = "tmdb:${part.id}",
+                            type = ContentType.MOVIE,
+                            name = title,
+                            poster = backdrop ?: fallbackPoster,
+                            posterShape = PosterShape.LANDSCAPE,
+                            background = backdrop,
+                            logo = null,
+                            description = part.overview?.takeIf { it.isNotBlank() },
+                            releaseInfo = releaseInfo,
+                            imdbRating = part.voteAverage?.toFloat(),
+                            genres = emptyList()
+                        )
+                    }
+                }.awaitAll().filterNotNull()
+            }
+            collectionCache[cacheKey] = items
+            items
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch collection for $collectionId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun buildShowYearRange(startYear: String, endYear: String?, status: String?): String {
+        val isEnded = status != null && status != "Returning Series" && status != "In Production"
+        return when {
+            isEnded && endYear != null && endYear != startYear -> "$startYear - $endYear"
+            isEnded -> startYear
+            else -> "$startYear - "
         }
     }
 
@@ -699,8 +795,11 @@ data class TmdbEnrichment(
     val productionCompanies: List<MetaCompany>,
     val networks: List<MetaCompany>,
     val ageRating: String?,
+    val status: String?,
     val countries: List<String>?,
-    val language: String?
+    val language: String?,
+    val collectionId: Int?,
+    val collectionName: String?
 )
 
 data class TmdbEpisodeEnrichment(

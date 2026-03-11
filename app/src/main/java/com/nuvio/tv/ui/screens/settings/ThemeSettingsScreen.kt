@@ -55,11 +55,14 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.ThemeColors
+import com.nuvio.tv.ui.theme.getFontFamily
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 @Composable
 fun ThemeSettingsScreen(
@@ -82,29 +85,22 @@ fun ThemeSettingsContent(
     initialFocusRequester: FocusRequester? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showFontDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var pendingLanguageRestart by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val strLanguageSystem = stringResource(R.string.appearance_language_system)
     val supportedLocales = remember(strLanguageSystem) {
-        listOf(
-            null to strLanguageSystem,
-            "en" to "English",
-            "es" to "Español",
-            "hu" to "Magyar",
-            "fr" to "Français",
-            "it" to "Italiano",
-            "pl" to "Polski",
-            "pt-PT" to "Português (Portugal)",
-            "pt-BR" to "Português (Brasil)",
-            "tr" to "Türkçe",
-            "se" to "Svenska",
-            "sk" to "Slovensky",
-            "sl" to "Slovenščina",
-            "ro" to "Română",
-            "ja" to "日本語"
+        val tags = listOf(
+            "en", "es", "es-419", "hu", "fr", "it", "pl",
+            "pt-PT", "pt-BR", "tr", "se", "sk", "sl", "ro", "ja",
+            "nl", "vi", "hi"
         )
+        listOf(null to strLanguageSystem) + tags.map { tag ->
+            val locale = Locale.forLanguageTag(tag)
+            tag to locale.getDisplayName(locale).replaceFirstChar { it.uppercase() }
+        }.sortedBy { it.second }
     }
     var selectedTag by remember {
         mutableStateOf(
@@ -168,11 +164,71 @@ fun ThemeSettingsContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             SettingsActionRow(
+                title = stringResource(R.string.appearance_font),
+                subtitle = stringResource(R.string.appearance_font_subtitle),
+                value = uiState.selectedFont.displayName,
+                onClick = { showFontDialog = true }
+            )
+        }
+
+        SettingsGroupCard(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            SettingsActionRow(
                 title = stringResource(R.string.appearance_language),
                 subtitle = stringResource(R.string.appearance_language_subtitle),
                 value = currentLocaleName,
                 onClick = { showLanguageDialog = true }
             )
+        }
+    }
+
+    if (showFontDialog) {
+        val fontFocusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { fontFocusRequester.requestFocus() }
+        NuvioDialog(
+            onDismiss = { showFontDialog = false },
+            title = stringResource(R.string.appearance_font_dialog_title),
+            width = 400.dp,
+            suppressFirstKeyUp = false
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp)
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    val fonts = uiState.availableFonts
+                    for (index in fonts.indices) {
+                        val font = fonts[index]
+                        item {
+                            val isSelected = font == uiState.selectedFont
+                            Button(
+                                onClick = {
+                                    viewModel.onEvent(ThemeSettingsEvent.SelectFont(font))
+                                    showFontDialog = false
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(if (index == 0) Modifier.focusRequester(fontFocusRequester) else Modifier),
+                                colors = ButtonDefaults.colors(
+                                    containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                                    contentColor = NuvioColors.TextPrimary
+                                )
+                            ) {
+                                Text(
+                                    text = font.displayName,
+                                    fontFamily = getFontFamily(font)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -7,6 +7,8 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.skipStep
+import com.nuvio.tv.domain.model.supportsExtra
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -17,6 +19,13 @@ import kotlinx.coroutines.sync.withPermit
 import com.nuvio.tv.core.util.filterReleasedItems
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+
+private data class CatalogUpdateResult(
+    val displayRows: List<CatalogRow>,
+    val heroItems: List<com.nuvio.tv.domain.model.MetaPreview>,
+    val gridItems: List<GridItem>,
+    val fullRows: List<CatalogRow>
+)
 
 internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     viewModelScope.launch {
@@ -102,6 +111,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     externalMetaPrefetchInFlightIds.clear()
     externalMetaPrefetchJob?.cancel()
     pendingExternalMetaPrefetchItemId = null
+    prefetchedTmdbIds.clear()
+    tmdbEnrichFocusJob?.cancel()
+    pendingTmdbEnrichItemId = null
     lastHeroEnrichmentSignature = null
     lastHeroEnrichedItems = emptyList()
 
@@ -152,10 +164,11 @@ internal fun HomeViewModel.loadCatalogPipeline(
         var hasCountedCompletion = false
         catalogLoadSemaphore.withPermit {
             if (generation != catalogLoadGeneration) return@withPermit
-            val supportsSkip = catalog.extra.any { it.name == "skip" }
+            val supportsSkip = catalog.supportsExtra("skip")
+            val skipStep = catalog.skipStep()
             Log.d(
                 HomeViewModel.TAG,
-                "Loading home catalog addonId=${addon.id} addonName=${addon.name} type=${catalog.apiType} catalogId=${catalog.id} catalogName=${catalog.name} supportsSkip=$supportsSkip"
+                "Loading home catalog addonId=${addon.id} addonName=${addon.name} type=${catalog.apiType} catalogId=${catalog.id} catalogName=${catalog.name} supportsSkip=$supportsSkip skipStep=$skipStep"
             )
             catalogRepository.getCatalog(
                 addonBaseUrl = addon.baseUrl,
@@ -165,6 +178,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                 catalogName = catalog.name,
                 type = catalog.apiType,
                 skip = 0,
+                skipStep = skipStep,
                 supportsSkip = supportsSkip
             ).collect { result ->
                 if (generation != catalogLoadGeneration) return@collect
@@ -226,7 +240,7 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
     viewModelScope.launch {
         val addon = addonsCache.find { it.id == addonId } ?: return@launch
 
-        val nextSkip = currentRow.items.size
+        val nextSkip = (currentRow.currentPage + 1) * currentRow.skipStep
         catalogRepository.getCatalog(
             addonBaseUrl = addon.baseUrl,
             addonId = addon.id,
@@ -235,6 +249,7 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
             catalogName = currentRow.catalogName,
             type = currentRow.apiType,
             skip = nextSkip,
+            skipStep = currentRow.skipStep,
             supportsSkip = currentRow.supportsSkip
         ).collect { result ->
             when (result) {
@@ -271,7 +286,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val heroSectionEnabled = _uiState.value.heroSectionEnabled
     val hideUnreleased = _uiState.value.hideUnreleasedContent
 
-    val (displayRows, baseHeroItems, baseGridItems) = withContext(Dispatchers.Default) {
+    val (displayRows, baseHeroItems, baseGridItems, fullRowsFiltered) = withContext(Dispatchers.Default) {
         val rawRows = orderedKeys.mapNotNull { key -> catalogSnapshot[key] }
         val orderedRows = if (hideUnreleased) {
             val today = LocalDate.now()
@@ -378,18 +393,11 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             currentGridItems
         }
 
-        Triple(computedDisplayRows, computedHeroItems, computedGridItems)
+        CatalogUpdateResult(computedDisplayRows, computedHeroItems, computedGridItems, orderedRows)
     }
 
-    val rawFullRows = orderedKeys.mapNotNull { key -> catalogSnapshot[key] }
-    val fullRows = if (hideUnreleased) {
-        val today = LocalDate.now()
-        rawFullRows.map { it.filterReleasedItems(today) }
-    } else {
-        rawFullRows
-    }
     _fullCatalogRows.update { rows ->
-        if (rows == fullRows) rows else fullRows
+        if (rows == fullRowsFiltered) rows else fullRowsFiltered
     }
 
     val nextGridItems = if (currentLayout == HomeLayout.GRID) {
@@ -462,33 +470,37 @@ internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<Cata
 }
 
 internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<CatalogRow>) {
-    val desiredItemsByKey = linkedMapOf<String, Pair<String, String>>()
+    val desiredLibraryItemsByKey = linkedMapOf<String, Pair<String, String>>()
     rows.asSequence()
         .flatMap { row -> row.items.asSequence() }
         .take(HomeViewModel.MAX_POSTER_STATUS_OBSERVERS)
         .forEach { item ->
             val key = homeItemStatusKey(item.id, item.apiType)
-            if (key !in desiredItemsByKey) {
-                desiredItemsByKey[key] = item.id to item.apiType
+            if (key !in desiredLibraryItemsByKey) {
+                desiredLibraryItemsByKey[key] = item.id to item.apiType
             }
         }
-    val desiredKeys = desiredItemsByKey.keys
-    val desiredMovieKeys = desiredItemsByKey
-        .filterValues { (_, itemType) -> itemType.equals("movie", ignoreCase = true) }
-        .keys
+    val desiredLibraryKeys = desiredLibraryItemsByKey.keys
+
+    val allMovieItemsByKey = linkedMapOf<String, String>()
+    rows.asSequence()
+        .flatMap { row -> row.items.asSequence() }
+        .filter { it.apiType.equals("movie", ignoreCase = true) }
+        .forEach { item ->
+            val key = homeItemStatusKey(item.id, item.apiType)
+            if (key !in allMovieItemsByKey) {
+                allMovieItemsByKey[key] = item.id
+            }
+        }
+    val desiredMovieKeys = allMovieItemsByKey.keys
 
     posterLibraryObserverJobs.keys
-        .filterNot { it in desiredKeys }
+        .filterNot { it in desiredLibraryKeys }
         .forEach { staleKey ->
             posterLibraryObserverJobs.remove(staleKey)?.cancel()
         }
-    movieWatchedObserverJobs.keys
-        .filterNot { it in desiredMovieKeys }
-        .forEach { staleKey ->
-            movieWatchedObserverJobs.remove(staleKey)?.cancel()
-        }
 
-    desiredItemsByKey.forEach { (statusKey, itemRef) ->
+    desiredLibraryItemsByKey.forEach { (statusKey, itemRef) ->
         val itemId = itemRef.first
         val itemType = itemRef.second
 
@@ -509,35 +521,42 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
                     }
             }
         }
+    }
 
-        if (itemType.equals("movie", ignoreCase = true)) {
-            if (statusKey !in movieWatchedObserverJobs) {
-                movieWatchedObserverJobs[statusKey] = viewModelScope.launch {
-                    watchProgressRepository.isWatched(contentId = itemId)
-                        .distinctUntilChanged()
-                        .collectLatest { watched ->
-                            _uiState.update { state ->
-                                if (state.movieWatchedStatus[statusKey] == watched) {
-                                    state
-                                } else {
-                                    state.copy(
-                                        movieWatchedStatus = state.movieWatchedStatus + (statusKey to watched)
-                                    )
+    if (desiredMovieKeys != lastMovieWatchedItemKeys) {
+        lastMovieWatchedItemKeys = desiredMovieKeys
+        movieWatchedObserverJobs.values.forEach { it.cancel() }
+        movieWatchedObserverJobs.clear()
+        movieWatchedBatchJob?.cancel()
+
+        if (desiredMovieKeys.isNotEmpty()) {
+            movieWatchedBatchJob = viewModelScope.launch {
+                watchProgressRepository.observeWatchedMovieIds()
+                    .collectLatest { watchedIds ->
+                        _uiState.update { state ->
+                            val newStatus = buildMap {
+                                allMovieItemsByKey.forEach { (statusKey, contentId) ->
+                                    put(statusKey, contentId in watchedIds)
                                 }
                             }
+                            if (state.movieWatchedStatus == newStatus) {
+                                state
+                            } else {
+                                state.copy(movieWatchedStatus = newStatus)
+                            }
                         }
-                }
+                    }
             }
         }
     }
 
     _uiState.update { state ->
         val trimmedLibraryMembership =
-            state.posterLibraryMembership.filterKeys { it in desiredKeys }
+            state.posterLibraryMembership.filterKeys { it in desiredLibraryKeys }
         val trimmedMovieWatchedStatus =
             state.movieWatchedStatus.filterKeys { it in desiredMovieKeys }
         val trimmedLibraryPending =
-            state.posterLibraryPending.filterTo(linkedSetOf()) { it in desiredKeys }
+            state.posterLibraryPending.filterTo(linkedSetOf()) { it in desiredLibraryKeys }
         val trimmedMovieWatchedPending =
             state.movieWatchedPending.filterTo(linkedSetOf()) { it in desiredMovieKeys }
 

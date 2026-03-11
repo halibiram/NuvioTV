@@ -121,7 +121,7 @@ fun ContentCard(
                 return@LaunchedEffect
             }
 
-            val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1)
+            val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0)
 
             isBackdropExpanded = false
             val backdropDelayMs = delaySeconds * 1000L
@@ -193,7 +193,7 @@ fun ContentCard(
             with(density) { baseCardHeight.roundToPx() }
         }
         val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
-            item.background ?: item.poster
+            item.backdropUrl ?: item.poster
         } else {
             item.poster
         }

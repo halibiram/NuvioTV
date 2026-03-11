@@ -89,6 +89,7 @@ import androidx.tv.material3.Switch
 import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
+import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.PlayerPreference
@@ -137,11 +138,12 @@ fun PlaybackSettingsContent(
     // Dialog states
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showSecondaryLanguageDialog by remember { mutableStateOf(false) }
-    var showSubtitleOrganizationDialog by remember { mutableStateOf(false) }
+    var showSubtitleStartupModeDialog by remember { mutableStateOf(false) }
     var showTextColorDialog by remember { mutableStateOf(false) }
     var showBackgroundColorDialog by remember { mutableStateOf(false) }
     var showOutlineColorDialog by remember { mutableStateOf(false) }
     var showAudioLanguageDialog by remember { mutableStateOf(false) }
+    var showSecondaryAudioLanguageDialog by remember { mutableStateOf(false) }
     var showDecoderPriorityDialog by remember { mutableStateOf(false) }
     var showStreamAutoPlayModeDialog by remember { mutableStateOf(false) }
     var showStreamAutoPlaySourceDialog by remember { mutableStateOf(false) }
@@ -155,11 +157,12 @@ fun PlaybackSettingsContent(
     fun dismissAllDialogs() {
         showLanguageDialog = false
         showSecondaryLanguageDialog = false
-        showSubtitleOrganizationDialog = false
+        showSubtitleStartupModeDialog = false
         showTextColorDialog = false
         showBackgroundColorDialog = false
         showOutlineColorDialog = false
         showAudioLanguageDialog = false
+        showSecondaryAudioLanguageDialog = false
         showDecoderPriorityDialog = false
         showStreamAutoPlayModeDialog = false
         showStreamAutoPlaySourceDialog = false
@@ -196,10 +199,11 @@ fun PlaybackSettingsContent(
                 trailerSettings = trailerSettings,
                 onShowPlayerPreferenceDialog = { openDialog { showPlayerPreferenceDialog = true } },
                 onShowAudioLanguageDialog = { openDialog { showAudioLanguageDialog = true } },
+                onShowSecondaryAudioLanguageDialog = { openDialog { showSecondaryAudioLanguageDialog = true } },
                 onShowDecoderPriorityDialog = { openDialog { showDecoderPriorityDialog = true } },
                 onShowLanguageDialog = { openDialog { showLanguageDialog = true } },
                 onShowSecondaryLanguageDialog = { openDialog { showSecondaryLanguageDialog = true } },
-                onShowSubtitleOrganizationDialog = { openDialog { showSubtitleOrganizationDialog = true } },
+                onShowSubtitleStartupModeDialog = { openDialog { showSubtitleStartupModeDialog = true } },
                 onShowTextColorDialog = { openDialog { showTextColorDialog = true } },
                 onShowBackgroundColorDialog = { openDialog { showBackgroundColorDialog = true } },
                 onShowOutlineColorDialog = { openDialog { showOutlineColorDialog = true } },
@@ -224,12 +228,18 @@ fun PlaybackSettingsContent(
                 onSetNextEpisodeThresholdMinutesBeforeEnd = { minutes ->
                     coroutineScope.launch { viewModel.setNextEpisodeThresholdMinutesBeforeEnd(minutes) }
                 },
+                onSetStreamAutoPlayTimeoutSeconds = { seconds ->
+                    coroutineScope.launch { viewModel.setStreamAutoPlayTimeoutSeconds(seconds) }
+                },
                 onSetReuseLastLinkEnabled = { enabled -> coroutineScope.launch { viewModel.setStreamReuseLastLinkEnabled(enabled) } },
                 onSetLoadingOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setLoadingOverlayEnabled(enabled) } },
                 onSetPauseOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setPauseOverlayEnabled(enabled) } },
                 onSetOsdClockEnabled = { enabled -> coroutineScope.launch { viewModel.setOsdClockEnabled(enabled) } },
                 onSetSkipIntroEnabled = { enabled -> coroutineScope.launch { viewModel.setSkipIntroEnabled(enabled) } },
                 onSetFrameRateMatchingMode = { mode -> coroutineScope.launch { viewModel.setFrameRateMatchingMode(mode) } },
+                onSetResolutionMatchingEnabled = { enabled ->
+                    coroutineScope.launch { viewModel.setResolutionMatchingEnabled(enabled) }
+                },
                 onSetTrailerEnabled = { enabled -> coroutineScope.launch { viewModel.setTrailerEnabled(enabled) } },
                 onSetTrailerDelaySeconds = { seconds -> coroutineScope.launch { viewModel.setTrailerDelaySeconds(seconds) } },
                 onSetSkipSilence = { enabled -> coroutineScope.launch { viewModel.setSkipSilence(enabled) } },
@@ -252,11 +262,12 @@ fun PlaybackSettingsContent(
         showPlayerPreferenceDialog = showPlayerPreferenceDialog,
         showLanguageDialog = showLanguageDialog,
         showSecondaryLanguageDialog = showSecondaryLanguageDialog,
-        showSubtitleOrganizationDialog = showSubtitleOrganizationDialog,
+        showSubtitleStartupModeDialog = showSubtitleStartupModeDialog,
         showTextColorDialog = showTextColorDialog,
         showBackgroundColorDialog = showBackgroundColorDialog,
         showOutlineColorDialog = showOutlineColorDialog,
         showAudioLanguageDialog = showAudioLanguageDialog,
+        showSecondaryAudioLanguageDialog = showSecondaryAudioLanguageDialog,
         showDecoderPriorityDialog = showDecoderPriorityDialog,
         showStreamAutoPlayModeDialog = showStreamAutoPlayModeDialog,
         showStreamAutoPlaySourceDialog = showStreamAutoPlaySourceDialog,
@@ -275,8 +286,8 @@ fun PlaybackSettingsContent(
         onSetSubtitleSecondaryLanguage = { language ->
             coroutineScope.launch { viewModel.setSubtitleSecondaryLanguage(language) }
         },
-        onSetSubtitleOrganizationMode = { mode ->
-            coroutineScope.launch { viewModel.setSubtitleOrganizationMode(mode) }
+        onSetAddonSubtitleStartupMode = { mode ->
+            coroutineScope.launch { viewModel.setAddonSubtitleStartupMode(mode) }
         },
         onSetSubtitleTextColor = { color ->
             coroutineScope.launch { viewModel.setSubtitleTextColor(color.toArgb()) }
@@ -289,6 +300,9 @@ fun PlaybackSettingsContent(
         },
         onSetPreferredAudioLanguage = { language ->
             coroutineScope.launch { viewModel.setPreferredAudioLanguage(language) }
+        },
+        onSetSecondaryPreferredAudioLanguage = { language ->
+            coroutineScope.launch { viewModel.setSecondaryPreferredAudioLanguage(language) }
         },
         onSetDecoderPriority = { priority ->
             coroutineScope.launch { viewModel.setDecoderPriority(priority) }
@@ -316,11 +330,12 @@ fun PlaybackSettingsContent(
         },
         onDismissLanguageDialog = ::dismissAllDialogs,
         onDismissSecondaryLanguageDialog = ::dismissAllDialogs,
-        onDismissSubtitleOrganizationDialog = ::dismissAllDialogs,
+        onDismissSubtitleStartupModeDialog = ::dismissAllDialogs,
         onDismissTextColorDialog = ::dismissAllDialogs,
         onDismissBackgroundColorDialog = ::dismissAllDialogs,
         onDismissOutlineColorDialog = ::dismissAllDialogs,
         onDismissAudioLanguageDialog = ::dismissAllDialogs,
+        onDismissSecondaryAudioLanguageDialog = ::dismissAllDialogs,
         onDismissDecoderPriorityDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlayModeDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlaySourceDialog = ::dismissAllDialogs,
@@ -477,16 +492,14 @@ internal fun RenderTypeSettingsItem(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     color = (if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 2,
+                    overflow = TextOverflow.Clip
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha)
                 )
             }
             
@@ -908,6 +921,7 @@ internal fun LanguageSelectionDialog(
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    val sortedLanguages = remember { AVAILABLE_SUBTITLE_LANGUAGES.sortedBy { it.displayName.lowercase() } }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -959,12 +973,12 @@ internal fun LanguageSelectionDialog(
                 }
 
                 items(
-                    count = AVAILABLE_SUBTITLE_LANGUAGES.size,
-                    key = { index -> AVAILABLE_SUBTITLE_LANGUAGES[index].code }
+                    count = sortedLanguages.size,
+                    key = { index -> sortedLanguages[index].code }
                 ) { index ->
-                    val language = AVAILABLE_SUBTITLE_LANGUAGES[index]
+                    val language = sortedLanguages[index]
                     LanguageOptionItem(
-                        name = language.name,
+                        name = language.displayName,
                         code = language.code,
                         isSelected = selectedLanguage == language.code,
                         onClick = { onLanguageSelected(language.code) },

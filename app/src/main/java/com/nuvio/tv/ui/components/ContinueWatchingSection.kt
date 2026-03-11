@@ -52,7 +52,6 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
 import androidx.compose.ui.window.Dialog
-import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -62,6 +61,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlin.math.roundToInt
 import java.util.concurrent.TimeUnit
+import com.nuvio.tv.ui.util.localizeEpisodeTitle
 
 private val CwCardShape = RoundedCornerShape(12.dp)
 private val CwClipShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
@@ -75,6 +75,8 @@ fun ContinueWatchingSection(
     onDetailsClick: (ContinueWatchingItem) -> Unit = onItemClick,
     onRemoveItem: (ContinueWatchingItem) -> Unit,
     onStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
+    showManualPlayOption: Boolean = false,
+    onPlayManually: (ContinueWatchingItem) -> Unit = {},
     modifier: Modifier = Modifier,
     focusedItemIndex: Int = -1,
     onItemFocused: (itemIndex: Int) -> Unit = {}
@@ -185,6 +187,11 @@ fun ContinueWatchingSection(
             onStartFromBeginning = {
                 onStartFromBeginning(menuItem)
                 optionsItem = null
+            },
+            showPlayManually = showManualPlayOption,
+            onPlayManually = {
+                onPlayManually(menuItem)
+                optionsItem = null
             }
         )
     }
@@ -226,9 +233,7 @@ fun ContinueWatchingCard(
     val strUpcoming = stringResource(R.string.cw_upcoming)
     val strNextUp = stringResource(R.string.cw_next_up)
     val strResume = stringResource(R.string.cw_resume)
-    val strHoursMinLeft = stringResource(R.string.cw_hours_min_left)
-    val strMinLeft = stringResource(R.string.cw_min_left)
-    val strAlmostDone = stringResource(R.string.cw_almost_done)
+    val strPercentWatched = stringResource(R.string.cw_percent_watched)
     val nextUpBadgeText = nextUp?.let { info ->
         if (!info.hasAired) {
             info.airDateLabel?.let { strAirsDate } ?: strUpcoming
@@ -238,22 +243,14 @@ fun ContinueWatchingCard(
     }
     val remainingText = progress?.let {
         remember(it.position, it.duration, it.progressPercent) {
-            when {
-                it.duration > 0L -> formatRemainingTime(it.remainingTime, strHoursMinLeft, strMinLeft, strAlmostDone)
-                it.progressPercent != null -> "${it.progressPercent.toInt().coerceIn(0, 100)}% watched"
-                else -> strResume
-            }
+            formatContinueWatchingProgressLabel(
+                progress = it,
+                resumeLabel = strResume,
+                percentWatchedLabel = strPercentWatched
+            )
         }
     }
-    val watchedPercentText = progress?.let {
-        val dbPercent = it.progressPercent ?: (it.progressPercentage * 100f)
-        "${dbPercent.coerceIn(0f, 100f).roundToInt()}%"
-    }
-    val badgeText = if (BuildConfig.IS_DEBUG_BUILD && watchedPercentText != null) {
-        remainingText?.let { "$it · $watchedPercentText" } ?: watchedPercentText
-    } else {
-        remainingText ?: nextUpBadgeText ?: strNextUp
-    }
+    val badgeText = remainingText ?: nextUpBadgeText ?: strNextUp
     val progressFraction = progress?.progressPercentage ?: 0f
     val imageModel = when {
         nextUp != null && !nextUp.hasAired -> firstNonBlank(
@@ -272,12 +269,12 @@ fun ContinueWatchingCard(
         )
     }
     val titleText = progress?.name ?: nextUp?.name.orEmpty()
-    val episodeTitle = when {
-        progress != null -> progress.episodeTitle
-        nextUp != null && !nextUp.hasAired -> nextUp.episodeTitle ?: nextUp.airDateLabel?.let { stringResource(R.string.cw_airs_date, it) }
-        else -> nextUp?.episodeTitle
-    }
     val context = LocalContext.current
+    val episodeTitle = when {
+        progress != null -> progress.episodeTitle?.localizeEpisodeTitle(context)
+        nextUp != null && !nextUp.hasAired -> nextUp.episodeTitle?.localizeEpisodeTitle(context) ?: nextUp.airDateLabel?.let { stringResource(R.string.cw_airs_date, it) }
+        else -> nextUp?.episodeTitle?.localizeEpisodeTitle(context)
+    }
     val density = LocalDensity.current
     val requestWidthPx = remember(cardWidth, density) {
         with(density) { cardWidth.roundToPx() }
@@ -390,7 +387,7 @@ fun ContinueWatchingCard(
                         Text(
                             text = episodeStr,
                             style = MaterialTheme.typography.labelMedium,
-                            color = NuvioColors.Primary
+                            color = NuvioColors.TextPrimary
                         )
                     }
 
@@ -461,7 +458,9 @@ fun ContinueWatchingOptionsDialog(
     onDismiss: () -> Unit,
     onRemove: () -> Unit,
     onDetails: () -> Unit,
-    onStartFromBeginning: () -> Unit = {}
+    onStartFromBeginning: () -> Unit = {},
+    showPlayManually: Boolean = false,
+    onPlayManually: () -> Unit = {}
 ) {
     val title = when (item) {
         is ContinueWatchingItem.InProgress -> item.progress.name
@@ -490,6 +489,19 @@ fun ContinueWatchingOptionsDialog(
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
+        }
+
+        if (showPlayManually) {
+            Button(
+                onClick = onPlayManually,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioColors.BackgroundCard,
+                    contentColor = NuvioColors.TextPrimary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.play_manually))
+            }
         }
 
         if (item is ContinueWatchingItem.InProgress) {
