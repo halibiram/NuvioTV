@@ -295,6 +295,24 @@ private fun EpisodesListView(
             .groupBy(keySelector = { it.first }, valueTransform = { it.second })
             .mapValues { (_, episodes) -> episodes.size }
     }
+    val seasonWatchedCounts = remember(
+        uiState.episodesAll,
+        uiState.episodeWatchProgressMap,
+        uiState.watchedEpisodeKeys
+    ) {
+        uiState.episodesAll
+            .groupBy { it.season }
+            .mapNotNull { (season, episodes) ->
+                season?.let { seasonNumber ->
+                    seasonNumber to episodes.count { episode ->
+                        val key = episode.episodeKey() ?: return@count false
+                        uiState.episodeWatchProgressMap[key]?.isCompleted() == true ||
+                            uiState.watchedEpisodeKeys.contains(key)
+                    }
+                }
+            }
+            .toMap()
+    }
     val selectedSeasonEpisodeCount = remember(
         uiState.episodesSelectedSeason,
         uiState.episodes,
@@ -303,15 +321,10 @@ private fun EpisodesListView(
         uiState.episodesSelectedSeason?.let { seasonCounts[it] } ?: uiState.episodes.size
     }
     val selectedSeasonWatchedCount = remember(
-        uiState.episodes,
-        uiState.episodeWatchProgressMap,
-        uiState.watchedEpisodeKeys
+        uiState.episodesSelectedSeason,
+        seasonWatchedCounts
     ) {
-        uiState.episodes.count { episode ->
-            val key = episode.episodeKey() ?: return@count false
-            uiState.episodeWatchProgressMap[key]?.isCompleted() == true ||
-                uiState.watchedEpisodeKeys.contains(key)
-        }
+        uiState.episodesSelectedSeason?.let { seasonWatchedCounts[it] } ?: 0
     }
     val currentEpisodeVideo = remember(
         uiState.episodesAll,
@@ -395,6 +408,7 @@ private fun EpisodesListView(
                         selectedSeason = uiState.episodesSelectedSeason,
                         currentSeason = uiState.currentSeason,
                         seasonCounts = seasonCounts,
+                        seasonWatchedCounts = seasonWatchedCounts,
                         seasonRailState = seasonRailState,
                         selectedSeasonFocusRequester = seasonRailFocusRequester,
                         episodeFocusRequester = episodesFocusRequester,
@@ -465,6 +479,7 @@ private fun EpisodesSeasonRail(
     selectedSeason: Int?,
     currentSeason: Int?,
     seasonCounts: Map<Int, Int>,
+    seasonWatchedCounts: Map<Int, Int>,
     seasonRailState: androidx.compose.foundation.lazy.LazyListState,
     selectedSeasonFocusRequester: FocusRequester,
     episodeFocusRequester: FocusRequester,
@@ -503,6 +518,7 @@ private fun EpisodesSeasonRail(
                 SeasonRailItem(
                     season = season,
                     episodeCount = seasonCounts[season] ?: 0,
+                    watchedCount = seasonWatchedCounts[season] ?: 0,
                     isSelected = selectedSeason == season,
                     isCurrentSeason = currentSeason == season,
                     selectedSeasonFocusRequester = selectedSeasonFocusRequester,
@@ -601,6 +617,7 @@ private fun EpisodeSelectorSummaryCard(
 private fun SeasonRailItem(
     season: Int,
     episodeCount: Int,
+    watchedCount: Int,
     isSelected: Boolean,
     isCurrentSeason: Boolean,
     selectedSeasonFocusRequester: FocusRequester,
@@ -609,6 +626,9 @@ private fun SeasonRailItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(18.dp)
+    val progressFraction = remember(watchedCount, episodeCount) {
+        if (episodeCount > 0) watchedCount.toFloat() / episodeCount.toFloat() else 0f
+    }
 
     Card(
         onClick = onClick,
@@ -665,6 +685,21 @@ private fun SeasonRailItem(
                 }
             )
 
+            SeasonProgressBar(
+                progressFraction = progressFraction,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = stringResource(R.string.episodes_panel_watched_count, watchedCount),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isSelected) {
+                    NuvioColors.TextPrimary.copy(alpha = 0.82f)
+                } else {
+                    NuvioTheme.extendedColors.textTertiary
+                }
+            )
+
             if (isCurrentSeason) {
                 EpisodeMetaChip(
                     text = stringResource(R.string.episodes_panel_now_playing),
@@ -680,6 +715,30 @@ private fun SeasonRailItem(
                     }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SeasonProgressBar(
+    progressFraction: Float,
+    modifier: Modifier = Modifier
+) {
+    val fraction = progressFraction.coerceIn(0f, 1f)
+    Box(
+        modifier = modifier
+            .height(4.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+    ) {
+        if (fraction > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(NuvioColors.Secondary)
+            )
         }
     }
 }
