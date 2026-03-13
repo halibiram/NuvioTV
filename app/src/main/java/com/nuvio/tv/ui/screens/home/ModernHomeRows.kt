@@ -250,7 +250,7 @@ internal fun ModernRowSection(
     row: HeroCarouselRow,
     rowTitleBottom: Dp,
     defaultBringIntoViewSpec: BringIntoViewSpec,
-    focusStateCatalogRowScrollStates: Map<String, Int>,
+    focusStateCatalogRowScrollIndex: Int,
     uiCaches: ModernHomeUiCaches,
     pendingRowFocusKey: String?,
     pendingRowFocusIndex: Int?,
@@ -308,7 +308,7 @@ internal fun ModernRowSection(
 
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(
-                firstVisibleItemIndex = focusStateCatalogRowScrollStates[row.key] ?: 0,
+                firstVisibleItemIndex = focusStateCatalogRowScrollIndex,
                 prefetchStrategy = LazyListPrefetchStrategy(nestedPrefetchItemCount = 2)
             )
         }
@@ -489,7 +489,7 @@ internal fun ModernRowSection(
         CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
             LazyRow(
                 state = rowListState,
-                modifier = Modifier.focusGroup(),
+                modifier = Modifier.focusRestorer().focusGroup(),
                 contentPadding = PaddingValues(horizontal = rowStartPadding),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -552,8 +552,8 @@ internal fun ModernRowSection(
                                 isWatched = isWatched,
                                 onFocused = onFocused,
                                 onItemFocus = onItemFocus,
-                                onPreloadAdjacentItem = {
-                                    nextCatalogItem?.let(onPreloadAdjacentItem)
+                                onPreloadAdjacentItem = remember(nextCatalogItem, onPreloadAdjacentItem) {
+                                    { nextCatalogItem?.let(onPreloadAdjacentItem) }
                                 },
                                 onCatalogSelectionFocused = onCatalogSelectionFocused,
                                 onNavigateToDetail = onNavigateToDetail,
