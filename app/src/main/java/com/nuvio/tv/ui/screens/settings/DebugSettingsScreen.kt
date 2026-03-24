@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -89,7 +90,7 @@ fun DebugSettingsContent(
                 )
             }
 
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.IS_DEBUG_BUILD) {
                 item(key = "debug_diagnostics_header") {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -312,13 +313,13 @@ private fun DebugActionCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = NuvioColors.TextPrimary
+                color = if (isFocused) NuvioColors.OnSecondary else NuvioColors.TextPrimary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = NuvioColors.TextSecondary
+                color = if (isFocused) NuvioColors.OnSecondary.copy(alpha = 0.86f) else NuvioColors.TextSecondary
             )
         }
     }
@@ -337,21 +338,35 @@ private fun DebugDialogButton(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
+            containerColor = NuvioColors.SurfaceVariant,
             focusedContainerColor = NuvioColors.Secondary
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, NuvioColors.Border),
+                shape = RoundedCornerShape(8.dp)
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(8.dp)
+            )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
         scale = CardDefaults.scale(focusedScale = 1.0f)
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 16.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
+                .padding(vertical = 14.dp, horizontal = 18.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (isFocused) NuvioColors.OnSecondary else NuvioColors.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
