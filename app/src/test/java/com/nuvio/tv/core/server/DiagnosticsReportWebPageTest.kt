@@ -17,8 +17,12 @@ class DiagnosticsReportWebPageTest {
         assertTrue(html.contains("Open GitHub Issues"))
         assertTrue(html.contains(DiagnosticsSupportLinks.githubIssuesUrl))
         assertTrue(html.contains("Crash reports require logs or a stack trace"))
-        assertTrue(html.contains("Open issue payload"))
         assertTrue(html.contains("Open logs"))
+        assertTrue(html.contains("Download logs"))
+        assertTrue(html.contains("Copy payload"))
+        assertTrue(html.contains("Delete report"))
+        assertTrue(html.contains("Save note"))
+        assertTrue(html.contains("name=\"user_note\""))
         assertTrue(html.contains("Privacy check"))
         assertTrue(html.contains("redacted automatically"))
     }

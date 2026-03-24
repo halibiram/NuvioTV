@@ -176,6 +176,44 @@ class DiagnosticsReportManager @Inject constructor(
         }.trim()
     }
 
+    fun deleteReport(reportId: String): Boolean {
+        val reportDirectory = getReportDirectory(reportId)
+        if (!reportDirectory.exists() || !reportDirectory.isDirectory) {
+            return false
+        }
+
+        val deleted = reportDirectory.deleteRecursively()
+        if (deleted && crashRecoveryStore.getPendingCrash()?.reportId == reportId) {
+            crashRecoveryStore.clearPendingCrash()
+        }
+        if (deleted) {
+            inAppLogBuffer.info(TAG, "Deleted diagnostics report id=$reportId")
+        }
+        return deleted
+    }
+
+    fun updateUserNote(reportId: String, userNote: String?): Boolean {
+        val reportDirectory = getReportDirectory(reportId)
+        if (!reportDirectory.exists() || !reportDirectory.isDirectory) {
+            return false
+        }
+
+        val noteFile = File(reportDirectory, "user-note.txt")
+        val sanitized = DiagnosticsSanitizer.sanitizeText(userNote).trim().ifBlank { null }
+
+        if (sanitized == null) {
+            if (noteFile.exists()) {
+                noteFile.delete()
+            }
+            inAppLogBuffer.info(TAG, "Cleared diagnostics user note id=$reportId")
+            return true
+        }
+
+        writeFile(noteFile, sanitized)
+        inAppLogBuffer.info(TAG, "Updated diagnostics user note id=$reportId")
+        return true
+    }
+
     private fun createReport(
         source: ReportSource,
         userNote: String?,
