@@ -16,6 +16,14 @@ class DiagnosticsSnapshotBuilder @Inject constructor(
         userNote: String?,
         crashSummary: CrashSummary?
     ): DiagnosticsSnapshot {
+        val sanitizedLastRoute = DiagnosticsSanitizer.sanitizeSingleLine(lastRoute)
+        val sanitizedUserNote = DiagnosticsSanitizer.sanitizeText(userNote).trim().ifEmpty { null }
+        val sanitizedCrashSummary = crashSummary?.let {
+            it.copy(
+                message = DiagnosticsSanitizer.sanitizeSingleLine(it.message),
+                stackTrace = DiagnosticsSanitizer.sanitizeText(it.stackTrace)
+            )
+        }
         val deviceInfo = deviceInfoCollector.collect()
         val createdAtIsoUtc = Instant.ofEpochMilli(reportRef.createdAtEpochMs).toString()
         val manifest = DiagnosticsManifest(
@@ -34,28 +42,28 @@ class DiagnosticsSnapshotBuilder @Inject constructor(
             device = deviceInfo.device,
             supportedAbis = deviceInfo.supportedAbis,
             installerPackageName = deviceInfo.installerPackageName,
-            lastRoute = lastRoute,
-            crashType = crashSummary?.type,
-            crashMessage = crashSummary?.message,
-            crashThreadName = crashSummary?.threadName
+            lastRoute = sanitizedLastRoute,
+            crashType = sanitizedCrashSummary?.type,
+            crashMessage = sanitizedCrashSummary?.message,
+            crashThreadName = sanitizedCrashSummary?.threadName
         )
 
-        val appLogText = inAppLogBuffer.export()
-        val systemLogText = systemLogcatCollector.collect()
+        val appLogText = DiagnosticsSanitizer.sanitizeText(inAppLogBuffer.export())
+        val systemLogText = DiagnosticsSanitizer.sanitizeText(systemLogcatCollector.collect())
 
         return DiagnosticsSnapshot(
             manifest = manifest,
             diagnosticsText = buildDiagnosticsText(
                 manifest = manifest,
-                userNote = userNote,
+                userNote = sanitizedUserNote,
                 appLogText = appLogText,
                 systemLogText = systemLogText,
-                crashSummary = crashSummary
+                crashSummary = sanitizedCrashSummary
             ),
             appLogText = appLogText,
             systemLogText = systemLogText,
-            crashText = crashSummary?.stackTrace,
-            userNoteText = userNote?.trim()?.takeIf { it.isNotEmpty() }
+            crashText = sanitizedCrashSummary?.stackTrace,
+            userNoteText = sanitizedUserNote
         )
     }
 

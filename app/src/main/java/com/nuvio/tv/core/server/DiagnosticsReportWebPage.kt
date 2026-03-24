@@ -33,7 +33,7 @@ object DiagnosticsReportWebPage {
             <section class="hero">
               <span class="eyebrow">NuvioTV diagnostics</span>
               <h1>Captured reports on this TV</h1>
-            <p>Open the latest report, review the diagnostics, then create one GitHub issue for one problem.</p>
+            <p>Open the latest report, review the redacted diagnostics, then create one GitHub issue for one problem.</p>
             </section>
             <section class="panel stack">
               <div class="panel-head">
@@ -105,12 +105,19 @@ object DiagnosticsReportWebPage {
             <section class="panel stack">
               <div class="panel-head">
                 <h2>Diagnostics summary</h2>
-                <p>This block is safe to copy into a GitHub issue if needed.</p>
+                <p>This block is sanitized for common secrets and URL query strings, but still review it before sharing publicly.</p>
               </div>
               <pre>$diagnosticsPreview</pre>
               <div class="button-row">
                 <a class="btn" href="/report/${escapeHtml(report.ref.id)}/payload">Open issue payload</a>
                 <a class="btn btn-secondary" href="/report/${escapeHtml(report.ref.id)}/logs">Open logs</a>
+              </div>
+            </section>
+
+            <section class="panel stack">
+              <div class="panel-head">
+                <h2>Privacy check</h2>
+                <p>Obvious secrets, private LAN hosts, email addresses, and URL query strings are redacted automatically. Still confirm the text looks safe before posting it to GitHub or Discord.</p>
               </div>
             </section>
 
@@ -126,6 +133,7 @@ object DiagnosticsReportWebPage {
             appendLine("# Diagnostics report ${report.ref.id}")
             appendLine("# Source: ${report.ref.source.name.lowercase()}")
             appendLine("# Created: ${formatTimestamp(report.manifest.createdAtEpochMs)}")
+            appendLine("# Privacy: obvious secrets, private hosts, email addresses, and URL query strings are redacted automatically. Review before sharing publicly.")
             appendLine()
             appendLine("## Diagnostics")
             appendLine(report.diagnosticsText.ifBlank { "No diagnostics summary available." })

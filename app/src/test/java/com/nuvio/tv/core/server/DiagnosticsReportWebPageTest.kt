@@ -17,6 +17,8 @@ class DiagnosticsReportWebPageTest {
         assertTrue(html.contains("Crash reports require logs or a stack trace"))
         assertTrue(html.contains("Open issue payload"))
         assertTrue(html.contains("Open logs"))
+        assertTrue(html.contains("Privacy check"))
+        assertTrue(html.contains("redacted automatically"))
     }
 
     @Test
@@ -31,6 +33,7 @@ class DiagnosticsReportWebPageTest {
     fun renderLogsText_includesSystemLogcatSection() {
         val logs = DiagnosticsReportWebPage.renderLogsText(sampleReport())
 
+        assertTrue(logs.contains("# Privacy:"))
         assertTrue(logs.contains("## System logcat"))
         assertTrue(logs.contains("system log line"))
     }

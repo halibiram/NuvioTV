@@ -105,12 +105,21 @@ class DiagnosticsReportManager @Inject constructor(
                 createdAtEpochMs = manifest.createdAtEpochMs,
                 directoryName = reportDirectory.name
             ),
-            manifest = manifest,
-            diagnosticsText = readOptionalFile(File(reportDirectory, "diagnostics.txt")).orEmpty(),
-            appLogText = readOptionalFile(File(reportDirectory, "app-log.txt")).orEmpty(),
-            systemLogText = readOptionalFile(File(reportDirectory, "system-logcat.txt")).orEmpty(),
-            crashText = readOptionalFile(File(reportDirectory, "crash.txt")),
-            userNoteText = readOptionalFile(File(reportDirectory, "user-note.txt"))
+            manifest = manifest.copy(
+                lastRoute = DiagnosticsSanitizer.sanitizeSingleLine(manifest.lastRoute),
+                crashMessage = DiagnosticsSanitizer.sanitizeSingleLine(manifest.crashMessage)
+            ),
+            diagnosticsText = DiagnosticsSanitizer.sanitizeText(
+                readOptionalFile(File(reportDirectory, "diagnostics.txt"))
+            ),
+            appLogText = DiagnosticsSanitizer.sanitizeText(
+                readOptionalFile(File(reportDirectory, "app-log.txt"))
+            ),
+            systemLogText = DiagnosticsSanitizer.sanitizeText(
+                readOptionalFile(File(reportDirectory, "system-logcat.txt"))
+            ),
+            crashText = readOptionalFile(File(reportDirectory, "crash.txt"))?.let(DiagnosticsSanitizer::sanitizeText),
+            userNoteText = readOptionalFile(File(reportDirectory, "user-note.txt"))?.let(DiagnosticsSanitizer::sanitizeText)
         )
     }
 
@@ -118,6 +127,7 @@ class DiagnosticsReportManager @Inject constructor(
         val report = loadStoredReport(reportId) ?: return null
         return buildString {
             appendLine("Title: replace with a short, specific crash/problem summary")
+            appendLine("Privacy: obvious secrets, private hosts, and URL query strings are redacted automatically. Review before posting publicly.")
             appendLine()
             appendLine("App version: ${report.manifest.appVersionName} (${report.manifest.appVersionCode})")
             appendLine("Package: ${report.manifest.packageName}")
@@ -194,17 +204,21 @@ class DiagnosticsReportManager @Inject constructor(
         }
 
         writeFile(File(reportDirectory, "manifest.json"), manifestAdapter.toJson(snapshot.manifest))
-        writeFile(File(reportDirectory, "diagnostics.txt"), snapshot.diagnosticsText)
+        writeFile(File(reportDirectory, "diagnostics.txt"), DiagnosticsSanitizer.sanitizeText(snapshot.diagnosticsText))
         writeFile(
             File(reportDirectory, "app-log.txt"),
-            snapshot.appLogText.ifBlank { "No in-app logs captured yet." }
+            DiagnosticsSanitizer.sanitizeText(snapshot.appLogText).ifBlank { "No in-app logs captured yet." }
         )
         writeFile(
             File(reportDirectory, "system-logcat.txt"),
-            snapshot.systemLogText.ifBlank { SystemLogcatCollector.UNAVAILABLE_MESSAGE }
+            DiagnosticsSanitizer.sanitizeText(snapshot.systemLogText).ifBlank { SystemLogcatCollector.UNAVAILABLE_MESSAGE }
         )
-        snapshot.crashText?.let { writeFile(File(reportDirectory, "crash.txt"), it) }
-        snapshot.userNoteText?.let { writeFile(File(reportDirectory, "user-note.txt"), it) }
+        snapshot.crashText?.let {
+            writeFile(File(reportDirectory, "crash.txt"), DiagnosticsSanitizer.sanitizeText(it))
+        }
+        snapshot.userNoteText?.let {
+            writeFile(File(reportDirectory, "user-note.txt"), DiagnosticsSanitizer.sanitizeText(it))
+        }
 
         if (markPendingCrash && crashSummary != null) {
             crashRecoveryStore.markPendingCrash(reportRef, crashSummary, lastRoute)
