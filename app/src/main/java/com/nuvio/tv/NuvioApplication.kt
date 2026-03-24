@@ -5,6 +5,9 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.nuvio.tv.core.diagnostics.CrashRecoveryStore
+import com.nuvio.tv.core.diagnostics.CrashReportExceptionHandler
+import com.nuvio.tv.core.diagnostics.DiagnosticsReportManager
 import com.nuvio.tv.core.diagnostics.InAppLogBuffer
 import com.nuvio.tv.core.sync.StartupSyncService
 import dagger.hilt.android.HiltAndroidApp
@@ -16,6 +19,10 @@ class NuvioApplication : Application(), ImageLoaderFactory {
 
     @Inject lateinit var startupSyncService: StartupSyncService
 
+    @Inject lateinit var diagnosticsReportManager: DiagnosticsReportManager
+
+    @Inject lateinit var crashRecoveryStore: CrashRecoveryStore
+
     @Inject lateinit var inAppLogBuffer: InAppLogBuffer
 
     override fun onCreate() {
@@ -24,6 +31,19 @@ class NuvioApplication : Application(), ImageLoaderFactory {
             "NuvioApplication",
             "Application onCreate version=${BuildConfig.VERSION_NAME}"
         )
+
+        val currentHandler = Thread.getDefaultUncaughtExceptionHandler()
+        if (currentHandler !is CrashReportExceptionHandler) {
+            Thread.setDefaultUncaughtExceptionHandler(
+                CrashReportExceptionHandler(
+                    diagnosticsReportManager = diagnosticsReportManager,
+                    crashRecoveryStore = crashRecoveryStore,
+                    inAppLogBuffer = inAppLogBuffer,
+                    previousHandler = currentHandler
+                )
+            )
+            inAppLogBuffer.info("NuvioApplication", "Installed crash diagnostics exception handler")
+        }
     }
 
     override fun newImageLoader(): ImageLoader {
