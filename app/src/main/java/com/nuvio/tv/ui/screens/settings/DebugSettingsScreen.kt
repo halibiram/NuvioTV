@@ -30,6 +30,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
 import com.nuvio.tv.R
+import com.nuvio.tv.BuildConfig
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -47,6 +48,7 @@ fun DebugSettingsContent(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showErrorDialog by remember { mutableStateOf(false) }
+    var showForceCrashDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -85,6 +87,26 @@ fun DebugSettingsContent(
                     subtitle = stringResource(R.string.debug_playback_error_subtitle),
                     onClick = { showErrorDialog = true }
                 )
+            }
+
+            if (BuildConfig.DEBUG) {
+                item(key = "debug_diagnostics_header") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.debug_section_diagnostics),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuvioColors.TextTertiary,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+
+                item(key = "debug_force_crash") {
+                    DebugActionCard(
+                        title = stringResource(R.string.debug_force_crash_title),
+                        subtitle = stringResource(R.string.debug_force_crash_subtitle),
+                        onClick = { showForceCrashDialog = true }
+                    )
+                }
             }
 
             // ── Feature Toggles ──
@@ -169,6 +191,27 @@ fun DebugSettingsContent(
             DebugDialogButton(
                 text = stringResource(R.string.debug_dismiss),
                 onClick = { showErrorDialog = false }
+            )
+        }
+    }
+
+    if (showForceCrashDialog) {
+        NuvioDialog(
+            onDismiss = { showForceCrashDialog = false },
+            title = stringResource(R.string.debug_force_crash_dialog_title),
+            subtitle = stringResource(R.string.debug_force_crash_dialog_subtitle)
+        ) {
+            DebugDialogButton(
+                text = stringResource(R.string.action_cancel),
+                onClick = { showForceCrashDialog = false }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            DebugDialogButton(
+                text = stringResource(R.string.debug_force_crash_confirm),
+                onClick = {
+                    showForceCrashDialog = false
+                    throw IllegalStateException("Debug QA force crash requested from Debug settings")
+                }
             )
         }
     }

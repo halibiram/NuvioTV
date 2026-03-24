@@ -245,6 +245,12 @@
     <string name="network_connection_offline">Offline</string>
     <string name="settings_debug">Debug</string>
     <string name="settings_debug_subtitle">Developer tools and feature flags.</string>
+    <string name="debug_section_diagnostics">Diagnostics QA</string>
+    <string name="debug_force_crash_title">Force crash recovery flow</string>
+    <string name="debug_force_crash_subtitle">Crash the app on purpose to verify that the next-launch diagnostics QR prompt appears.</string>
+    <string name="debug_force_crash_dialog_title">Force crash now?</string>
+    <string name="debug_force_crash_dialog_subtitle">This intentionally crashes the app so you can verify the recovery prompt on the next launch.</string>
+    <string name="debug_force_crash_confirm">Crash now</string>
     <string name="settings_plugins_section_subtitle">Manage repositories, providers, and plugin states.</string>
     <string name="settings_account_section_subtitle">Account and sync status.</string>
     <string name="account_stat_addons">addons</string>

@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.server
 
+import com.nuvio.tv.core.diagnostics.DiagnosticsSupportLinks
 import com.nuvio.tv.core.diagnostics.DiagnosticsStoredReport
 import java.time.Instant
 import java.time.ZoneId
@@ -7,9 +8,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 object DiagnosticsReportWebPage {
-
-    private const val githubIssuesUrl = "https://github.com/NuvioMedia/NuvioTV/issues"
-    private const val discordUrl = "https://discord.com/channels/1379902184207941732/1458552195904573513"
 
     fun renderLandingPage(reports: List<DiagnosticsStoredReport>): String {
         val reportsHtml = if (reports.isEmpty()) {
@@ -35,7 +33,7 @@ object DiagnosticsReportWebPage {
             <section class="hero">
               <span class="eyebrow">NuvioTV diagnostics</span>
               <h1>Captured reports on this TV</h1>
-              <p>Open the latest report, review the diagnostics, then create one GitHub issue for one problem.</p>
+            <p>Open the latest report, review the diagnostics, then create one GitHub issue for one problem.</p>
             </section>
             <section class="panel stack">
               <div class="panel-head">
@@ -44,7 +42,7 @@ object DiagnosticsReportWebPage {
               </div>
               $reportsHtml
             </section>
-            ${renderFooterActions(showDiscord = true)}
+            ${renderFooterActions(showDiscord = DiagnosticsSupportLinks.discordUrl.isNotBlank())}
             """.trimIndent()
         )
     }
@@ -118,7 +116,7 @@ object DiagnosticsReportWebPage {
 
             $userNoteBlock
             $crashBlock
-            ${renderFooterActions(showDiscord = true)}
+            ${renderFooterActions(showDiscord = DiagnosticsSupportLinks.discordUrl.isNotBlank())}
             """.trimIndent()
         )
     }
@@ -144,7 +142,7 @@ object DiagnosticsReportWebPage {
 
     private fun renderFooterActions(showDiscord: Boolean): String {
         val discordButton = if (showDiscord) {
-            "<a class=\"btn btn-secondary\" href=\"$discordUrl\" target=\"_blank\" rel=\"noreferrer\">Open Discord</a>"
+            "<a class=\"btn btn-secondary\" href=\"${DiagnosticsSupportLinks.discordUrl}\" target=\"_blank\" rel=\"noreferrer\">Open Discord</a>"
         } else {
             "<span class=\"btn btn-disabled\">Discord link not configured</span>"
         }
@@ -156,7 +154,7 @@ object DiagnosticsReportWebPage {
             <p>Use GitHub for fixable bug reports. Discord can be used for quick community follow-up and report discussion.</p>
           </div>
           <div class="button-row">
-            <a class="btn btn-primary" href="$githubIssuesUrl" target="_blank" rel="noreferrer">Open GitHub Issues</a>
+            <a class="btn btn-primary" href="${DiagnosticsSupportLinks.githubIssuesUrl}" target="_blank" rel="noreferrer">Open GitHub Issues</a>
             $discordButton
           </div>
         </section>
