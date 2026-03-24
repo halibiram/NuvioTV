@@ -2,8 +2,10 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -13,8 +15,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,9 +28,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Speed
@@ -45,15 +56,23 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -78,7 +97,7 @@ private fun getConnectionType(context: android.content.Context): ConnectionType 
     return when {
         caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ConnectionType.Ethernet
         caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> ConnectionType.WiFi
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> ConnectionType.WiFi // treat cellular as connected
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> ConnectionType.WiFi
         else -> ConnectionType.Offline
     }
 }
@@ -113,7 +132,6 @@ private fun ConnectionStatusBadge(type: ConnectionType) {
 }
 
 private suspend fun fetchFastComUrls(): List<String> = withContext(Dispatchers.IO) {
-    // 1. Load fast.com page to find the app JS bundle URL
     val html = (URL("https://fast.com").openConnection() as HttpURLConnection).run {
         connectTimeout = 10_000
         readTimeout = 15_000
@@ -123,7 +141,6 @@ private suspend fun fetchFastComUrls(): List<String> = withContext(Dispatchers.I
     val scriptPath = Regex("""<script src="(/app[^"]+\.js)"""").find(html)?.groupValues?.get(1)
         ?: throw Exception("fast.com: script path not found")
 
-    // 2. Extract the API token from the JS bundle
     val js = (URL("https://fast.com$scriptPath").openConnection() as HttpURLConnection).run {
         connectTimeout = 10_000
         readTimeout = 30_000
@@ -133,7 +150,6 @@ private suspend fun fetchFastComUrls(): List<String> = withContext(Dispatchers.I
     val token = Regex("""token:"([^"]+)"""").find(js)?.groupValues?.get(1)
         ?: throw Exception("fast.com: token not found in bundle")
 
-    // 3. Fetch CDN URLs from the speed-test API
     val apiJson = (URL("https://api.fast.com/netflix/speedtest/v2?https=true&token=$token&urlCount=15")
         .openConnection() as HttpURLConnection).run {
         connectTimeout = 5_000
@@ -147,9 +163,11 @@ private suspend fun fetchFastComUrls(): List<String> = withContext(Dispatchers.I
 
 @Composable
 fun NetworkSettingsContent(
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    diagnosticsViewModel: AdvancedDiagnosticsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val diagnosticsUiState by diagnosticsViewModel.uiState.collectAsStateWithLifecycle()
     var connectionType by remember { mutableStateOf(getConnectionType(context)) }
     var testState by remember { mutableStateOf(NetworkTestState.Idle) }
     var latencyMs by remember { mutableStateOf<Long?>(null) }
@@ -167,12 +185,10 @@ fun NetworkSettingsContent(
             errorMessage = null
 
             try {
-                // ── Latency: average 3 round-trips to Cloudflare ─────────────
                 var totalMs = 0L
                 withContext(Dispatchers.IO) {
                     repeat(3) {
-                        val conn = URL("https://cloudflare.com/cdn-cgi/trace")
-                            .openConnection() as HttpURLConnection
+                        val conn = URL("https://cloudflare.com/cdn-cgi/trace").openConnection() as HttpURLConnection
                         conn.requestMethod = "GET"
                         conn.connectTimeout = 5_000
                         conn.readTimeout = 5_000
@@ -185,14 +201,11 @@ fun NetworkSettingsContent(
                 }
                 latencyMs = totalMs / 3
 
-                // ── Download: parallel streams from fast.com for 10 s ────────
                 testState = NetworkTestState.TestingDownload
                 val (totalBytes, elapsed) = withContext(Dispatchers.IO) {
                     val urls = fetchFastComUrls()
                     val deadline = System.currentTimeMillis() + 10_000L
                     val startTime = System.currentTimeMillis()
-
-                    // Open 4 connections per URL → 60 parallel streams total
                     val streams = urls.flatMap { url -> List(4) { url } }
                     coroutineScope {
                         val jobs = streams.map { url ->
@@ -205,25 +218,22 @@ fun NetworkSettingsContent(
                                     conn.readTimeout = 15_000
                                     conn.connect()
                                     conn.inputStream.use { stream ->
-                                        var read: Int = 0
-                                        while (System.currentTimeMillis() < deadline &&
-                                            stream.read(buf).also { read = it } != -1
-                                        ) {
+                                        var read = 0
+                                        while (System.currentTimeMillis() < deadline && stream.read(buf).also { read = it } != -1) {
                                             bytes += read
                                         }
                                     }
                                     conn.disconnect()
-                                } catch (_: Exception) {}
+                                } catch (_: Exception) {
+                                }
                                 bytes
                             }
                         }
-                        val total = jobs.awaitAll().sum()
-                        Pair(total, System.currentTimeMillis() - startTime)
+                        Pair(jobs.awaitAll().sum(), System.currentTimeMillis() - startTime)
                     }
                 }
                 downloadMbps = if (elapsed > 0) (totalBytes * 8.0) / (elapsed * 1000.0) else 0.0
                 testState = NetworkTestState.Done
-
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Unknown error"
                 testState = NetworkTestState.Error
@@ -264,23 +274,63 @@ fun NetworkSettingsContent(
                         }
                     }
                     val isRunning = testState == NetworkTestState.TestingLatency ||
-                            testState == NetworkTestState.TestingDownload
+                        testState == NetworkTestState.TestingDownload
                     SettingsActionRow(
                         title = stringResource(
-                            if (isRunning) R.string.network_speed_test_running
-                            else R.string.network_speed_test_run
+                            if (isRunning) R.string.network_speed_test_running else R.string.network_speed_test_run
                         ),
                         subtitle = stringResource(R.string.network_speed_test_subtitle),
-                        value = if (isRunning) stringResource(
-                            when (testState) {
-                                NetworkTestState.TestingLatency -> R.string.network_testing_latency
-                                else -> R.string.network_testing_download
-                            }
-                        ) else null,
+                        value = if (isRunning) {
+                            stringResource(
+                                when (testState) {
+                                    NetworkTestState.TestingLatency -> R.string.network_testing_latency
+                                    else -> R.string.network_testing_download
+                                }
+                            )
+                        } else {
+                            null
+                        },
                         onClick = { if (!isRunning) runSpeedTest() },
                         modifier = Modifier.focusRequester(runFocusRequester)
                     )
                 }
+
+                item(key = "diagnostics_report_action") {
+                    SettingsActionRow(
+                        title = stringResource(R.string.diagnostics_report_title),
+                        subtitle = stringResource(R.string.diagnostics_report_subtitle),
+                        value = when {
+                            diagnosticsUiState.isGeneratingReport -> stringResource(R.string.diagnostics_report_generating)
+                            diagnosticsUiState.isQrVisible -> stringResource(R.string.diagnostics_report_qr_ready)
+                            else -> null
+                        },
+                        onClick = {
+                            if (!diagnosticsUiState.isGeneratingReport) {
+                                diagnosticsViewModel.generateManualReport()
+                            }
+                        },
+                        enabled = !diagnosticsUiState.isGeneratingReport,
+                        trailingIcon = if (diagnosticsUiState.isGeneratingReport) {
+                            Icons.Default.Refresh
+                        } else {
+                            Icons.Default.QrCode2
+                        }
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = diagnosticsUiState.statusMessage != null || diagnosticsUiState.errorMessage != null,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+                DiagnosticsStatusCard(
+                    statusMessage = diagnosticsUiState.statusMessage,
+                    errorMessage = diagnosticsUiState.errorMessage,
+                    onDismiss = diagnosticsViewModel::clearMessages
+                )
             }
         }
 
@@ -336,13 +386,77 @@ fun NetworkSettingsContent(
                 }
             }
         }
+
+        if (diagnosticsUiState.isQrVisible) {
+            DiagnosticsQrOverlay(
+                qrBitmap = diagnosticsUiState.qrCodeBitmap,
+                serverUrl = diagnosticsUiState.serverUrl,
+                reportId = diagnosticsUiState.activeReportId,
+                onClose = diagnosticsViewModel::dismissQrFlow
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsStatusCard(
+    statusMessage: String?,
+    errorMessage: String?,
+    onDismiss: () -> Unit
+) {
+    val isError = errorMessage != null
+    val message = errorMessage ?: statusMessage ?: return
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isError) NuvioColors.Error.copy(alpha = 0.16f)
+                    else NuvioColors.Secondary.copy(alpha = 0.16f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isError) Icons.Default.BugReport else Icons.Default.Description,
+                contentDescription = null,
+                tint = if (isError) NuvioColors.Error else NuvioColors.Secondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (isError) stringResource(R.string.diagnostics_report_status_error) else stringResource(R.string.diagnostics_report_status_saved),
+                style = MaterialTheme.typography.titleSmall,
+                color = NuvioColors.TextPrimary
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isError) NuvioColors.Error else NuvioColors.TextSecondary
+            )
+        }
+
+        SettingsChoiceChip(
+            label = stringResource(R.string.diagnostics_report_status_dismiss),
+            selected = false,
+            onClick = onDismiss
+        )
     }
 }
 
 @Composable
 private fun NetworkMetricCard(
     modifier: Modifier = Modifier,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     value: String?,
     loading: Boolean
@@ -380,10 +494,137 @@ private fun NetworkMetricCard(
             text = when {
                 loading -> "..."
                 value != null -> value
-                else -> "–"
+                else -> "-"
             },
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
             color = if (value != null && !loading) NuvioColors.TextPrimary else NuvioColors.TextTertiary
         )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DiagnosticsQrOverlay(
+    qrBitmap: Bitmap?,
+    serverUrl: String?,
+    reportId: String?,
+    onClose: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    BackHandler(onBack = onClose)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.86f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(NuvioColors.Secondary.copy(alpha = 0.14f))
+                    .padding(14.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhoneAndroid,
+                    contentDescription = null,
+                    tint = NuvioColors.Secondary,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            Text(
+                text = stringResource(R.string.diagnostics_qr_title),
+                style = MaterialTheme.typography.headlineSmall,
+                color = NuvioColors.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = stringResource(R.string.diagnostics_qr_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioColors.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+
+            if (qrBitmap != null) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color.White)
+                        .padding(16.dp)
+                ) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = stringResource(R.string.diagnostics_qr_content_description),
+                        modifier = Modifier.size(240.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
+
+            serverUrl?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextTertiary,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            reportId?.let {
+                Text(
+                    text = stringResource(R.string.diagnostics_qr_report_id, it),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuvioColors.TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Surface(
+                onClick = onClose,
+                modifier = Modifier.focusRequester(focusRequester),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = NuvioColors.Surface,
+                    focusedContainerColor = NuvioColors.FocusBackground
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(
+                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                        shape = RoundedCornerShape(50)
+                    )
+                ),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = NuvioColors.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.diagnostics_qr_close),
+                        color = NuvioColors.TextPrimary
+                    )
+                }
+            }
+        }
     }
 }

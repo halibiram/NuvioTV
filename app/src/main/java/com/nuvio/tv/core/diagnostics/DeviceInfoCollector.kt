@@ -10,7 +10,7 @@ import javax.inject.Singleton
 
 @Singleton
 class DeviceInfoCollector @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     fun collect(): DeviceInfo {
         val packageManager = context.packageManager
