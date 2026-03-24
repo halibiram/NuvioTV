@@ -8,8 +8,8 @@ import java.util.Locale
 
 object DiagnosticsReportWebPage {
 
-    private const val githubIssuesUrl = "https://github.com/tapframe/NuvioTV/issues/new/choose"
-    private const val discordUrl = ""
+    private const val githubIssuesUrl = "https://github.com/NuvioMedia/NuvioTV/issues"
+    private const val discordUrl = "https://discord.com/channels/1379902184207941732/1458552195904573513"
 
     fun renderLandingPage(reports: List<DiagnosticsStoredReport>): String {
         val reportsHtml = if (reports.isEmpty()) {
@@ -44,7 +44,7 @@ object DiagnosticsReportWebPage {
               </div>
               $reportsHtml
             </section>
-            ${renderFooterActions(showDiscord = false)}
+            ${renderFooterActions(showDiscord = true)}
             """.trimIndent()
         )
     }
@@ -118,7 +118,7 @@ object DiagnosticsReportWebPage {
 
             $userNoteBlock
             $crashBlock
-            ${renderFooterActions(showDiscord = discordUrl.isNotBlank())}
+            ${renderFooterActions(showDiscord = true)}
             """.trimIndent()
         )
     }
@@ -153,7 +153,7 @@ object DiagnosticsReportWebPage {
         <section class="panel stack footer-panel">
           <div class="panel-head">
             <h2>Report this problem</h2>
-            <p>Use GitHub for fixable bug reports. Discord can be used for quick community follow-up when configured.</p>
+            <p>Use GitHub for fixable bug reports. Discord can be used for quick community follow-up and report discussion.</p>
           </div>
           <div class="button-row">
             <a class="btn btn-primary" href="$githubIssuesUrl" target="_blank" rel="noreferrer">Open GitHub Issues</a>
