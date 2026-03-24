@@ -27,6 +27,14 @@ class DiagnosticsReportWebPageTest {
         assertTrue(html.contains("Captured reports on this TV"))
     }
 
+    @Test
+    fun renderLogsText_includesSystemLogcatSection() {
+        val logs = DiagnosticsReportWebPage.renderLogsText(sampleReport())
+
+        assertTrue(logs.contains("## System logcat"))
+        assertTrue(logs.contains("system log line"))
+    }
+
     private fun sampleReport(): DiagnosticsStoredReport {
         val manifest = DiagnosticsManifest(
             reportId = "crash-1",
@@ -59,6 +67,7 @@ class DiagnosticsReportWebPageTest {
             manifest = manifest,
             diagnosticsText = "diagnostics block",
             appLogText = "app log line",
+            systemLogText = "system log line",
             crashText = "stack trace",
             userNoteText = "something went wrong"
         )

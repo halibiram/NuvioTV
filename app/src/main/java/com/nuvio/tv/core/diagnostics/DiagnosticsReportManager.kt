@@ -108,6 +108,7 @@ class DiagnosticsReportManager @Inject constructor(
             manifest = manifest,
             diagnosticsText = readOptionalFile(File(reportDirectory, "diagnostics.txt")).orEmpty(),
             appLogText = readOptionalFile(File(reportDirectory, "app-log.txt")).orEmpty(),
+            systemLogText = readOptionalFile(File(reportDirectory, "system-logcat.txt")).orEmpty(),
             crashText = readOptionalFile(File(reportDirectory, "crash.txt")),
             userNoteText = readOptionalFile(File(reportDirectory, "user-note.txt"))
         )
@@ -157,6 +158,11 @@ class DiagnosticsReportManager @Inject constructor(
 
             appendLine("Diagnostics:")
             appendLine(report.diagnosticsText.trim())
+            if (SystemLogcatCollector.hasMeaningfulOutput(report.systemLogText)) {
+                appendLine()
+                appendLine("System logcat:")
+                appendLine(report.systemLogText.trim())
+            }
         }.trim()
     }
 
@@ -192,6 +198,10 @@ class DiagnosticsReportManager @Inject constructor(
         writeFile(
             File(reportDirectory, "app-log.txt"),
             snapshot.appLogText.ifBlank { "No in-app logs captured yet." }
+        )
+        writeFile(
+            File(reportDirectory, "system-logcat.txt"),
+            snapshot.systemLogText.ifBlank { SystemLogcatCollector.UNAVAILABLE_MESSAGE }
         )
         snapshot.crashText?.let { writeFile(File(reportDirectory, "crash.txt"), it) }
         snapshot.userNoteText?.let { writeFile(File(reportDirectory, "user-note.txt"), it) }

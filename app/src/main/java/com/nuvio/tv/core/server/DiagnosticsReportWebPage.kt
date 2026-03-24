@@ -132,6 +132,9 @@ object DiagnosticsReportWebPage {
             appendLine()
             appendLine("## In-app logs")
             appendLine(report.appLogText.ifBlank { "No in-app logs captured." })
+            appendLine()
+            appendLine("## System logcat")
+            appendLine(report.systemLogText.ifBlank { "System logcat unavailable for this report." })
             report.crashText?.takeIf { it.isNotBlank() }?.let {
                 appendLine()
                 appendLine("## Crash trace")

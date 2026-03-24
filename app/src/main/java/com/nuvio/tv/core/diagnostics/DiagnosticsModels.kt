@@ -92,6 +92,7 @@ data class DiagnosticsSnapshot(
     val manifest: DiagnosticsManifest,
     val diagnosticsText: String,
     val appLogText: String,
+    val systemLogText: String,
     val crashText: String?,
     val userNoteText: String?
 )
@@ -101,6 +102,7 @@ data class DiagnosticsStoredReport(
     val manifest: DiagnosticsManifest,
     val diagnosticsText: String,
     val appLogText: String,
+    val systemLogText: String,
     val crashText: String?,
     val userNoteText: String?
 )

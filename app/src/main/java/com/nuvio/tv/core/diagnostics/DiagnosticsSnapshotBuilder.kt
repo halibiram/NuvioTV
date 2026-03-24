@@ -7,7 +7,8 @@ import javax.inject.Singleton
 @Singleton
 class DiagnosticsSnapshotBuilder @Inject constructor(
     private val deviceInfoCollector: DeviceInfoCollector,
-    private val inAppLogBuffer: InAppLogBuffer
+    private val inAppLogBuffer: InAppLogBuffer,
+    private val systemLogcatCollector: SystemLogcatCollector
 ) {
     fun build(
         reportRef: DiagnosticsReportRef,
@@ -40,11 +41,19 @@ class DiagnosticsSnapshotBuilder @Inject constructor(
         )
 
         val appLogText = inAppLogBuffer.export()
+        val systemLogText = systemLogcatCollector.collect()
 
         return DiagnosticsSnapshot(
             manifest = manifest,
-            diagnosticsText = buildDiagnosticsText(manifest, userNote, appLogText, crashSummary),
+            diagnosticsText = buildDiagnosticsText(
+                manifest = manifest,
+                userNote = userNote,
+                appLogText = appLogText,
+                systemLogText = systemLogText,
+                crashSummary = crashSummary
+            ),
             appLogText = appLogText,
+            systemLogText = systemLogText,
             crashText = crashSummary?.stackTrace,
             userNoteText = userNote?.trim()?.takeIf { it.isNotEmpty() }
         )
@@ -54,6 +63,7 @@ class DiagnosticsSnapshotBuilder @Inject constructor(
         manifest: DiagnosticsManifest,
         userNote: String?,
         appLogText: String,
+        systemLogText: String,
         crashSummary: CrashSummary?
     ): String {
         return buildString {
@@ -89,7 +99,9 @@ class DiagnosticsSnapshotBuilder @Inject constructor(
 
             appendLine()
             appendLine("In-app logs included: ${if (appLogText.isBlank()) "no" else "yes"}")
-            appendLine("System logcat included: no (not yet wired in M1 foundation)")
+            appendLine(
+                "System logcat included: ${if (SystemLogcatCollector.hasMeaningfulOutput(systemLogText)) "yes" else "best-effort unavailable"}"
+            )
         }.trim()
     }
 }

@@ -100,6 +100,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
@@ -1495,18 +1496,16 @@ private fun CrashRecoveryQrOverlay(
             Surface(
                 onClick = onClose,
                 modifier = Modifier.focusRequester(focusRequester),
-                colors = SurfaceDefaults.colors(
+                colors = ClickableSurfaceDefaults.colors(
                     containerColor = NuvioColors.Surface,
-                    contentColor = NuvioColors.TextPrimary,
-                    focusedContainerColor = NuvioColors.FocusBackground,
-                    focusedContentColor = NuvioColors.TextPrimary
+                    focusedContainerColor = NuvioColors.FocusBackground
                 ),
-                shape = SurfaceDefaults.shape(RoundedCornerShape(50.dp)),
-                scale = SurfaceDefaults.scale(focusedScale = 1f),
-                border = SurfaceDefaults.border(
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                border = ClickableSurfaceDefaults.border(
                     focusedBorder = androidx.tv.material3.Border(
                         border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
-                        shape = RoundedCornerShape(50.dp)
+                        shape = RoundedCornerShape(50)
                     )
                 )
             ) {
