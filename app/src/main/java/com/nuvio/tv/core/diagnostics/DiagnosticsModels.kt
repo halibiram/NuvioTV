@@ -95,3 +95,12 @@ data class DiagnosticsSnapshot(
     val crashText: String?,
     val userNoteText: String?
 )
+
+data class DiagnosticsStoredReport(
+    val ref: DiagnosticsReportRef,
+    val manifest: DiagnosticsManifest,
+    val diagnosticsText: String,
+    val appLogText: String,
+    val crashText: String?,
+    val userNoteText: String?
+)

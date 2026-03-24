@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 
 @Singleton
 class DiagnosticsReportManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val moshi: Moshi,
     private val snapshotBuilder: DiagnosticsSnapshotBuilder,
     private val filePruner: DiagnosticsFilePruner,
@@ -75,6 +75,91 @@ class DiagnosticsReportManager @Inject constructor(
         return File(reportsRootDirectory(), reportId)
     }
 
+    fun getRecentReports(limit: Int = MAX_REPORTS): List<DiagnosticsReportRef> {
+        return reportsRootDirectory().listFiles()
+            ?.filter { it.isDirectory }
+            ?.sortedByDescending { it.lastModified() }
+            ?.take(limit)
+            ?.mapNotNull { directory ->
+                loadStoredReport(directory.name)?.ref
+            }
+            .orEmpty()
+    }
+
+    fun loadStoredReport(reportId: String): DiagnosticsStoredReport? {
+        val reportDirectory = getReportDirectory(reportId)
+        if (!reportDirectory.exists() || !reportDirectory.isDirectory) {
+            return null
+        }
+
+        val manifestFile = File(reportDirectory, "manifest.json")
+        val manifest = manifestFile.takeIf { it.exists() }
+            ?.readText(Charsets.UTF_8)
+            ?.let { manifestAdapter.fromJson(it) }
+            ?: return null
+
+        return DiagnosticsStoredReport(
+            ref = DiagnosticsReportRef(
+                id = manifest.reportId,
+                source = manifest.source,
+                createdAtEpochMs = manifest.createdAtEpochMs,
+                directoryName = reportDirectory.name
+            ),
+            manifest = manifest,
+            diagnosticsText = readOptionalFile(File(reportDirectory, "diagnostics.txt")).orEmpty(),
+            appLogText = readOptionalFile(File(reportDirectory, "app-log.txt")).orEmpty(),
+            crashText = readOptionalFile(File(reportDirectory, "crash.txt")),
+            userNoteText = readOptionalFile(File(reportDirectory, "user-note.txt"))
+        )
+    }
+
+    fun buildIssuePayload(reportId: String): String? {
+        val report = loadStoredReport(reportId) ?: return null
+        return buildString {
+            appendLine("Title: replace with a short, specific crash/problem summary")
+            appendLine()
+            appendLine("App version: ${report.manifest.appVersionName} (${report.manifest.appVersionCode})")
+            appendLine("Package: ${report.manifest.packageName}")
+            appendLine("Android: ${report.manifest.androidVersion} / SDK ${report.manifest.sdkInt}")
+            appendLine(
+                "Device: ${report.manifest.manufacturer} ${report.manifest.model} " +
+                    "(brand=${report.manifest.brand}, device=${report.manifest.device})"
+            )
+            appendLine("Install source: ${report.manifest.installerPackageName ?: "unknown"}")
+            appendLine("Report source: ${report.manifest.source.name.lowercase()}")
+            appendLine("Last route: ${report.manifest.lastRoute ?: "unknown"}")
+            appendLine()
+            appendLine("Steps to reproduce:")
+            appendLine("1.")
+            appendLine("2.")
+            appendLine("3.")
+            appendLine()
+            appendLine("Expected behavior:")
+            appendLine()
+            appendLine("Actual behavior:")
+            appendLine()
+            appendLine("Frequency:")
+            appendLine()
+
+            report.userNoteText?.takeIf { it.isNotBlank() }?.let { note ->
+                appendLine("User note:")
+                appendLine(note)
+                appendLine()
+            }
+
+            if (!report.manifest.crashType.isNullOrBlank() || !report.manifest.crashMessage.isNullOrBlank()) {
+                appendLine("Crash summary:")
+                appendLine("- Type: ${report.manifest.crashType ?: "unknown"}")
+                appendLine("- Message: ${report.manifest.crashMessage ?: "(none)"}")
+                appendLine("- Thread: ${report.manifest.crashThreadName ?: "unknown"}")
+                appendLine()
+            }
+
+            appendLine("Diagnostics:")
+            appendLine(report.diagnosticsText.trim())
+        }.trim()
+    }
+
     private fun createReport(
         source: ReportSource,
         userNote: String?,
@@ -127,6 +212,10 @@ class DiagnosticsReportManager @Inject constructor(
     private fun writeFile(file: File, content: String) {
         file.parentFile?.mkdirs()
         file.writeText(content.trimEnd() + "\n", Charsets.UTF_8)
+    }
+
+    private fun readOptionalFile(file: File): String? {
+        return file.takeIf { it.exists() }?.readText(Charsets.UTF_8)?.trim()
     }
 
     private fun buildReportId(source: ReportSource, createdAtEpochMs: Long): String {
