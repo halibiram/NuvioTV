@@ -123,6 +123,7 @@ import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
+import com.nuvio.tv.ui.diagnostics.DiagnosticsQrModal
 import com.nuvio.tv.ui.diagnostics.CrashRecoveryViewModel
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
@@ -524,7 +525,7 @@ class MainActivity : ComponentActivity() {
                     )
 
                     if (crashRecoveryUiState.isVisible) {
-                        CrashRecoveryQrOverlay(
+                        DiagnosticsQrModal(
                             title = crashRecoveryUiState.title,
                             subtitle = crashRecoveryUiState.subtitle,
                             detailMessage = crashRecoveryUiState.detailMessage,
@@ -1388,146 +1389,6 @@ private fun isBlockedContentKey(key: Key): Boolean {
         key == Key.DirectionRight ||
         key == Key.DirectionCenter ||
         key == Key.Enter
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun CrashRecoveryQrOverlay(
-    title: String,
-    subtitle: String,
-    detailMessage: String?,
-    qrBitmap: android.graphics.Bitmap?,
-    serverUrl: String?,
-    reportId: String?,
-    onClose: () -> Unit
-) {
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
-    }
-
-    BackHandler(onBack = onClose)
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.88f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(NuvioColors.Secondary.copy(alpha = 0.14f))
-                    .padding(14.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PhoneAndroid,
-                    contentDescription = null,
-                    tint = NuvioColors.Secondary,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-
-            Text(
-                text = title,
-                style = androidx.tv.material3.MaterialTheme.typography.headlineSmall,
-                color = NuvioColors.TextPrimary,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = subtitle,
-                style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
-                color = NuvioColors.TextSecondary,
-                textAlign = TextAlign.Center
-            )
-
-            detailMessage?.let {
-                Text(
-                    text = it,
-                    style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(0.78f)
-                )
-            }
-
-            if (qrBitmap != null) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(28.dp))
-                        .background(Color.White)
-                        .padding(16.dp)
-                ) {
-                    Image(
-                        bitmap = qrBitmap.asImageBitmap(),
-                        contentDescription = stringResource(R.string.diagnostics_qr_content_description),
-                        modifier = Modifier.size(240.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-            }
-
-            serverUrl?.let {
-                Text(
-                    text = it,
-                    style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextTertiary,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            reportId?.let {
-                Text(
-                    text = stringResource(R.string.diagnostics_qr_report_id, it),
-                    style = androidx.tv.material3.MaterialTheme.typography.labelSmall,
-                    color = NuvioColors.TextSecondary,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            Surface(
-                onClick = onClose,
-                modifier = Modifier.focusRequester(focusRequester),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = NuvioColors.Surface,
-                    focusedContainerColor = NuvioColors.FocusBackground
-                ),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                border = ClickableSurfaceDefaults.border(
-                    focusedBorder = androidx.tv.material3.Border(
-                        border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
-                        shape = RoundedCornerShape(50)
-                    )
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = NuvioColors.TextPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.diagnostics_qr_close),
-                        color = NuvioColors.TextPrimary
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable
