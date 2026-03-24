@@ -191,6 +191,12 @@ class DiagnosticsReportManager @Inject constructor(
             createdAtEpochMs = createdAtEpochMs,
             directoryName = reportId
         )
+
+        inAppLogBuffer.info(
+            TAG,
+            "Preparing diagnostics report id=$reportId source=${source.name} route=${lastRoute ?: "unknown"}"
+        )
+
         val snapshot = snapshotBuilder.build(
             reportRef = reportRef,
             lastRoute = lastRoute,

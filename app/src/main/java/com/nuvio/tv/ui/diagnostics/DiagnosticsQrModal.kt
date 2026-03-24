@@ -8,17 +8,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +42,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioColors
+import java.net.URI
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -95,127 +93,121 @@ private fun DiagnosticsQrModalContent(
             .background(Color.Black.copy(alpha = 0.84f)),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            onClick = {},
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.72f)
-                .padding(horizontal = 36.dp),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant
-            ),
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+                .fillMaxWidth()
+                .padding(horizontal = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(NuvioColors.Secondary.copy(alpha = 0.14f))
+                    .padding(14.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.PhoneAndroid,
+                    contentDescription = null,
+                    tint = NuvioColors.Secondary,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = NuvioColors.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioColors.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+
+            detailMessage?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(0.78f)
+                )
+            }
+
+            if (qrBitmap != null) {
                 Box(
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(NuvioColors.Secondary.copy(alpha = 0.14f))
-                        .padding(14.dp)
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color.White)
+                        .padding(16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PhoneAndroid,
-                        contentDescription = null,
-                        tint = NuvioColors.Secondary,
-                        modifier = Modifier.size(26.dp)
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = stringResource(R.string.diagnostics_qr_content_description),
+                        modifier = Modifier.size(208.dp),
+                        contentScale = ContentScale.Fit
                     )
                 }
+            }
 
+            serverUrl?.let {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = NuvioColors.TextPrimary,
+                    text = formatDisplayAddress(it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextTertiary,
                     textAlign = TextAlign.Center
                 )
+            }
+
+            reportId?.let {
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = stringResource(R.string.diagnostics_qr_report_id, it),
+                    style = MaterialTheme.typography.labelSmall,
                     color = NuvioColors.TextSecondary,
                     textAlign = TextAlign.Center
                 )
+            }
 
-                detailMessage?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuvioColors.TextSecondary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(0.9f)
+            Surface(
+                onClick = onClose,
+                modifier = Modifier.focusRequester(focusRequester),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = NuvioColors.Surface,
+                    focusedContainerColor = NuvioColors.FocusBackground
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(
+                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                        shape = RoundedCornerShape(50)
                     )
-                }
-
-                if (qrBitmap != null) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(28.dp))
-                            .background(Color.White)
-                            .padding(16.dp)
-                    ) {
-                        Image(
-                            bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = stringResource(R.string.diagnostics_qr_content_description),
-                            modifier = Modifier.size(240.dp),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
-                }
-
-                serverUrl?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuvioColors.TextTertiary,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                reportId?.let {
-                    Text(
-                        text = stringResource(R.string.diagnostics_qr_report_id, it),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NuvioColors.TextSecondary,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                Surface(
-                    onClick = onClose,
-                    modifier = Modifier.focusRequester(focusRequester),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = NuvioColors.Surface,
-                        focusedContainerColor = NuvioColors.FocusBackground
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(50)
-                        )
-                    ),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+                ),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = NuvioColors.TextPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.diagnostics_qr_close),
-                            color = NuvioColors.TextPrimary
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.diagnostics_qr_close),
+                        color = NuvioColors.TextPrimary
+                    )
                 }
             }
         }
+    }
+}
+
+private fun formatDisplayAddress(serverUrl: String): String {
+    return runCatching {
+        val uri = URI(serverUrl)
+        val host = uri.host ?: return serverUrl.substringBefore('/', serverUrl)
+        if (uri.port > 0) "$host:${uri.port}" else host
+    }.getOrElse {
+        serverUrl.substringBefore('/').substringBefore('?')
     }
 }
