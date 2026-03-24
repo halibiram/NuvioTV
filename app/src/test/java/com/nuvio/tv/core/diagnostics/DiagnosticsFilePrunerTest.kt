@@ -36,4 +36,21 @@ class DiagnosticsFilePrunerTest {
 
         assertEquals(0, prunedCount)
     }
+
+    @Test
+    fun prune_ignoresRegularFilesWhenApplyingLimit() {
+        val root = createTempDirectory(prefix = "diagnostics-pruner-files-").toFile()
+        root.resolve("note.txt").writeText("ignore me")
+        val keep = root.resolve("keep").apply { mkdirs(); setLastModified(2_000L) }
+        val remove = root.resolve("remove").apply { mkdirs(); setLastModified(1_000L) }
+
+        val prunedCount = subject.prune(root, maxReports = 1)
+
+        assertEquals(1, prunedCount)
+        assertTrue(keep.exists())
+        assertFalse(remove.exists())
+        assertTrue(root.resolve("note.txt").exists())
+
+        root.deleteRecursively()
+    }
 }

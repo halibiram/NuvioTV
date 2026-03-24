@@ -3,6 +3,7 @@ package com.nuvio.tv.core.server
 import com.nuvio.tv.core.diagnostics.DiagnosticsManifest
 import com.nuvio.tv.core.diagnostics.DiagnosticsReportRef
 import com.nuvio.tv.core.diagnostics.DiagnosticsStoredReport
+import com.nuvio.tv.core.diagnostics.DiagnosticsSupportLinks
 import com.nuvio.tv.core.diagnostics.ReportSource
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,6 +15,7 @@ class DiagnosticsReportWebPageTest {
         val html = DiagnosticsReportWebPage.renderReportPage(sampleReport())
 
         assertTrue(html.contains("Open GitHub Issues"))
+        assertTrue(html.contains(DiagnosticsSupportLinks.githubIssuesUrl))
         assertTrue(html.contains("Crash reports require logs or a stack trace"))
         assertTrue(html.contains("Open issue payload"))
         assertTrue(html.contains("Open logs"))
