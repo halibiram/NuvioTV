@@ -11,7 +11,12 @@ object DiagnosticsReportWebPage {
 
     fun renderLandingPage(reports: List<DiagnosticsStoredReport>): String {
         val reportsHtml = if (reports.isEmpty()) {
-            "<div class=\"empty-state\">No diagnostics reports have been captured on this device yet.</div>"
+            """
+            <div class="empty-state stack">
+              <strong>No diagnostics reports have been captured on this device yet.</strong>
+              <p>Open Advanced settings on the TV and use Report a problem to capture one. If you are checking a crash recovery flow, relaunch the app after reconnecting the TV to your local network.</p>
+            </div>
+            """.trimIndent()
         } else {
             reports.joinToString(separator = "") { report ->
                 """
@@ -72,6 +77,23 @@ object DiagnosticsReportWebPage {
             """.trimIndent()
         }.orEmpty()
 
+        val logAvailabilityBlock = if (
+            report.appLogText.isBlank() &&
+            !report.systemLogText.ifBlank { "" }.let { com.nuvio.tv.core.diagnostics.SystemLogcatCollector.hasMeaningfulOutput(it) } &&
+            report.crashText.isNullOrBlank()
+        ) {
+            """
+            <section class="panel stack">
+              <div class="panel-head">
+                <h2>Log availability</h2>
+                <p>This report has metadata but no captured logs yet. If the problem is reproducible, run the flow again right after reproducing it, or use the next-launch crash prompt if the app exits unexpectedly.</p>
+              </div>
+            </section>
+            """.trimIndent()
+        } else {
+            ""
+        }
+
         return wrapHtml(
             title = "NuvioTV report ${report.ref.id}",
             body = """
@@ -123,12 +145,45 @@ object DiagnosticsReportWebPage {
 
             $userNoteBlock
             $crashBlock
+            $logAvailabilityBlock
+            ${renderFooterActions(showDiscord = DiagnosticsSupportLinks.discordUrl.isNotBlank())}
+            """.trimIndent()
+        )
+    }
+
+    fun renderMissingReportPage(reportId: String?): String {
+        val safeReportId = reportId?.takeIf { it.isNotBlank() } ?: "unknown"
+        return wrapHtml(
+            title = "Diagnostics report unavailable",
+            body = """
+            <section class="hero">
+              <span class="eyebrow">Diagnostics unavailable</span>
+              <h1>That report is no longer available</h1>
+              <p>The report may have been pruned, never fully written, or the link may be incomplete.</p>
+            </section>
+            <section class="panel stack">
+              <div class="panel-head">
+                <h2>Next steps</h2>
+                <p>Report ID: ${escapeHtml(safeReportId)}</p>
+              </div>
+              <ul class="rule-list">
+                <li>Go back to the diagnostics landing page and open a newer saved report if one exists.</li>
+                <li>If you still need this issue, generate a fresh report from the TV and scan the new QR code.</li>
+                <li>If this happened after a crash, reproduce it again and reopen the app soon after the crash so recovery data is still available.</li>
+              </ul>
+              <div class="button-row">
+                <a class="btn" href="/">Back to captured reports</a>
+              </div>
+            </section>
             ${renderFooterActions(showDiscord = DiagnosticsSupportLinks.discordUrl.isNotBlank())}
             """.trimIndent()
         )
     }
 
     fun renderLogsText(report: DiagnosticsStoredReport): String {
+        val hasAppLogs = report.appLogText.isNotBlank()
+        val hasSystemLogs = com.nuvio.tv.core.diagnostics.SystemLogcatCollector.hasMeaningfulOutput(report.systemLogText)
+        val hasCrashTrace = !report.crashText.isNullOrBlank()
         return buildString {
             appendLine("# Diagnostics report ${report.ref.id}")
             appendLine("# Source: ${report.ref.source.name.lowercase()}")
@@ -143,6 +198,11 @@ object DiagnosticsReportWebPage {
             appendLine()
             appendLine("## System logcat")
             appendLine(report.systemLogText.ifBlank { "System logcat unavailable for this report." })
+            if (!hasAppLogs && !hasSystemLogs && !hasCrashTrace) {
+                appendLine()
+                appendLine("## Capture guidance")
+                appendLine("No log sections contained captured lines. If the problem is reproducible, create a fresh report right after reproducing it. If the app crashed, prefer the next-launch recovery prompt so the saved crash report is not missed.")
+            }
             report.crashText?.takeIf { it.isNotBlank() }?.let {
                 appendLine()
                 appendLine("## Crash trace")
@@ -341,6 +401,16 @@ object DiagnosticsReportWebPage {
               background: rgba(255,255,255,0.03);
               color: rgba(255,255,255,0.5);
               text-align: center;
+            }
+            .empty-state strong {
+              color: rgba(255,255,255,0.88);
+              display: block;
+              font-size: 16px;
+            }
+            .empty-state p {
+              color: rgba(255,255,255,0.62);
+              font-size: 14px;
+              line-height: 1.6;
             }
             .footer-panel { margin-top: 18px; }
             @media (max-width: 640px) {

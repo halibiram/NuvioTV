@@ -34,6 +34,17 @@ class DiagnosticsSanitizerTest {
     }
 
     @Test
+    fun sanitizeText_summarizesSensitivePublicUrlPathSegments() {
+        val sanitized = DiagnosticsSanitizer.sanitizeText(
+            "stream https://cdn.example.com/live/550e8400-e29b-41d4-a716-446655440000/1234567890123456/master.m3u8?sig=abcdef"
+        )
+
+        assertTrue(sanitized.contains("https://cdn.example.com/live/<redacted-segment>/<redacted-segment>/master.m3u8?<redacted>"))
+        assertFalse(sanitized.contains("550e8400-e29b-41d4-a716-446655440000"))
+        assertFalse(sanitized.contains("1234567890123456"))
+    }
+
+    @Test
     fun sanitizeSingleLine_returnsNullForBlankInput() {
         assertTrue(DiagnosticsSanitizer.sanitizeSingleLine("   ") == null)
     }

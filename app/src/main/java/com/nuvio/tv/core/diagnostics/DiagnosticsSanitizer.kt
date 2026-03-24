@@ -52,7 +52,7 @@ object DiagnosticsSanitizer {
                 append(scheme)
                 append("://")
                 append(authority ?: "<redacted-host>")
-                if (!uri.path.isNullOrBlank()) append(uri.path)
+                if (!uri.path.isNullOrBlank()) append(sanitizePath(uri.path))
                 if (uri.query != null) append("?<redacted>")
                 if (uri.fragment != null) append("#<redacted>")
             }
@@ -102,10 +102,46 @@ object DiagnosticsSanitizer {
         return false
     }
 
+    private fun sanitizePath(path: String): String {
+        val hasLeadingSlash = path.startsWith('/')
+        val hasTrailingSlash = path.endsWith('/') && path.length > 1
+        val sanitizedSegments = path.split('/')
+            .filter { it.isNotEmpty() }
+            .map { segment ->
+                when {
+                    looksSensitivePathSegment(segment) -> "<redacted-segment>"
+                    else -> segment
+                }
+            }
+
+        if (sanitizedSegments.isEmpty()) return if (hasLeadingSlash) "/" else ""
+
+        return buildString {
+            if (hasLeadingSlash) append('/')
+            append(sanitizedSegments.joinToString("/"))
+            if (hasTrailingSlash) append('/')
+        }
+    }
+
+    private fun looksSensitivePathSegment(segment: String): Boolean {
+        val normalized = segment.substringBefore('?').substringBefore('#')
+        if (normalized.isBlank()) return false
+        if (UUID_REGEX.matches(normalized)) return true
+        if (LONG_DIGIT_REGEX.matches(normalized)) return true
+        if (LONG_HEX_REGEX.matches(normalized)) return true
+        if (normalized.length >= 24 && normalized.any(Char::isLetter) && normalized.any(Char::isDigit)) {
+            return true
+        }
+        return false
+    }
+
     private val URL_REGEX = Regex("https?://[^\\s\"'<>]+", RegexOption.IGNORE_CASE)
     private val SECRET_KEY_VALUE_REGEX =
         Regex("(?i)\\b(authorization|token|access[_-]?token|refresh[_-]?token|api[_-]?key|apikey|password|passwd|secret|session(?:id)?|cookie)\\b\\s*[:=]\\s*([^\\s,;]+)")
     private val BEARER_REGEX = Regex("(?i)Bearer\\s+[A-Za-z0-9._\\-+/=]{8,}")
     private val EMAIL_REGEX = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
     private val LONG_TOKEN_REGEX = Regex("(?<![A-Za-z0-9])[A-Za-z0-9_\\-]{24,}(?![A-Za-z0-9])")
+    private val UUID_REGEX = Regex("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+    private val LONG_DIGIT_REGEX = Regex("\\d{6,}")
+    private val LONG_HEX_REGEX = Regex("(?i)[0-9a-f]{16,}")
 }

@@ -14,7 +14,11 @@ class DiagnosticsReportServer(
         return when {
             session.method == Method.GET && path == "/" -> serveLandingPage()
             session.method == Method.GET && path.startsWith("/report/") -> serveReportRoute(path)
-            else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
+            else -> newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                "text/html",
+                DiagnosticsReportWebPage.renderMissingReportPage(null)
+            )
         }
     }
 
@@ -33,7 +37,11 @@ class DiagnosticsReportServer(
 
         val reportId = parts[1]
         val report = reportManager.loadStoredReport(reportId)
-            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Report not found")
+            ?: return newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                "text/html",
+                DiagnosticsReportWebPage.renderMissingReportPage(reportId)
+            )
 
         return when (parts.getOrNull(2)) {
             null -> newFixedLengthResponse(
@@ -51,7 +59,11 @@ class DiagnosticsReportServer(
                 MIME_PLAINTEXT,
                 reportManager.buildIssuePayload(reportId) ?: "Report payload unavailable"
             )
-            else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
+            else -> newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                "text/html",
+                DiagnosticsReportWebPage.renderMissingReportPage(reportId)
+            )
         }
     }
 

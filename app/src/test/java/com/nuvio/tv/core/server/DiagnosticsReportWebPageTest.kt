@@ -30,12 +30,57 @@ class DiagnosticsReportWebPageTest {
     }
 
     @Test
+    fun renderLandingPage_emptyStateIncludesNextStepGuidance() {
+        val html = DiagnosticsReportWebPage.renderLandingPage(emptyList())
+
+        assertTrue(html.contains("No diagnostics reports have been captured on this device yet."))
+        assertTrue(html.contains("Open Advanced settings on the TV and use Report a problem"))
+    }
+
+    @Test
     fun renderLogsText_includesSystemLogcatSection() {
         val logs = DiagnosticsReportWebPage.renderLogsText(sampleReport())
 
         assertTrue(logs.contains("# Privacy:"))
         assertTrue(logs.contains("## System logcat"))
         assertTrue(logs.contains("system log line"))
+    }
+
+    @Test
+    fun renderLogsText_emptyLogsIncludesCaptureGuidance() {
+        val logs = DiagnosticsReportWebPage.renderLogsText(
+            sampleReport().copy(
+                appLogText = "",
+                systemLogText = "",
+                crashText = null
+            )
+        )
+
+        assertTrue(logs.contains("## Capture guidance"))
+        assertTrue(logs.contains("create a fresh report right after reproducing it"))
+    }
+
+    @Test
+    fun renderReportPage_withoutLogsShowsAvailabilityGuidance() {
+        val html = DiagnosticsReportWebPage.renderReportPage(
+            sampleReport().copy(
+                appLogText = "",
+                systemLogText = "",
+                crashText = null
+            )
+        )
+
+        assertTrue(html.contains("Log availability"))
+        assertTrue(html.contains("metadata but no captured logs yet"))
+    }
+
+    @Test
+    fun renderMissingReportPage_includesRecoveryActions() {
+        val html = DiagnosticsReportWebPage.renderMissingReportPage("report-42")
+
+        assertTrue(html.contains("That report is no longer available"))
+        assertTrue(html.contains("Report ID: report-42"))
+        assertTrue(html.contains("Back to captured reports"))
     }
 
     private fun sampleReport(): DiagnosticsStoredReport {
