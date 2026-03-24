@@ -387,6 +387,7 @@ fun NetworkSettingsContent(
                 subtitle = stringResource(R.string.diagnostics_qr_subtitle),
                 qrBitmap = diagnosticsUiState.qrCodeBitmap,
                 serverUrl = diagnosticsUiState.serverUrl,
+                showHostPortOnly = true,
                 reportId = diagnosticsUiState.activeReportId,
                 onClose = diagnosticsViewModel::dismissQrFlow
             )

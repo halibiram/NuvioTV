@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -47,6 +48,7 @@ fun DiagnosticsQrModal(
     detailMessage: String? = null,
     qrBitmap: Bitmap?,
     serverUrl: String?,
+    showHostPortOnly: Boolean = false,
     reportId: String?,
     onClose: () -> Unit
 ) {
@@ -57,6 +59,7 @@ fun DiagnosticsQrModal(
             detailMessage = detailMessage,
             qrBitmap = qrBitmap,
             serverUrl = serverUrl,
+            showHostPortOnly = showHostPortOnly,
             reportId = reportId,
             onClose = onClose
         )
@@ -71,6 +74,7 @@ private fun DiagnosticsQrModalContent(
     detailMessage: String?,
     qrBitmap: Bitmap?,
     serverUrl: String?,
+    showHostPortOnly: Boolean,
     reportId: String?,
     onClose: () -> Unit
 ) {
@@ -139,7 +143,7 @@ private fun DiagnosticsQrModalContent(
 
             serverUrl?.let {
                 Text(
-                    text = formatDisplayAddress(it),
+                    text = if (showHostPortOnly) formatDisplayAddress(it) else it,
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextPrimary,
                     textAlign = TextAlign.Center

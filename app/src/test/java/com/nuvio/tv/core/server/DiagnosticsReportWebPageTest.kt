@@ -53,6 +53,21 @@ class DiagnosticsReportWebPageTest {
     }
 
     @Test
+    fun renderLogsText_largeSystemLogcatShowsPreviewNote() {
+        val largeSystemLog = (1..260).joinToString(separator = "\n") { index ->
+            "03-24 12:00:${index.toString().padStart(2, '0')} D NuvioApplication: line $index"
+        }
+
+        val logs = DiagnosticsReportWebPage.renderLogsText(
+            sampleReport().copy(systemLogText = largeSystemLog)
+        )
+
+        assertTrue(logs.contains("## System logcat note"))
+        assertTrue(logs.contains("Download logs if you need the full saved system logcat"))
+        assertTrue(logs.contains("line 220"))
+    }
+
+    @Test
     fun renderLogsText_emptyLogsIncludesCaptureGuidance() {
         val logs = DiagnosticsReportWebPage.renderLogsText(
             sampleReport().copy(

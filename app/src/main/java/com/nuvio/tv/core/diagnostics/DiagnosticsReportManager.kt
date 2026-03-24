@@ -86,16 +86,24 @@ class DiagnosticsReportManager @Inject constructor(
             .orEmpty()
     }
 
+    fun getRecentReportSummaries(limit: Int = MAX_REPORTS): List<DiagnosticsReportSummary> {
+        return reportsRootDirectory().listFiles()
+            ?.filter { it.isDirectory }
+            ?.sortedByDescending { it.lastModified() }
+            ?.take(limit)
+            ?.mapNotNull { directory ->
+                loadStoredReportSummary(directory)
+            }
+            .orEmpty()
+    }
+
     fun loadStoredReport(reportId: String): DiagnosticsStoredReport? {
         val reportDirectory = getReportDirectory(reportId)
         if (!reportDirectory.exists() || !reportDirectory.isDirectory) {
             return null
         }
 
-        val manifestFile = File(reportDirectory, "manifest.json")
-        val manifest = manifestFile.takeIf { it.exists() }
-            ?.readText(Charsets.UTF_8)
-            ?.let { manifestAdapter.fromJson(it) }
+        val manifest = readManifest(reportDirectory)
             ?: return null
 
         return DiagnosticsStoredReport(
@@ -125,6 +133,10 @@ class DiagnosticsReportManager @Inject constructor(
 
     fun buildIssuePayload(reportId: String): String? {
         val report = loadStoredReport(reportId) ?: return null
+        return buildIssuePayload(report)
+    }
+
+    fun buildIssuePayload(report: DiagnosticsStoredReport): String {
         return buildString {
             appendLine("Title: replace with a short, specific crash/problem summary")
             appendLine("Privacy: obvious secrets, private hosts, and URL query strings are redacted automatically. Review before posting publicly.")
@@ -275,6 +287,36 @@ class DiagnosticsReportManager @Inject constructor(
 
     private fun reportsRootDirectory(): File {
         return File(context.filesDir, REPORTS_ROOT_PATH)
+    }
+
+    private fun loadStoredReportSummary(reportDirectory: File): DiagnosticsReportSummary? {
+        val manifest = readManifest(reportDirectory) ?: return null
+        val sanitizedManifest = manifest.copy(
+            lastRoute = DiagnosticsSanitizer.sanitizeSingleLine(manifest.lastRoute),
+            crashMessage = DiagnosticsSanitizer.sanitizeSingleLine(manifest.crashMessage)
+        )
+
+        return DiagnosticsReportSummary(
+            ref = DiagnosticsReportRef(
+                id = sanitizedManifest.reportId,
+                source = sanitizedManifest.source,
+                createdAtEpochMs = sanitizedManifest.createdAtEpochMs,
+                directoryName = reportDirectory.name
+            ),
+            manifest = sanitizedManifest,
+            userNotePreview = readOptionalFile(File(reportDirectory, "user-note.txt"))
+                ?.let(DiagnosticsSanitizer::sanitizeText)
+                ?.lineSequence()
+                ?.firstOrNull()
+                ?.takeIf { it.isNotBlank() }
+        )
+    }
+
+    private fun readManifest(reportDirectory: File): DiagnosticsManifest? {
+        val manifestFile = File(reportDirectory, "manifest.json")
+        return manifestFile.takeIf { it.exists() }
+            ?.readText(Charsets.UTF_8)
+            ?.let { manifestAdapter.fromJson(it) }
     }
 
     private fun writeFile(file: File, content: String) {

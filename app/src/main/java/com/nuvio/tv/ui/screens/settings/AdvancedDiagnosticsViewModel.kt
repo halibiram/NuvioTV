@@ -92,8 +92,9 @@ class AdvancedDiagnosticsViewModel @Inject constructor(
                 }
 
                 reportServer = server
+                val baseUrl = "http://$ip:${server.listeningPort}"
                 val reportUrl = "http://$ip:${server.listeningPort}/report/${reportRef.id}"
-                val qrBitmap = QrCodeGenerator.generate(reportUrl, 512)
+                val qrBitmap = QrCodeGenerator.generate(baseUrl, 512)
                 inAppLogBuffer.info(TAG, "Manual diagnostics report ready id=${reportRef.id} url=$reportUrl")
 
                 _uiState.update {
@@ -101,7 +102,7 @@ class AdvancedDiagnosticsViewModel @Inject constructor(
                         isGeneratingReport = false,
                         activeReportId = reportRef.id,
                         qrCodeBitmap = qrBitmap,
-                        serverUrl = reportUrl,
+                        serverUrl = baseUrl,
                         statusMessage = context.getString(R.string.diagnostics_report_ready_message),
                         errorMessage = null
                     )

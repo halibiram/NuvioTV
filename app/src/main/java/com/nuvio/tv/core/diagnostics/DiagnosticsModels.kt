@@ -106,3 +106,9 @@ data class DiagnosticsStoredReport(
     val crashText: String?,
     val userNoteText: String?
 )
+
+data class DiagnosticsReportSummary(
+    val ref: DiagnosticsReportRef,
+    val manifest: DiagnosticsManifest,
+    val userNotePreview: String?
+)

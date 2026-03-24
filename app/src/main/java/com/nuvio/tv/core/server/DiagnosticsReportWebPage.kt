@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.server
 
 import com.nuvio.tv.core.diagnostics.DiagnosticsSupportLinks
+import com.nuvio.tv.core.diagnostics.DiagnosticsReportSummary
 import com.nuvio.tv.core.diagnostics.DiagnosticsStoredReport
 import java.time.Instant
 import java.time.ZoneId
@@ -10,6 +11,17 @@ import java.util.Locale
 object DiagnosticsReportWebPage {
 
     fun renderLandingPage(reports: List<DiagnosticsStoredReport>): String {
+        val summaries = reports.map { report ->
+            DiagnosticsReportSummary(
+                ref = report.ref,
+                manifest = report.manifest,
+                userNotePreview = report.userNoteText?.lineSequence()?.firstOrNull()
+            )
+        }
+        return renderLandingPageSummaries(summaries)
+    }
+
+    fun renderLandingPageSummaries(reports: List<DiagnosticsReportSummary>): String {
         val reportsHtml = if (reports.isEmpty()) {
             """
             <div class="empty-state stack">
@@ -189,9 +201,19 @@ object DiagnosticsReportWebPage {
     }
 
     fun renderLogsText(report: DiagnosticsStoredReport): String {
+        return renderLogsText(report, previewSystemLogcat = true)
+    }
+
+    fun renderLogsText(report: DiagnosticsStoredReport, previewSystemLogcat: Boolean): String {
         val hasAppLogs = report.appLogText.isNotBlank()
         val hasSystemLogs = com.nuvio.tv.core.diagnostics.SystemLogcatCollector.hasMeaningfulOutput(report.systemLogText)
         val hasCrashTrace = !report.crashText.isNullOrBlank()
+        val systemLogText = if (previewSystemLogcat) {
+            previewSystemLogcat(report.systemLogText)
+        } else {
+            report.systemLogText
+        }
+        val isSystemLogPreview = previewSystemLogcat && shouldPreviewSystemLogcat(report.systemLogText)
         return buildString {
             appendLine("# Diagnostics report ${report.ref.id}")
             appendLine("# Source: ${report.ref.source.name.lowercase()}")
@@ -205,7 +227,12 @@ object DiagnosticsReportWebPage {
             appendLine(report.appLogText.ifBlank { "No in-app logs captured." })
             appendLine()
             appendLine("## System logcat")
-            appendLine(report.systemLogText.ifBlank { "System logcat unavailable for this report." })
+            appendLine(systemLogText.ifBlank { "System logcat unavailable for this report." })
+            if (isSystemLogPreview) {
+                appendLine()
+                appendLine("## System logcat note")
+                appendLine("Showing a preview here to keep the page responsive. Use Download logs if you need the full saved system logcat.")
+            }
             if (!hasAppLogs && !hasSystemLogs && !hasCrashTrace) {
                 appendLine()
                 appendLine("## Capture guidance")
@@ -539,6 +566,32 @@ object DiagnosticsReportWebPage {
             }
           </style>
           <script>
+            async function writeTextToClipboard(text) {
+              if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return;
+              }
+
+              const textArea = document.createElement('textarea');
+              textArea.value = text;
+              textArea.setAttribute('readonly', '');
+              textArea.style.position = 'fixed';
+              textArea.style.top = '-9999px';
+              textArea.style.left = '-9999px';
+              textArea.style.opacity = '0';
+              document.body.appendChild(textArea);
+              textArea.focus();
+              textArea.select();
+              textArea.setSelectionRange(0, textArea.value.length);
+
+              const copied = document.execCommand('copy');
+              document.body.removeChild(textArea);
+
+              if (!copied) {
+                throw new Error('Clipboard unavailable');
+              }
+            }
+
             async function copyReportPayload(reportId, button) {
               const originalLabel = button && button.textContent ? button.textContent : 'Copy payload';
               try {
@@ -547,7 +600,7 @@ object DiagnosticsReportWebPage {
                   throw new Error('Payload unavailable');
                 }
                 const text = await response.text();
-                await navigator.clipboard.writeText(text);
+                await writeTextToClipboard(text);
                 if (button) button.textContent = 'Copied';
               } catch (error) {
                 if (button) button.textContent = 'Copy failed';
@@ -577,6 +630,14 @@ object DiagnosticsReportWebPage {
         }
     }
 
+    private fun reportSourceLabel(report: DiagnosticsReportSummary): String {
+        return if (report.ref.source.name.equals("CRASH", ignoreCase = true)) {
+            "Previous app crash"
+        } else {
+            "Manual report"
+        }
+    }
+
     private fun reportTitle(report: DiagnosticsStoredReport): String {
         return when {
             !report.manifest.crashType.isNullOrBlank() -> report.manifest.crashType.orEmpty()
@@ -585,7 +646,24 @@ object DiagnosticsReportWebPage {
         }
     }
 
+    private fun reportTitle(report: DiagnosticsReportSummary): String {
+        return when {
+            !report.manifest.crashType.isNullOrBlank() -> report.manifest.crashType.orEmpty()
+            !report.userNotePreview.isNullOrBlank() -> report.userNotePreview.orEmpty()
+            else -> "NuvioTV diagnostics report"
+        }
+    }
+
     private fun reportSubtitle(report: DiagnosticsStoredReport): String {
+        val route = report.manifest.lastRoute ?: "unknown screen"
+        return if (report.ref.source.name.equals("CRASH", ignoreCase = true)) {
+            "Captured after a crash near $route. Review the diagnostics below before opening an issue."
+        } else {
+            "Manual report captured near $route. Include exact steps and expected vs actual behavior."
+        }
+    }
+
+    private fun reportSubtitle(report: DiagnosticsReportSummary): String {
         val route = report.manifest.lastRoute ?: "unknown screen"
         return if (report.ref.source.name.equals("CRASH", ignoreCase = true)) {
             "Captured after a crash near $route. Review the diagnostics below before opening an issue."
@@ -602,12 +680,46 @@ object DiagnosticsReportWebPage {
         }
     }
 
+    private fun reportCardClass(report: DiagnosticsReportSummary): String {
+        return if (report.ref.source.name.equals("CRASH", ignoreCase = true)) {
+            "report-card-crash"
+        } else {
+            "report-card-manual"
+        }
+    }
+
     private fun reportPillClass(report: DiagnosticsStoredReport): String {
         return if (report.ref.source.name.equals("CRASH", ignoreCase = true)) {
             "pill-crash"
         } else {
             "pill-manual"
         }
+    }
+
+    private fun reportPillClass(report: DiagnosticsReportSummary): String {
+        return if (report.ref.source.name.equals("CRASH", ignoreCase = true)) {
+            "pill-crash"
+        } else {
+            "pill-manual"
+        }
+    }
+
+    private fun shouldPreviewSystemLogcat(systemLogText: String): Boolean {
+        if (!com.nuvio.tv.core.diagnostics.SystemLogcatCollector.hasMeaningfulOutput(systemLogText)) {
+            return false
+        }
+
+        return systemLogText.lineSequence().take(SYSTEM_LOGCAT_PREVIEW_LINES + 1).count() > SYSTEM_LOGCAT_PREVIEW_LINES
+    }
+
+    private fun previewSystemLogcat(systemLogText: String): String {
+        if (!shouldPreviewSystemLogcat(systemLogText)) {
+            return systemLogText
+        }
+
+        return systemLogText.lineSequence()
+            .take(SYSTEM_LOGCAT_PREVIEW_LINES)
+            .joinToString(separator = "\n")
     }
 
     private fun formatTimestamp(epochMs: Long): String {
@@ -660,4 +772,6 @@ object DiagnosticsReportWebPage {
             "hero-manual"
         }
     }
+
+    private const val SYSTEM_LOGCAT_PREVIEW_LINES = 220
 }
