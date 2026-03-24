@@ -104,6 +104,7 @@ import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.diagnostics.CrashRecoveryStore
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.data.local.AppOnboardingDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -191,6 +192,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var avatarRepository: AvatarRepository
+
+    @Inject
+    lateinit var crashRecoveryStore: CrashRecoveryStore
 
     private lateinit var jankStats: JankStats
 
@@ -392,6 +396,7 @@ class MainActivity : ComponentActivity() {
 
                     val view = LocalView.current
                     LaunchedEffect(currentRoute) {
+                        crashRecoveryStore.setLastRoute(currentRoute)
                         val holder = PerformanceMetricsState.getHolderForHierarchy(view)
                         if (currentRoute != null) {
                             holder.state?.putState("Screen", currentRoute)

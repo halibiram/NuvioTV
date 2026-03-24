@@ -5,6 +5,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.nuvio.tv.core.diagnostics.InAppLogBuffer
 import com.nuvio.tv.core.sync.StartupSyncService
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
@@ -15,8 +16,14 @@ class NuvioApplication : Application(), ImageLoaderFactory {
 
     @Inject lateinit var startupSyncService: StartupSyncService
 
+    @Inject lateinit var inAppLogBuffer: InAppLogBuffer
+
     override fun onCreate() {
         super.onCreate()
+        inAppLogBuffer.info(
+            "NuvioApplication",
+            "Application onCreate version=${BuildConfig.VERSION_NAME}"
+        )
     }
 
     override fun newImageLoader(): ImageLoader {
