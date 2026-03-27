@@ -48,6 +48,7 @@ import kotlin.math.roundToLong
 import kotlinx.coroutines.delay
 
 private val TRAILER_YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
+private const val TRAILER_YOUTUBE_STARTUP_UNMUTE_DELAY_MS = 200L
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
@@ -394,20 +395,11 @@ private fun YouTubeFallbackTrailerPlayer(
                 object : AbstractYouTubePlayerListener() {
                     override fun onReady(player: YouTubePlayer) {
                         youtubePlayer = player
-                        runCatching {
-                            if (muted) player.mute() else player.unMute()
-                        }
+                        runCatching { player.mute() }
                     }
 
                     override fun onStateChange(player: YouTubePlayer, state: PlayerConstants.PlayerState) {
                         when (state) {
-                            PlayerConstants.PlayerState.PLAYING -> {
-                                if (!hasRenderedFirstFrame) {
-                                    hasRenderedFirstFrame = true
-                                    currentOnFirstFrameRendered()
-                                }
-                            }
-
                             PlayerConstants.PlayerState.ENDED -> currentOnEnded()
                             else -> Unit
                         }
@@ -415,6 +407,10 @@ private fun YouTubeFallbackTrailerPlayer(
 
                     override fun onCurrentSecond(player: YouTubePlayer, second: Float) {
                         currentSecond = second
+                        if (!hasRenderedFirstFrame) {
+                            hasRenderedFirstFrame = true
+                            currentOnFirstFrameRendered()
+                        }
                         currentOnProgressChanged(
                             (second * 1_000f).roundToLong(),
                             (durationSeconds * 1_000f).roundToLong()
@@ -448,7 +444,9 @@ private fun YouTubeFallbackTrailerPlayer(
         if (isPlaying) {
             hasRenderedFirstFrame = false
             currentSecond = 0f
+            durationSeconds = 0f
             currentOnProgressChanged(0L, 0L)
+            runCatching { player.mute() }
             player.loadVideo(youtubeVideoId, 0f)
         } else {
             hasRenderedFirstFrame = false
@@ -460,11 +458,18 @@ private fun YouTubeFallbackTrailerPlayer(
         }
     }
 
-    LaunchedEffect(youtubePlayer, muted) {
+    LaunchedEffect(youtubePlayer, isPlaying, muted, hasRenderedFirstFrame) {
         val player = youtubePlayer ?: return@LaunchedEffect
-        runCatching {
-            if (muted) player.mute() else player.unMute()
+        if (!isPlaying || muted) {
+            runCatching { player.mute() }
+            return@LaunchedEffect
         }
+
+        runCatching { player.mute() }
+        if (!hasRenderedFirstFrame) return@LaunchedEffect
+
+        delay(TRAILER_YOUTUBE_STARTUP_UNMUTE_DELAY_MS)
+        runCatching { player.unMute() }
     }
 
     LaunchedEffect(seekRequestToken, seekDeltaMs, youtubePlayer, currentSecond, durationSeconds) {
