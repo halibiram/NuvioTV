@@ -153,8 +153,10 @@ class TrailerService @Inject constructor(
         title: String? = null,
         year: String? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
+        var youtubeKey: String? = null
         try {
-            val youtubeKey = extractYouTubeVideoId(youtubeUrl)
+            youtubeKey = extractYouTubeVideoId(youtubeUrl)
+            val iframeFallbackSource = youtubeKey?.let(::youtubeIframeFallbackSource)
             if (!youtubeKey.isNullOrBlank()) {
                 youtubeSourceCache[youtubeKey]?.let { cached ->
                     Log.d(TAG, "YouTube session cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
@@ -181,20 +183,31 @@ class TrailerService @Inject constructor(
             val response = trailerApi.getTrailer(youtubeUrl = youtubeUrl, title = title, year = year)
             if (!response.isSuccessful) {
                 Log.w(TAG, "Backend trailer fallback failed (${response.code()}) for ${summarizeUrl(youtubeUrl)}")
-                return@withContext null
+                return@withContext fallbackToYouTubeIframeSource(youtubeKey, iframeFallbackSource, youtubeUrl)
             }
 
-            val fallbackUrl = response.body()?.url ?: return@withContext null
-            if (!isValidUrl(fallbackUrl)) return@withContext null
+            val fallbackUrl = response.body()?.url
+            if (!isValidUrl(fallbackUrl)) {
+                return@withContext fallbackToYouTubeIframeSource(youtubeKey, iframeFallbackSource, youtubeUrl)
+            }
+            val validatedFallbackUrl = fallbackUrl ?: return@withContext fallbackToYouTubeIframeSource(
+                youtubeKey,
+                iframeFallbackSource,
+                youtubeUrl
+            )
 
             if (!youtubeKey.isNullOrBlank()) {
-                youtubeSourceCache[youtubeKey] = TrailerPlaybackSource(videoUrl = fallbackUrl)
+                youtubeSourceCache[youtubeKey] = TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
             }
             Log.d(TAG, "Using backend fallback source for ${summarizeUrl(youtubeUrl)}")
-            TrailerPlaybackSource(videoUrl = fallbackUrl)
+            TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting trailer from YouTube: ${e.message}", e)
-            null
+            fallbackToYouTubeIframeSource(
+                youtubeKey = youtubeKey,
+                fallbackSource = youtubeKey?.let(::youtubeIframeFallbackSource),
+                youtubeUrl = youtubeUrl
+            )
         }
     }
 
@@ -291,6 +304,21 @@ class TrailerService @Inject constructor(
     private fun obfuscateYoutubeKey(key: String): String {
         if (key.length <= 4) return "****"
         return "***${key.takeLast(4)}"
+    }
+
+    private fun youtubeIframeFallbackSource(youtubeKey: String): TrailerPlaybackSource {
+        return TrailerPlaybackSource(videoUrl = "https://www.youtube.com/watch?v=$youtubeKey")
+    }
+
+    private fun fallbackToYouTubeIframeSource(
+        youtubeKey: String?,
+        fallbackSource: TrailerPlaybackSource?,
+        youtubeUrl: String
+    ): TrailerPlaybackSource? {
+        if (youtubeKey.isNullOrBlank() || fallbackSource == null) return null
+        youtubeSourceCache[youtubeKey] = fallbackSource
+        Log.d(TAG, "Using YouTube iframe fallback for ${summarizeUrl(youtubeUrl)}")
+        return fallbackSource
     }
 
     fun clearCache() {

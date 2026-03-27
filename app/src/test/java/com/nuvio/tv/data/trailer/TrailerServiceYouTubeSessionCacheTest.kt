@@ -64,7 +64,7 @@ class TrailerServiceYouTubeSessionCacheTest {
     }
 
     @Test
-    fun `failed youtube extraction is not cached for same key`() = runTest {
+    fun `falls back to youtube iframe source when extraction and backend fallback fail`() = runTest {
         val trailerApi = mockk<TrailerApi>()
         val tmdbApi = mockk<TmdbApi>()
         val extractor = mockk<InAppYouTubeExtractor>()
@@ -83,9 +83,10 @@ class TrailerServiceYouTubeSessionCacheTest {
         val first = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         val second = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
-        assertNull(first)
-        assertEquals("https://cdn.example/video-after-retry.mp4", second?.videoUrl)
-        coVerify(exactly = 2) { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") }
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", first?.videoUrl)
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", second?.videoUrl)
+        assertNull(first?.audioUrl)
+        coVerify(exactly = 1) { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") }
         coVerify(exactly = 1) { trailerApi.getTrailer(any(), any(), any()) }
     }
 }
