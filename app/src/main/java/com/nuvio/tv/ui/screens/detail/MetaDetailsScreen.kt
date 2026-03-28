@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,6 +82,8 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import coil.imageLoader
 import coil.memory.MemoryCache
 import coil.request.ImageRequest
@@ -1735,6 +1738,9 @@ private fun BackdropLayer(
     leftGradient: ImageBitmap,
     bottomGradient: ImageBitmap,
 ) {
+    val backdropPainter = rememberAsyncImagePainter(model = backdropRequest)
+    val backdropPainterState = backdropPainter.state
+    val showHeroUnderlay = heroBackdropRequest != null && backdropPainterState !is AsyncImagePainter.State.Success
     val backdropAlphaState = animateFloatAsState(
         targetValue = if (isTrailerPlaying) 0f else if (isScrolledPastHero) 0.15f else 1f,
         animationSpec = tween(durationMillis = if (isScrolledPastHero) 300 else 800),
@@ -1746,9 +1752,7 @@ private fun BackdropLayer(
         label = "gradientFade"
     )
     Box(modifier = Modifier.fillMaxSize()) {
-        // Show hero backdrop from previous screen as persistent underlay
-        // to prevent flash/re-render during navigation transition
-        if (heroBackdropRequest != null) {
+        if (showHeroUnderlay) {
             AsyncImage(
                 model = heroBackdropRequest,
                 contentDescription = null,
@@ -1758,8 +1762,9 @@ private fun BackdropLayer(
                 alignment = Alignment.TopEnd
             )
         }
-        AsyncImage(
-            model = backdropRequest,
+
+        Image(
+            painter = backdropPainter,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             alpha = backdropAlphaState.value,
