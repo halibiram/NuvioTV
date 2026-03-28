@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -1192,6 +1193,15 @@ private fun PlayerControlsOverlay(
                         contentDescription = if (uiState.isPlaying) "Pause" else "Play",
                         onClick = onPlayPause,
                         focusRequester = playPauseFocusRequester,
+                        upFocusRequester = progressBarFocusRequester,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
+
+                    ControlButton(
+                        icon = Icons.Default.Replay,
+                        contentDescription = stringResource(R.string.player_start_from_beginning),
+                        onClick = { onSeekTo(0L) },
                         upFocusRequester = progressBarFocusRequester,
                         onDownKey = onHideControls,
                         onFocused = onResetHideTimer

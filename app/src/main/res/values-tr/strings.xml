@@ -736,6 +736,7 @@
 
     <!-- PlayerScreen -->
     <string name="player_no_external_player">Harici oynatıcı bulunamadı</string>
+    <string name="player_start_from_beginning">Baştan başlat</string>
 
     <!-- ParentalGuideOverlay -->
     <string name="parental_nudity">Çıplaklık</string>

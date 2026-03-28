@@ -788,6 +788,7 @@
 
     <!-- PlayerScreen -->
     <string name="player_no_external_player">No external player found</string>
+    <string name="player_start_from_beginning">Start from beginning</string>
 
     <!-- ParentalGuideOverlay -->
     <string name="parental_nudity">Nudity</string>
