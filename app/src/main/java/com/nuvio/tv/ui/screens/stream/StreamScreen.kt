@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -193,6 +194,7 @@ fun StreamScreen(
         // Full screen backdrop
         StreamBackdrop(
             backdrop = uiState.backdrop ?: uiState.poster,
+            heroBackdropUrl = uiState.heroBackdropUrl,
             isLoading = uiState.isLoading
         )
 
@@ -299,16 +301,61 @@ fun StreamScreen(
 @Composable
 private fun StreamBackdrop(
     backdrop: String?,
+    heroBackdropUrl: String?,
     isLoading: Boolean
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
     val backgroundColor = NuvioColors.Background
-    val backdropModel = remember(context, backdrop) {
-        backdrop?.let { image ->
+    val screenWidthDp = remember(configuration) { configuration.screenWidthDp.dp }
+    val screenHeightDp = remember(configuration) { configuration.screenHeightDp.dp }
+    val backdropWidthPx = remember(screenWidthDp, density) {
+        with(density) { screenWidthDp.roundToPx() }
+    }
+    val backdropHeightPx = remember(screenHeightDp, density) {
+        with(density) { screenHeightDp.roundToPx() }
+    }
+    val seedBackdropUrl = heroBackdropUrl?.takeIf { it.isNotBlank() }
+    val backdropDataUrl = backdrop?.takeIf { it.isNotBlank() }
+    val shouldReuseSeedBackdrop = seedBackdropUrl != null && seedBackdropUrl == backdropDataUrl
+    val shouldShowSeedBackdropUnderlay = seedBackdropUrl != null && !shouldReuseSeedBackdrop
+    val heroBackdropModel = remember(context, seedBackdropUrl, backdropWidthPx, backdropHeightPx) {
+        seedBackdropUrl?.let { image ->
             ImageRequest.Builder(context)
                 .data(image)
                 .crossfade(false)
+                .size(width = backdropWidthPx, height = backdropHeightPx)
                 .build()
+        }
+    }
+    val backdropModel = remember(
+        context,
+        backdropDataUrl,
+        shouldReuseSeedBackdrop,
+        seedBackdropUrl,
+        heroBackdropModel,
+        backdropWidthPx,
+        backdropHeightPx
+    ) {
+        when {
+            shouldReuseSeedBackdrop && heroBackdropModel != null -> heroBackdropModel
+            backdropDataUrl != null -> {
+                ImageRequest.Builder(context)
+                    .data(backdropDataUrl)
+                    .apply {
+                        if (shouldShowSeedBackdropUnderlay) {
+                            crossfade(400)
+                        } else if (seedBackdropUrl != null) {
+                            crossfade(false)
+                        } else {
+                            crossfade(400)
+                        }
+                    }
+                    .size(width = backdropWidthPx, height = backdropHeightPx)
+                    .build()
+            }
+            else -> null
         }
     }
     val imageAlpha by animateFloatAsState(
@@ -318,7 +365,18 @@ private fun StreamBackdrop(
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Backdrop image
+        if (shouldShowSeedBackdropUnderlay && heroBackdropModel != null) {
+            AsyncImage(
+                model = heroBackdropModel,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = imageAlpha },
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
+            )
+        }
+
         if (backdropModel != null) {
             AsyncImage(
                 model = backdropModel,
@@ -326,7 +384,8 @@ private fun StreamBackdrop(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = imageAlpha },
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
             )
         }
 

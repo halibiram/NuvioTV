@@ -63,6 +63,7 @@ class StreamScreenViewModel @Inject constructor(
     private val title: String = savedStateHandle["title"] ?: ""
     private val poster: String? = savedStateHandle.getOptionalString("poster")
     private val backdrop: String? = savedStateHandle.getOptionalString("backdrop")
+    private val heroBackdropUrl: String? = savedStateHandle.getOptionalString("heroBackdropUrl")
     private val logo: String? = savedStateHandle.getOptionalString("logo")
     private val season: Int? = savedStateHandle.get<String>("season")?.toIntOrNull()
     private val episode: Int? = savedStateHandle.get<String>("episode")?.toIntOrNull()
@@ -84,6 +85,7 @@ class StreamScreenViewModel @Inject constructor(
             title = title,
             poster = poster,
             backdrop = backdrop,
+            heroBackdropUrl = heroBackdropUrl,
             logo = logo,
             season = season,
             episode = episode,

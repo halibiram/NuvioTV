@@ -125,6 +125,7 @@ fun NuvioNavHost(
                 manualSelection: Boolean = false,
                 startFromBeginning: Boolean = false
             ): String {
+                val heroBackdrop = HeroBackdropState.currentHeroBackdropUrl
                 return when (item) {
                     is ContinueWatchingItem.InProgress -> Screen.Stream.createRoute(
                         videoId = item.progress.videoId,
@@ -132,6 +133,7 @@ fun NuvioNavHost(
                         title = item.progress.name,
                         poster = item.progress.poster,
                         backdrop = item.progress.backdrop,
+                        heroBackdropUrl = heroBackdrop,
                         logo = item.progress.logo,
                         season = item.progress.season,
                         episode = item.progress.episode,
@@ -152,6 +154,7 @@ fun NuvioNavHost(
                         title = item.info.name,
                         poster = item.info.poster,
                         backdrop = item.info.backdrop,
+                        heroBackdropUrl = heroBackdrop,
                         logo = item.info.logo,
                         season = item.info.season,
                         episode = item.info.episode,
@@ -334,6 +337,11 @@ fun NuvioNavHost(
                     defaultValue = null
                 },
                 navArgument("backdrop") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("heroBackdropUrl") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
