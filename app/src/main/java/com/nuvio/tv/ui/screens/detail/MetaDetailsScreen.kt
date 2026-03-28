@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -129,6 +130,7 @@ private enum class PeopleSectionTab {
 }
 
 private const val DETAIL_SKELETON_MIN_VISIBLE_MS = 320L
+private const val DETAIL_RETURN_SKELETON_MIN_VISIBLE_MS = 240L
 private const val DETAIL_SKELETON_FADE_IN_MS = 90
 private const val DETAIL_SKELETON_FADE_OUT_MS = 220
 
@@ -198,6 +200,7 @@ fun MetaDetailsScreen(
     viewModel: MetaDetailsViewModel = hiltViewModel(),
     returnFocusSeason: Int? = null,
     returnFocusEpisode: Int? = null,
+    returnSkeletonToken: Int = 0,
     heroBackdropUrl: String? = null,
     onBackPress: () -> Unit,
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
@@ -245,12 +248,21 @@ fun MetaDetailsScreen(
     var minSkeletonDurationElapsed by remember(loadingSessionToken) {
         mutableStateOf(loadingSessionToken == 0)
     }
+    var skeletonMinVisibleMs by rememberSaveable { mutableLongStateOf(DETAIL_SKELETON_MIN_VISIBLE_MS) }
     val selectedComment = uiState.selectedComment
     var commentOverlayDirection by remember { mutableIntStateOf(0) }
     var restorePlayFocusAfterTrailerBackToken by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(uiState.isLoading, heroBackdropUrl) {
         if (uiState.isLoading) {
+            skeletonMinVisibleMs = DETAIL_SKELETON_MIN_VISIBLE_MS
+            loadingSessionToken += 1
+        }
+    }
+
+    LaunchedEffect(returnSkeletonToken) {
+        if (returnSkeletonToken > 0) {
+            skeletonMinVisibleMs = DETAIL_RETURN_SKELETON_MIN_VISIBLE_MS
             loadingSessionToken += 1
         }
     }
@@ -259,7 +271,7 @@ fun MetaDetailsScreen(
         if (loadingSessionToken == 0) {
             minSkeletonDurationElapsed = true
         } else {
-            delay(DETAIL_SKELETON_MIN_VISIBLE_MS)
+            delay(skeletonMinVisibleMs)
             minSkeletonDurationElapsed = true
         }
     }
@@ -611,7 +623,7 @@ fun MetaDetailsScreen(
         }
 
         MetaDetailsLoadingSkeletonOverlay(
-            heroBackdropUrl = heroBackdropUrl,
+            backgroundImageUrl = heroBackdropUrl ?: uiState.meta?.backdropUrl?.takeIf { it.isNotBlank() },
             visible = shouldShowSkeletonOverlay,
             modifier = Modifier.fillMaxSize()
         )
@@ -1764,7 +1776,7 @@ private fun BackdropLayer(
         backdropPainterState is AsyncImagePainter.State.Error -> true
         else -> false
     }
-    LaunchedEffect(isVisualReady) {
+    SideEffect {
         onVisualReadyChanged(isVisualReady)
     }
     val backdropAlphaState = animateFloatAsState(
@@ -2010,51 +2022,70 @@ private fun formatPlaybackTime(milliseconds: Long): String {
 
 @Composable
 private fun MetaDetailsLoadingSkeletonOverlay(
-    heroBackdropUrl: String?,
+    backgroundImageUrl: String?,
     visible: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val alpha by animateFloatAsState(
+    val hasBackgroundImage = !backgroundImageUrl.isNullOrBlank()
+    val contentAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = tween(
             durationMillis = if (visible) DETAIL_SKELETON_FADE_IN_MS else DETAIL_SKELETON_FADE_OUT_MS
         ),
         label = "metaDetailsSkeletonOverlayAlpha"
     )
-    if (!visible && alpha <= 0.01f) return
+    val localContext = LocalContext.current
+    val localDensity = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val backgroundWidthPx = remember(configuration, localDensity) {
+        with(localDensity) { configuration.screenWidthDp.dp.roundToPx() }
+    }
+    val backgroundHeightPx = remember(configuration, localDensity) {
+        with(localDensity) { configuration.screenHeightDp.dp.roundToPx() }
+    }
+    val backgroundRequest = remember(localContext, backgroundImageUrl, backgroundWidthPx, backgroundHeightPx) {
+        backgroundImageUrl?.takeIf { it.isNotBlank() }?.let { imageUrl ->
+            ImageRequest.Builder(localContext)
+                .data(imageUrl)
+                .crossfade(false)
+                .size(width = backgroundWidthPx, height = backgroundHeightPx)
+                .build()
+        }
+    }
+    val backgroundPainter = backgroundRequest?.let { request ->
+        rememberAsyncImagePainter(model = request)
+    }
+    val backgroundReady = backgroundPainter?.state is AsyncImagePainter.State.Success
+    val blackBackgroundAlpha by animateFloatAsState(
+        targetValue = if (visible && (!hasBackgroundImage || !backgroundReady)) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) 0 else DETAIL_SKELETON_FADE_OUT_MS
+        ),
+        label = "metaDetailsSkeletonBlackBackgroundAlpha"
+    )
+    if (!visible && contentAlpha <= 0.01f && blackBackgroundAlpha <= 0.01f) return
 
     Box(
         modifier = modifier
-            .graphicsLayer { this.alpha = alpha }
-            .background(if (heroBackdropUrl.isNullOrBlank()) Color.Black else Color.Transparent)
+            .background(Color.Black.copy(alpha = blackBackgroundAlpha))
     ) {
-        if (!heroBackdropUrl.isNullOrBlank()) {
-            val localContext = LocalContext.current
-            val localDensity = LocalDensity.current
-            val configuration = LocalConfiguration.current
-            val loadingBackdropWidthPx = remember(configuration, localDensity) {
-                with(localDensity) { configuration.screenWidthDp.dp.roundToPx() }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = contentAlpha }
+        ) {
+            if (backgroundPainter != null) {
+                Image(
+                    painter = backgroundPainter,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopEnd
+                )
             }
-            val loadingBackdropHeightPx = remember(configuration, localDensity) {
-                with(localDensity) { configuration.screenHeightDp.dp.roundToPx() }
-            }
-            val loadingBackdropRequest = remember(localContext, heroBackdropUrl, loadingBackdropWidthPx, loadingBackdropHeightPx) {
-                ImageRequest.Builder(localContext)
-                    .data(heroBackdropUrl)
-                    .crossfade(false)
-                    .size(width = loadingBackdropWidthPx, height = loadingBackdropHeightPx)
-                    .build()
-            }
-            AsyncImage(
-                model = loadingBackdropRequest,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopEnd
-            )
-        }
 
-        MetaDetailsSkeleton(backdropAware = !heroBackdropUrl.isNullOrBlank())
+            MetaDetailsSkeleton(backdropAware = hasBackgroundImage)
+        }
     }
 }
 

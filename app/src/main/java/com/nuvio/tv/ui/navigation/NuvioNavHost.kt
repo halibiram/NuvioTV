@@ -70,6 +70,11 @@ fun NuvioNavHost(
             ?.isNotBlank() == true
     }
 
+    fun hasStreamVisualBackdrop(arguments: Bundle?): Boolean {
+        return arguments?.getString("backdrop")?.isNotBlank() == true ||
+            arguments?.getString("heroBackdropUrl")?.isNotBlank() == true
+    }
+
     fun shouldSkipFadeForSharedBackdrop(
         from: String,
         to: String,
@@ -127,12 +132,14 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
+            val shouldSkipPlayerToStreamFade = isPlayerToStream(from, to) &&
+                hasStreamVisualBackdrop(targetState.arguments)
             val shouldSkipFade = shouldSkipFadeForSharedBackdrop(
                 from = from,
                 to = to,
                 heroBackdropPresent = hasSharedHeroBackdrop(initialState.arguments)
             )
-            if (isPlayerToStream(from, to) && isAutoPlayNav) {
+            if ((isPlayerToStream(from, to) && isAutoPlayNav) || shouldSkipPlayerToStreamFade) {
                 EnterTransition.None
             } else if (shouldSkipFade) {
                 EnterTransition.None
@@ -146,12 +153,14 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
+            val shouldSkipPlayerToStreamFade = isPlayerToStream(from, to) &&
+                hasStreamVisualBackdrop(targetState.arguments)
             val shouldSkipFade = shouldSkipFadeForSharedBackdrop(
                 from = from,
                 to = to,
                 heroBackdropPresent = hasSharedHeroBackdrop(initialState.arguments)
             )
-            if (isPlayerToStream(from, to) && isAutoPlayNav) {
+            if ((isPlayerToStream(from, to) && isAutoPlayNav) || shouldSkipPlayerToStreamFade) {
                 ExitTransition.None
             } else if (shouldSkipFade) {
                 ExitTransition.None
@@ -297,11 +306,18 @@ fun NuvioNavHost(
             val returnFocusEpisode by savedState.getStateFlow(
                 "returnFocusEpisode", detailArgs?.getString("returnFocusEpisode")?.toIntOrNull()
             ).collectAsState()
-            val heroBackdropUrl = detailArgs?.getString("heroBackdropUrl")?.takeIf { it.isNotBlank() }
+            val returnSkeletonToken by savedState.getStateFlow(
+                "returnSkeletonToken", 0
+            ).collectAsState()
+            val routeHeroBackdropUrl = detailArgs?.getString("heroBackdropUrl")?.takeIf { it.isNotBlank() }
+            val returnBackdropUrl by savedState.getStateFlow(
+                "returnBackdropUrl", routeHeroBackdropUrl
+            ).collectAsState()
             MetaDetailsScreen(
                 returnFocusSeason = returnFocusSeason,
                 returnFocusEpisode = returnFocusEpisode,
-                heroBackdropUrl = heroBackdropUrl,
+                returnSkeletonToken = returnSkeletonToken,
+                heroBackdropUrl = returnBackdropUrl,
                 onBackPress = {
                     if (returnToHomeOnBack) {
                         val popped = navController.popBackStack(Screen.Home.route, inclusive = false)
@@ -338,7 +354,7 @@ fun NuvioNavHost(
                             title = title,
                             poster = poster,
                             backdrop = backdrop,
-                            heroBackdropUrl = backdrop ?: heroBackdropUrl,
+                            heroBackdropUrl = backdrop ?: returnBackdropUrl,
                             logo = logo,
                             season = season,
                             episode = episode,
@@ -360,7 +376,7 @@ fun NuvioNavHost(
                             title = title,
                             poster = poster,
                             backdrop = backdrop,
-                            heroBackdropUrl = backdrop ?: heroBackdropUrl,
+                            heroBackdropUrl = backdrop ?: returnBackdropUrl,
                             logo = logo,
                             season = season,
                             episode = episode,
@@ -487,6 +503,11 @@ fun NuvioNavHost(
                         if (detailEntry != null) {
                             detailEntry.savedStateHandle["returnFocusSeason"] = season
                             detailEntry.savedStateHandle["returnFocusEpisode"] = episode
+                            detailEntry.savedStateHandle["returnBackdropUrl"] =
+                                streamArgs?.getString("backdrop")?.takeIf { it.isNotBlank() }
+                                    ?: streamArgs?.getString("heroBackdropUrl")?.takeIf { it.isNotBlank() }
+                            val currentReturnSkeletonToken = detailEntry.savedStateHandle.get<Int>("returnSkeletonToken") ?: 0
+                            detailEntry.savedStateHandle["returnSkeletonToken"] = currentReturnSkeletonToken + 1
                             navController.popBackStack(Screen.Detail.route, inclusive = false)
                         } else {
                             navController.navigate(
@@ -496,7 +517,9 @@ fun NuvioNavHost(
                                     addonBaseUrl = null,
                                     returnFocusSeason = season,
                                     returnFocusEpisode = episode,
-                                    returnToHomeOnBack = returnToHomeOnBack
+                                    returnToHomeOnBack = returnToHomeOnBack,
+                                    heroBackdropUrl = streamArgs?.getString("backdrop")?.takeIf { it.isNotBlank() }
+                                        ?: streamArgs?.getString("heroBackdropUrl")?.takeIf { it.isNotBlank() }
                                 )
                             ) {
                                 popUpTo(Screen.Stream.route) { inclusive = true }
@@ -732,6 +755,14 @@ fun NuvioNavHost(
                                 if (detailOnStack) {
                                     navController.previousBackStackEntry?.savedStateHandle?.set("returnFocusSeason", focusSeason)
                                     navController.previousBackStackEntry?.savedStateHandle?.set("returnFocusEpisode", focusEpisode)
+                                    val detailSavedState = navController.previousBackStackEntry?.savedStateHandle
+                                    detailSavedState?.set(
+                                        "returnBackdropUrl",
+                                        args?.getString("backdrop")?.takeIf { it.isNotBlank() }
+                                            ?: args?.getString("poster")?.takeIf { it.isNotBlank() }
+                                    )
+                                    val currentReturnSkeletonToken = detailSavedState?.get<Int>("returnSkeletonToken") ?: 0
+                                    detailSavedState?.set("returnSkeletonToken", currentReturnSkeletonToken + 1)
                                     navController.popBackStack()
                                 } else {
                                     navController.navigate(
@@ -741,7 +772,9 @@ fun NuvioNavHost(
                                             addonBaseUrl = null,
                                             returnFocusSeason = focusSeason,
                                             returnFocusEpisode = focusEpisode,
-                                            returnToHomeOnBack = returnToHomeOnBack
+                                            returnToHomeOnBack = returnToHomeOnBack,
+                                            heroBackdropUrl = args?.getString("backdrop")?.takeIf { it.isNotBlank() }
+                                                ?: args?.getString("poster")?.takeIf { it.isNotBlank() }
                                         )
                                     ) {
                                         popUpTo(Screen.Player.route) { inclusive = true }
@@ -791,6 +824,14 @@ fun NuvioNavHost(
                                     if (detailOnStack) {
                                         navController.previousBackStackEntry?.savedStateHandle?.set("returnFocusSeason", focusSeason)
                                         navController.previousBackStackEntry?.savedStateHandle?.set("returnFocusEpisode", focusEpisode)
+                                        val detailSavedState = navController.previousBackStackEntry?.savedStateHandle
+                                        detailSavedState?.set(
+                                            "returnBackdropUrl",
+                                            args?.getString("backdrop")?.takeIf { it.isNotBlank() }
+                                                ?: args?.getString("poster")?.takeIf { it.isNotBlank() }
+                                        )
+                                        val currentReturnSkeletonToken = detailSavedState?.get<Int>("returnSkeletonToken") ?: 0
+                                        detailSavedState?.set("returnSkeletonToken", currentReturnSkeletonToken + 1)
                                         navController.popBackStack()
                                     } else {
                                         navController.navigate(
@@ -800,7 +841,9 @@ fun NuvioNavHost(
                                                 addonBaseUrl = null,
                                                 returnFocusSeason = focusSeason,
                                                 returnFocusEpisode = focusEpisode,
-                                                returnToHomeOnBack = returnToHomeOnBack
+                                                returnToHomeOnBack = returnToHomeOnBack,
+                                                heroBackdropUrl = args?.getString("backdrop")?.takeIf { it.isNotBlank() }
+                                                    ?: args?.getString("poster")?.takeIf { it.isNotBlank() }
                                             )
                                         ) {
                                             popUpTo(Screen.Player.route) { inclusive = true }
