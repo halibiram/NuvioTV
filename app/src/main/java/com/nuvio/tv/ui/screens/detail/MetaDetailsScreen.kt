@@ -128,6 +128,10 @@ private enum class PeopleSectionTab {
     COLLECTION
 }
 
+private const val DETAIL_SKELETON_MIN_VISIBLE_MS = 320L
+private const val DETAIL_SKELETON_FADE_IN_MS = 90
+private const val DETAIL_SKELETON_FADE_OUT_MS = 220
+
 private data class PeopleTabItem(
     val tab: PeopleSectionTab,
     val label: String,
@@ -234,9 +238,31 @@ fun MetaDetailsScreen(
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsStateWithLifecycle(
         initialValue = false
     )
+    var loadingSessionToken by rememberSaveable { mutableIntStateOf(0) }
+    var contentVisualReady by remember(loadingSessionToken, uiState.meta?.id, heroBackdropUrl) {
+        mutableStateOf(false)
+    }
+    var minSkeletonDurationElapsed by remember(loadingSessionToken) {
+        mutableStateOf(loadingSessionToken == 0)
+    }
     val selectedComment = uiState.selectedComment
     var commentOverlayDirection by remember { mutableIntStateOf(0) }
     var restorePlayFocusAfterTrailerBackToken by rememberSaveable { mutableIntStateOf(0) }
+
+    LaunchedEffect(uiState.isLoading, heroBackdropUrl) {
+        if (uiState.isLoading) {
+            loadingSessionToken += 1
+        }
+    }
+
+    LaunchedEffect(loadingSessionToken) {
+        if (loadingSessionToken == 0) {
+            minSkeletonDurationElapsed = true
+        } else {
+            delay(DETAIL_SKELETON_MIN_VISIBLE_MS)
+            minSkeletonDurationElapsed = true
+        }
+    }
 
     BackHandler {
         if (selectedComment != null) {
@@ -354,36 +380,14 @@ fun MetaDetailsScreen(
                 false
             }
     ) {
+        val shouldShowSkeletonOverlay = uiState.error == null && (
+            uiState.isLoading ||
+                uiState.meta == null ||
+                !minSkeletonDurationElapsed ||
+                !contentVisualReady
+            )
+
         when {
-            uiState.isLoading -> {
-                // Show hero backdrop from ModernHome during loading to prevent visual gap
-                if (!heroBackdropUrl.isNullOrBlank()) {
-                    val localContext = LocalContext.current
-                    val localDensity = LocalDensity.current
-                    val configuration = LocalConfiguration.current
-                    val loadingBackdropWidthPx = remember(configuration, localDensity) {
-                        with(localDensity) { configuration.screenWidthDp.dp.roundToPx() }
-                    }
-                    val loadingBackdropHeightPx = remember(configuration, localDensity) {
-                        with(localDensity) { configuration.screenHeightDp.dp.roundToPx() }
-                    }
-                    val loadingBackdropRequest = remember(localContext, heroBackdropUrl, loadingBackdropWidthPx, loadingBackdropHeightPx) {
-                        ImageRequest.Builder(localContext)
-                            .data(heroBackdropUrl)
-                            .crossfade(false)
-                            .size(width = loadingBackdropWidthPx, height = loadingBackdropHeightPx)
-                            .build()
-                    }
-                    AsyncImage(
-                        model = loadingBackdropRequest,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        alignment = Alignment.TopEnd
-                    )
-                }
-                MetaDetailsSkeleton(backdropAware = !heroBackdropUrl.isNullOrBlank())
-            }
             uiState.error != null -> {
                 ErrorState(
                     message = uiState.error ?: stringResource(R.string.error_generic),
@@ -596,12 +600,21 @@ fun MetaDetailsScreen(
                     },
                     commentOverlayDirection = commentOverlayDirection,
                     restorePlayFocusAfterTrailerBackToken = restorePlayFocusAfterTrailerBackToken,
+                    onBackdropVisualReadyChanged = { ready ->
+                        contentVisualReady = ready
+                    },
                     onNavigateToCastDetail = onNavigateToCastDetail,
                     onNavigateToTmdbEntityBrowse = onNavigateToTmdbEntityBrowse,
                     onNavigateToDetail = onNavigateToDetail
                 )
             }
         }
+
+        MetaDetailsLoadingSkeletonOverlay(
+            heroBackdropUrl = heroBackdropUrl,
+            visible = shouldShowSkeletonOverlay,
+            modifier = Modifier.fillMaxSize()
+        )
 
         if (uiState.showListPicker) {
             LibraryListPickerDialog(
@@ -735,6 +748,7 @@ private fun MetaDetailsContent(
     onDismissCommentOverlay: () -> Unit,
     commentOverlayDirection: Int,
     restorePlayFocusAfterTrailerBackToken: Int,
+    onBackdropVisualReadyChanged: (Boolean) -> Unit = {},
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
     onNavigateToTmdbEntityBrowse: (entityKind: String, entityId: Int, entityName: String, sourceType: String) -> Unit = { _, _, _, _ -> },
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> }
@@ -1312,6 +1326,7 @@ private fun MetaDetailsContent(
             isScrolledPastHero = isScrolledPastHero,
             leftGradient = leftGradientBitmap,
             bottomGradient = bottomGradientBitmap,
+            onVisualReadyChanged = onBackdropVisualReadyChanged,
         )
 
         // Single scrollable column with hero + content
@@ -1737,10 +1752,21 @@ private fun BackdropLayer(
     isScrolledPastHero: Boolean,
     leftGradient: ImageBitmap,
     bottomGradient: ImageBitmap,
+    onVisualReadyChanged: (Boolean) -> Unit = {},
 ) {
     val backdropPainter = rememberAsyncImagePainter(model = backdropRequest)
     val backdropPainterState = backdropPainter.state
     val showHeroUnderlay = heroBackdropRequest != null && backdropPainterState !is AsyncImagePainter.State.Success
+    val isVisualReady = when {
+        isTrailerPlaying -> true
+        showHeroUnderlay -> true
+        backdropPainterState is AsyncImagePainter.State.Success -> true
+        backdropPainterState is AsyncImagePainter.State.Error -> true
+        else -> false
+    }
+    LaunchedEffect(isVisualReady) {
+        onVisualReadyChanged(isVisualReady)
+    }
     val backdropAlphaState = animateFloatAsState(
         targetValue = if (isTrailerPlaying) 0f else if (isScrolledPastHero) 0.15f else 1f,
         animationSpec = tween(durationMillis = if (isScrolledPastHero) 300 else 800),
@@ -1979,6 +2005,56 @@ private fun formatPlaybackTime(milliseconds: Long): String {
         String.format("%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format("%02d:%02d", minutes, seconds)
+    }
+}
+
+@Composable
+private fun MetaDetailsLoadingSkeletonOverlay(
+    heroBackdropUrl: String?,
+    visible: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) DETAIL_SKELETON_FADE_IN_MS else DETAIL_SKELETON_FADE_OUT_MS
+        ),
+        label = "metaDetailsSkeletonOverlayAlpha"
+    )
+    if (!visible && alpha <= 0.01f) return
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { this.alpha = alpha }
+            .background(if (heroBackdropUrl.isNullOrBlank()) Color.Black else Color.Transparent)
+    ) {
+        if (!heroBackdropUrl.isNullOrBlank()) {
+            val localContext = LocalContext.current
+            val localDensity = LocalDensity.current
+            val configuration = LocalConfiguration.current
+            val loadingBackdropWidthPx = remember(configuration, localDensity) {
+                with(localDensity) { configuration.screenWidthDp.dp.roundToPx() }
+            }
+            val loadingBackdropHeightPx = remember(configuration, localDensity) {
+                with(localDensity) { configuration.screenHeightDp.dp.roundToPx() }
+            }
+            val loadingBackdropRequest = remember(localContext, heroBackdropUrl, loadingBackdropWidthPx, loadingBackdropHeightPx) {
+                ImageRequest.Builder(localContext)
+                    .data(heroBackdropUrl)
+                    .crossfade(false)
+                    .size(width = loadingBackdropWidthPx, height = loadingBackdropHeightPx)
+                    .build()
+            }
+            AsyncImage(
+                model = loadingBackdropRequest,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
+            )
+        }
+
+        MetaDetailsSkeleton(backdropAware = !heroBackdropUrl.isNullOrBlank())
     }
 }
 

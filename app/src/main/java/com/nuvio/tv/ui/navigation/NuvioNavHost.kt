@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.os.Bundle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -57,6 +58,28 @@ fun NuvioNavHost(
         return from.startsWith("player/") && to.startsWith("stream/")
     }
 
+    fun participatesInSharedBackdropTransition(route: String): Boolean {
+        return route == Screen.Home.route ||
+            route.startsWith("detail/") ||
+            route.startsWith("stream/")
+    }
+
+    fun hasSharedHeroBackdrop(arguments: Bundle?): Boolean {
+        return arguments
+            ?.getString("heroBackdropUrl")
+            ?.isNotBlank() == true
+    }
+
+    fun shouldSkipFadeForSharedBackdrop(
+        from: String,
+        to: String,
+        heroBackdropPresent: Boolean
+    ): Boolean {
+        return heroBackdropPresent &&
+            participatesInSharedBackdropTransition(from) &&
+            participatesInSharedBackdropTransition(to)
+    }
+
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -66,7 +89,14 @@ fun NuvioNavHost(
             val isAutoPlayNav = targetState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
+            val shouldSkipFade = shouldSkipFadeForSharedBackdrop(
+                from = from,
+                to = to,
+                heroBackdropPresent = hasSharedHeroBackdrop(targetState.arguments)
+            )
             if (isStreamToPlayer(from, to) && isAutoPlayNav) {
+                EnterTransition.None
+            } else if (shouldSkipFade) {
                 EnterTransition.None
             } else {
                 fadeIn(animationSpec = tween(350))
@@ -78,7 +108,14 @@ fun NuvioNavHost(
             val isAutoPlayNav = targetState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
+            val shouldSkipFade = shouldSkipFadeForSharedBackdrop(
+                from = from,
+                to = to,
+                heroBackdropPresent = hasSharedHeroBackdrop(targetState.arguments)
+            )
             if (isStreamToPlayer(from, to) && isAutoPlayNav) {
+                ExitTransition.None
+            } else if (shouldSkipFade) {
                 ExitTransition.None
             } else {
                 fadeOut(animationSpec = tween(350))
@@ -90,7 +127,14 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
+            val shouldSkipFade = shouldSkipFadeForSharedBackdrop(
+                from = from,
+                to = to,
+                heroBackdropPresent = hasSharedHeroBackdrop(initialState.arguments)
+            )
             if (isPlayerToStream(from, to) && isAutoPlayNav) {
+                EnterTransition.None
+            } else if (shouldSkipFade) {
                 EnterTransition.None
             } else {
                 fadeIn(animationSpec = tween(350))
@@ -102,7 +146,14 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
+            val shouldSkipFade = shouldSkipFadeForSharedBackdrop(
+                from = from,
+                to = to,
+                heroBackdropPresent = hasSharedHeroBackdrop(initialState.arguments)
+            )
             if (isPlayerToStream(from, to) && isAutoPlayNav) {
+                ExitTransition.None
+            } else if (shouldSkipFade) {
                 ExitTransition.None
             } else {
                 fadeOut(animationSpec = tween(350))
