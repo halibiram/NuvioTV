@@ -2,6 +2,9 @@ package com.nuvio.tv.data.trailer
 
 import android.util.Log
 import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.data.local.TrailerPlaybackMode
+import com.nuvio.tv.data.local.TrailerSettings
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TrailerApi
@@ -38,11 +41,13 @@ class TrailerServiceYouTubeSessionCacheTest {
         val trailerApi = mockk<TrailerApi>()
         val tmdbApi = mockk<TmdbApi>()
         val extractor = mockk<InAppYouTubeExtractor>()
+        val trailerSettingsDataStore = mockk<TrailerSettingsDataStore>()
         val tmdbSettingsDataStore = mockk<TmdbSettingsDataStore>()
         val tmdbService = mockk<TmdbService>()
+        every { trailerSettingsDataStore.settings } returns flowOf(TrailerSettings(playbackMode = TrailerPlaybackMode.IN_APP))
         every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
         every { tmdbService.apiKey() } returns "tmdb-key"
-        val service = TrailerService(trailerApi, tmdbApi, extractor, tmdbSettingsDataStore, tmdbService)
+        val service = TrailerService(trailerApi, tmdbApi, extractor, trailerSettingsDataStore, tmdbSettingsDataStore, tmdbService)
 
         val cached = TrailerPlaybackSource(
             videoUrl = "https://cdn.example/video.mp4",
@@ -64,29 +69,49 @@ class TrailerServiceYouTubeSessionCacheTest {
     }
 
     @Test
-    fun `falls back to youtube iframe source when extraction and backend fallback fail`() = runTest {
+    fun `returns null when in-app mode cannot resolve youtube trailer`() = runTest {
         val trailerApi = mockk<TrailerApi>()
         val tmdbApi = mockk<TmdbApi>()
         val extractor = mockk<InAppYouTubeExtractor>()
+        val trailerSettingsDataStore = mockk<TrailerSettingsDataStore>()
         val tmdbSettingsDataStore = mockk<TmdbSettingsDataStore>()
         val tmdbService = mockk<TmdbService>()
+        every { trailerSettingsDataStore.settings } returns flowOf(TrailerSettings(playbackMode = TrailerPlaybackMode.IN_APP))
         every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
         every { tmdbService.apiKey() } returns "tmdb-key"
-        val service = TrailerService(trailerApi, tmdbApi, extractor, tmdbSettingsDataStore, tmdbService)
+        val service = TrailerService(trailerApi, tmdbApi, extractor, trailerSettingsDataStore, tmdbSettingsDataStore, tmdbService)
 
-        coEvery { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") } returnsMany listOf(
-            null,
-            TrailerPlaybackSource(videoUrl = "https://cdn.example/video-after-retry.mp4")
-        )
+        coEvery { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") } returns null
         coEvery { trailerApi.getTrailer(any(), any(), any()) } returns Response.success(TrailerResponse(url = null))
 
         val first = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         val second = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
+        assertNull(first)
+        assertNull(second)
+        coVerify(exactly = 2) { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") }
+        coVerify(exactly = 2) { trailerApi.getTrailer(any(), any(), any()) }
+    }
+
+    @Test
+    fun `returns youtube iframe source directly when iframe mode is selected`() = runTest {
+        val trailerApi = mockk<TrailerApi>()
+        val tmdbApi = mockk<TmdbApi>()
+        val extractor = mockk<InAppYouTubeExtractor>()
+        val trailerSettingsDataStore = mockk<TrailerSettingsDataStore>()
+        val tmdbSettingsDataStore = mockk<TmdbSettingsDataStore>()
+        val tmdbService = mockk<TmdbService>()
+        every { trailerSettingsDataStore.settings } returns flowOf(TrailerSettings(playbackMode = TrailerPlaybackMode.YOUTUBE_IFRAME))
+        every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
+        every { tmdbService.apiKey() } returns "tmdb-key"
+        val service = TrailerService(trailerApi, tmdbApi, extractor, trailerSettingsDataStore, tmdbSettingsDataStore, tmdbService)
+
+        val first = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        val second = service.getTrailerPlaybackSourceFromYouTubeUrl("https://youtu.be/dQw4w9WgXcQ")
+
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", first?.videoUrl)
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", second?.videoUrl)
-        assertNull(first?.audioUrl)
-        coVerify(exactly = 1) { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") }
-        coVerify(exactly = 1) { trailerApi.getTrailer(any(), any(), any()) }
+        coVerify(exactly = 0) { extractor.extractPlaybackSource(any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
     }
 }

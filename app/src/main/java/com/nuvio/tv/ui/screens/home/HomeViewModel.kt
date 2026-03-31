@@ -12,6 +12,7 @@ import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.trailer.TrailerService
@@ -33,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -52,6 +54,7 @@ class HomeViewModel @Inject constructor(
     internal val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     internal val playerSettingsDataStore: PlayerSettingsDataStore,
     internal val tmdbSettingsDataStore: TmdbSettingsDataStore,
+    internal val trailerSettingsDataStore: TrailerSettingsDataStore,
     internal val traktSettingsDataStore: TraktSettingsDataStore,
     internal val authSessionNoticeDataStore: AuthSessionNoticeDataStore,
     internal val tmdbService: TmdbService,
@@ -156,6 +159,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         observeLayoutPreferences()
+        observeTrailerPlaybackMode()
         observeExternalMetaPrefetchPreference()
         loadHomeCatalogOrderPreference()
         loadDisabledHomeCatalogPreference()
@@ -186,6 +190,30 @@ class HomeViewModel @Inject constructor(
     private fun observeLayoutPreferences() = observeLayoutPreferencesPipeline()
 
     private fun observeExternalMetaPrefetchPreference() = observeExternalMetaPrefetchPreferencePipeline()
+
+    private fun observeTrailerPlaybackMode() {
+        viewModelScope.launch {
+            trailerSettingsDataStore.settings
+                .map { it.playbackMode }
+                .distinctUntilChanged()
+                .collect { _ ->
+                    val activeItemId = activeTrailerPreviewItemId
+                    trailerPreviewLoadingIds.clear()
+                    trailerPreviewNegativeCache.clear()
+                    trailerPreviewUrlsState.clear()
+                    trailerPreviewAudioUrlsState.clear()
+                    trailerPreviewRequestVersion++
+                    val currentItem = activeItemId?.let { itemId ->
+                        catalogsMap.values.firstNotNullOfOrNull { row ->
+                            row.items.firstOrNull { it.id == itemId }
+                        }
+                    }
+                    if (currentItem != null) {
+                        requestTrailerPreviewPipeline(currentItem)
+                    }
+                }
+        }
+    }
 
     private fun observeBlurUnwatchedEpisodes() {
         viewModelScope.launch {

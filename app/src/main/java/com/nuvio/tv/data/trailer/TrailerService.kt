@@ -2,6 +2,8 @@ package com.nuvio.tv.data.trailer
 
 import android.util.Log
 import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.data.local.TrailerPlaybackMode
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbVideoResult
@@ -24,6 +26,7 @@ class TrailerService @Inject constructor(
     private val trailerApi: TrailerApi,
     private val tmdbApi: TmdbApi,
     private val inAppYouTubeExtractor: InAppYouTubeExtractor,
+    private val trailerSettingsDataStore: TrailerSettingsDataStore,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService
 ) {
@@ -43,7 +46,8 @@ class TrailerService @Inject constructor(
         tmdbId: String? = null,
         type: String? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
-        val cacheKey = "$title|$year|$tmdbId|$type"
+        val playbackMode = getPreferredTrailerPlaybackMode()
+        val cacheKey = "$playbackMode|$title|$year|$tmdbId|$type"
 
         cache[cacheKey]?.let { cached ->
             val hit = cached !== NEGATIVE_CACHE
@@ -59,7 +63,8 @@ class TrailerService @Inject constructor(
                 tmdbId = tmdbId,
                 type = type,
                 title = title,
-                year = year
+                year = year,
+                playbackMode = playbackMode
             )
             if (tmdbSource != null) {
                 cache[cacheKey] = tmdbSource
@@ -98,8 +103,10 @@ class TrailerService @Inject constructor(
         tmdbId: String?,
         type: String?,
         title: String? = null,
-        year: String? = null
+        year: String? = null,
+        playbackMode: TrailerPlaybackMode? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
+        val resolvedPlaybackMode = playbackMode ?: getPreferredTrailerPlaybackMode()
         val numericTmdbId = tmdbId?.toIntOrNull() ?: return@withContext null
         val mediaType = normalizeTmdbMediaType(type)
         val tmdbLanguage = getPreferredTmdbTrailerLanguage()
@@ -130,7 +137,8 @@ class TrailerService @Inject constructor(
             val source = getTrailerPlaybackSourceFromYouTubeUrl(
                 youtubeUrl = youtubeUrl,
                 title = title,
-                year = year
+                year = year,
+                playbackMode = resolvedPlaybackMode
             )
             if (source != null) {
                 return@withContext source
@@ -146,29 +154,41 @@ class TrailerService @Inject constructor(
     }
 
     /**
-     * Resolve a YouTube trailer URL to a playback source (prefers in-app extraction).
+     * Resolve a YouTube trailer URL to a playback source using the configured playback mode.
      */
     suspend fun getTrailerPlaybackSourceFromYouTubeUrl(
         youtubeUrl: String,
         title: String? = null,
-        year: String? = null
+        year: String? = null,
+        playbackMode: TrailerPlaybackMode? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
+        val resolvedPlaybackMode = playbackMode ?: getPreferredTrailerPlaybackMode()
         var youtubeKey: String? = null
         try {
             youtubeKey = extractYouTubeVideoId(youtubeUrl)
-            val iframeFallbackSource = youtubeKey?.let(::youtubeIframeFallbackSource)
-            if (!youtubeKey.isNullOrBlank()) {
-                youtubeSourceCache[youtubeKey]?.let { cached ->
-                    Log.d(TAG, "YouTube session cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
+            val resolvedYoutubeKey = youtubeKey?.takeIf { it.isNotBlank() }
+            if (resolvedYoutubeKey != null) {
+                youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)]?.let { cached ->
+                    Log.d(
+                        TAG,
+                        "YouTube session cache hit for mode=$resolvedPlaybackMode key=${obfuscateYoutubeKey(resolvedYoutubeKey)}"
+                    )
                     return@withContext cached
                 }
+            }
+
+            if (resolvedPlaybackMode == TrailerPlaybackMode.YOUTUBE_IFRAME) {
+                val iframeSource = resolvedYoutubeKey?.let(::youtubeIframeSource) ?: return@withContext null
+                youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)] = iframeSource
+                Log.d(TAG, "Using configured YouTube iframe source for ${summarizeUrl(youtubeUrl)}")
+                return@withContext iframeSource
             }
 
             Log.d(TAG, "Attempting in-app YouTube extraction for ${summarizeUrl(youtubeUrl)}")
             val localSource = inAppYouTubeExtractor.extractPlaybackSource(youtubeUrl)
             if (localSource != null) {
-                if (!youtubeKey.isNullOrBlank()) {
-                    youtubeSourceCache[youtubeKey] = localSource
+                if (resolvedYoutubeKey != null) {
+                    youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)] = localSource
                 }
                 Log.d(
                     TAG,
@@ -183,31 +203,28 @@ class TrailerService @Inject constructor(
             val response = trailerApi.getTrailer(youtubeUrl = youtubeUrl, title = title, year = year)
             if (!response.isSuccessful) {
                 Log.w(TAG, "Backend trailer fallback failed (${response.code()}) for ${summarizeUrl(youtubeUrl)}")
-                return@withContext fallbackToYouTubeIframeSource(youtubeKey, iframeFallbackSource, youtubeUrl)
+                return@withContext null
             }
 
             val fallbackUrl = response.body()?.url
             if (!isValidUrl(fallbackUrl)) {
-                return@withContext fallbackToYouTubeIframeSource(youtubeKey, iframeFallbackSource, youtubeUrl)
+                return@withContext null
             }
-            val validatedFallbackUrl = fallbackUrl ?: return@withContext fallbackToYouTubeIframeSource(
-                youtubeKey,
-                iframeFallbackSource,
-                youtubeUrl
-            )
+            val validatedFallbackUrl = fallbackUrl ?: return@withContext null
+            if (extractYouTubeVideoId(validatedFallbackUrl) != null) {
+                Log.w(TAG, "Backend trailer resolver returned YouTube page URL; ignoring for in-app mode")
+                return@withContext null
+            }
 
-            if (!youtubeKey.isNullOrBlank()) {
-                youtubeSourceCache[youtubeKey] = TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
+            if (resolvedYoutubeKey != null) {
+                youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)] =
+                    TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
             }
             Log.d(TAG, "Using backend fallback source for ${summarizeUrl(youtubeUrl)}")
             TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting trailer from YouTube: ${e.message}", e)
-            fallbackToYouTubeIframeSource(
-                youtubeKey = youtubeKey,
-                fallbackSource = youtubeKey?.let(::youtubeIframeFallbackSource),
-                youtubeUrl = youtubeUrl
-            )
+            null
         }
     }
 
@@ -217,12 +234,14 @@ class TrailerService @Inject constructor(
     suspend fun getTrailerFromYouTubeUrl(
         youtubeUrl: String,
         title: String? = null,
-        year: String? = null
+        year: String? = null,
+        playbackMode: TrailerPlaybackMode? = null
     ): String? {
         return getTrailerPlaybackSourceFromYouTubeUrl(
             youtubeUrl = youtubeUrl,
             title = title,
-            year = year
+            year = year,
+            playbackMode = playbackMode
         )?.videoUrl
     }
 
@@ -287,6 +306,11 @@ class TrailerService @Inject constructor(
         return normalizeTmdbTrailerLanguage(rawLanguage)
     }
 
+    private suspend fun getPreferredTrailerPlaybackMode(): TrailerPlaybackMode {
+        return runCatching { trailerSettingsDataStore.settings.first().playbackMode }
+            .getOrDefault(TrailerPlaybackMode.IN_APP)
+    }
+
     private fun isValidUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         return url.startsWith("http://") || url.startsWith("https://")
@@ -306,19 +330,12 @@ class TrailerService @Inject constructor(
         return "***${key.takeLast(4)}"
     }
 
-    private fun youtubeIframeFallbackSource(youtubeKey: String): TrailerPlaybackSource {
+    private fun youtubeIframeSource(youtubeKey: String): TrailerPlaybackSource {
         return TrailerPlaybackSource(videoUrl = "https://www.youtube.com/watch?v=$youtubeKey")
     }
 
-    private fun fallbackToYouTubeIframeSource(
-        youtubeKey: String?,
-        fallbackSource: TrailerPlaybackSource?,
-        youtubeUrl: String
-    ): TrailerPlaybackSource? {
-        if (youtubeKey.isNullOrBlank() || fallbackSource == null) return null
-        youtubeSourceCache[youtubeKey] = fallbackSource
-        Log.d(TAG, "Using YouTube iframe fallback for ${summarizeUrl(youtubeUrl)}")
-        return fallbackSource
+    private fun youtubeCacheKey(playbackMode: TrailerPlaybackMode, youtubeKey: String): String {
+        return "$playbackMode|$youtubeKey"
     }
 
     fun clearCache() {

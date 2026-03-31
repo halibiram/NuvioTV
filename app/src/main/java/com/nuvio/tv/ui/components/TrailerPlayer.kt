@@ -70,11 +70,11 @@ fun TrailerPlayer(
     exit: ExitTransition = fadeOut(animationSpec = tween(500))
 ) {
     val youtubeVideoId = remember(trailerUrl, trailerAudioUrl) {
-        if (trailerAudioUrl.isNullOrBlank()) trailerUrl?.let(::extractYouTubeVideoIdForFallback) else null
+        if (trailerAudioUrl.isNullOrBlank()) trailerUrl?.let(::extractYouTubeVideoIdForIframe) else null
     }
 
     if (youtubeVideoId != null) {
-        YouTubeFallbackTrailerPlayer(
+        YouTubeIframeTrailerPlayer(
             youtubeVideoId = youtubeVideoId,
             isPlaying = isPlaying,
             onEnded = onEnded,
@@ -336,7 +336,7 @@ private fun ExoTrailerPlayer(
 }
 
 @Composable
-private fun YouTubeFallbackTrailerPlayer(
+private fun YouTubeIframeTrailerPlayer(
     youtubeVideoId: String,
     isPlaying: Boolean,
     onEnded: () -> Unit,
@@ -505,7 +505,7 @@ private fun YouTubeFallbackTrailerPlayer(
     }
 }
 
-private fun extractYouTubeVideoIdForFallback(input: String): String? {
+private fun extractYouTubeVideoIdForIframe(input: String): String? {
     val trimmed = input.trim()
     if (TRAILER_YOUTUBE_VIDEO_ID_REGEX.matches(trimmed)) return trimmed
 

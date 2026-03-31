@@ -12,6 +12,7 @@ import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.data.local.AddonSubtitleStartupMode
 import com.nuvio.tv.data.local.SubtitleOrganizationMode
+import com.nuvio.tv.data.local.TrailerPlaybackMode
 import com.nuvio.tv.data.local.TrailerSettings
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -63,6 +64,10 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setTrailerDelaySeconds(seconds: Int) {
         trailerSettingsDataStore.setDelaySeconds(seconds)
+    }
+
+    suspend fun setTrailerPlaybackMode(mode: TrailerPlaybackMode) {
+        trailerSettingsDataStore.setPlaybackMode(mode)
     }
 
     // Audio settings

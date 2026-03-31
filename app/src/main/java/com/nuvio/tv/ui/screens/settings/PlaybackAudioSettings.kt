@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
@@ -53,6 +55,7 @@ import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
 import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.PlayerSettings
+import com.nuvio.tv.data.local.TrailerPlaybackMode
 import com.nuvio.tv.data.local.TrailerSettings
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -65,6 +68,7 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
     onShowDecoderPriorityDialog: () -> Unit,
     onSetTrailerEnabled: (Boolean) -> Unit,
     onSetTrailerDelaySeconds: (Int) -> Unit,
+    onSetTrailerPlaybackMode: (TrailerPlaybackMode) -> Unit,
     onSetSkipSilence: (Boolean) -> Unit,
     onSetTunnelingEnabled: (Boolean) -> Unit,
     onSetMapDV7ToHevc: (Boolean) -> Unit,
@@ -103,6 +107,15 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
                 maxValue = 15,
                 step = 1,
                 onValueChange = onSetTrailerDelaySeconds,
+                onFocused = onItemFocused,
+                enabled = enabled
+            )
+        }
+
+        item(key = "audio_trailer_source") {
+            TrailerPlaybackModeSettingsItem(
+                selectedMode = trailerSettings.playbackMode,
+                onModeSelected = onSetTrailerPlaybackMode,
                 onFocused = onItemFocused,
                 enabled = enabled
             )
@@ -233,6 +246,59 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             onFocused = onItemFocused,
             enabled = enabled
         )
+    }
+}
+
+@Composable
+private fun TrailerPlaybackModeSettingsItem(
+    selectedMode: TrailerPlaybackMode,
+    onModeSelected: (TrailerPlaybackMode) -> Unit,
+    onFocused: () -> Unit,
+    enabled: Boolean
+) {
+    val contentAlpha = if (enabled) 1f else 0.4f
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.audio_trailer_source),
+            style = MaterialTheme.typography.bodyLarge,
+            color = NuvioColors.TextPrimary.copy(alpha = contentAlpha)
+        )
+        Text(
+            text = stringResource(R.string.audio_trailer_source_sub),
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextSecondary.copy(alpha = contentAlpha)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item(key = "trailer_mode_in_app") {
+                SettingsChoiceChip(
+                    label = stringResource(R.string.audio_trailer_source_in_app),
+                    selected = selectedMode == TrailerPlaybackMode.IN_APP,
+                    onClick = {
+                        if (enabled) onModeSelected(TrailerPlaybackMode.IN_APP)
+                    },
+                    onFocused = onFocused
+                )
+            }
+            item(key = "trailer_mode_iframe") {
+                SettingsChoiceChip(
+                    label = stringResource(R.string.audio_trailer_source_iframe),
+                    selected = selectedMode == TrailerPlaybackMode.YOUTUBE_IFRAME,
+                    onClick = {
+                        if (enabled) onModeSelected(TrailerPlaybackMode.YOUTUBE_IFRAME)
+                    },
+                    onFocused = onFocused
+                )
+            }
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package com.nuvio.tv.data.local
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -24,12 +25,18 @@ class TrailerSettingsDataStore @Inject constructor(
 
     private val enabledKey = booleanPreferencesKey("trailer_enabled")
     private val delaySecondsKey = intPreferencesKey("trailer_delay_seconds")
+    private val playbackModeKey = stringPreferencesKey("trailer_playback_mode")
 
     val settings: Flow<TrailerSettings> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             TrailerSettings(
                 enabled = prefs[enabledKey] ?: true,
-                delaySeconds = prefs[delaySecondsKey] ?: 7
+                delaySeconds = prefs[delaySecondsKey] ?: 7,
+                playbackMode = prefs[playbackModeKey]
+                    ?.let { stored ->
+                        runCatching { TrailerPlaybackMode.valueOf(stored) }.getOrNull()
+                    }
+                    ?: TrailerPlaybackMode.IN_APP
             )
         }
     }
@@ -41,9 +48,14 @@ class TrailerSettingsDataStore @Inject constructor(
     suspend fun setDelaySeconds(seconds: Int) {
         store().edit { it[delaySecondsKey] = seconds }
     }
+
+    suspend fun setPlaybackMode(mode: TrailerPlaybackMode) {
+        store().edit { it[playbackModeKey] = mode.name }
+    }
 }
 
 data class TrailerSettings(
     val enabled: Boolean = true,
-    val delaySeconds: Int = 7
+    val delaySeconds: Int = 7,
+    val playbackMode: TrailerPlaybackMode = TrailerPlaybackMode.IN_APP
 )

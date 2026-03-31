@@ -10,6 +10,7 @@ import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
+import com.nuvio.tv.data.local.TrailerPlaybackMode
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
@@ -104,6 +105,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private var trailerDelayMs = 7000L
     private var trailerAutoplayEnabled = false
+    private var trailerPlaybackMode = TrailerPlaybackMode.IN_APP
     private var trailerHasPlayed = false
 
     private var isPlayButtonFocused = false
@@ -251,10 +253,15 @@ class MetaDetailsViewModel @Inject constructor(
     private fun observeTrailerAutoplaySettings() {
         viewModelScope.launch {
             trailerSettingsDataStore.settings.collectLatest { settings ->
+                val playbackModeChanged = trailerPlaybackMode != settings.playbackMode
                 trailerAutoplayEnabled = settings.enabled
                 trailerDelayMs = settings.delaySeconds * 1000L
+                trailerPlaybackMode = settings.playbackMode
                 if (!settings.enabled) {
                     idleTimerJob?.cancel()
+                }
+                if (playbackModeChanged && _uiState.value.meta != null) {
+                    fetchTrailerUrl()
                 }
             }
         }

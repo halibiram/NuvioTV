@@ -312,6 +312,10 @@
     <string name="audio_autoplay_trailers">Auto-play Trailers</string>
     <string name="audio_autoplay_trailers_sub">Automatically play trailers on the detail screen after a period of inactivity</string>
     <string name="audio_trailer_delay">Trailer Delay</string>
+    <string name="audio_trailer_source">Trailer Source</string>
+    <string name="audio_trailer_source_sub">Choose whether trailers use direct in-app extraction or the YouTube iframe player.</string>
+    <string name="audio_trailer_source_in_app">In-App</string>
+    <string name="audio_trailer_source_iframe">YouTube IFrame</string>
     <string name="audio_section">Audio</string>
     <string name="audio_lang_default">Default (media file)</string>
     <string name="audio_lang_device">Device language</string>
