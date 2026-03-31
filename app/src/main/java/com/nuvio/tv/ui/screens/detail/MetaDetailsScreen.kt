@@ -185,6 +185,20 @@ private class TrailerSeekOverlayState {
     var durationMs by mutableLongStateOf(0L)
 }
 
+private fun isMetaDetailsIframeTrailerSource(trailerUrl: String?, trailerAudioUrl: String?): Boolean {
+    if (trailerUrl.isNullOrBlank() || !trailerAudioUrl.isNullOrBlank()) return false
+    return trailerUrl.contains("youtube.com/watch", ignoreCase = true) ||
+        trailerUrl.contains("youtu.be/", ignoreCase = true)
+}
+
+@Stable
+private class TrailerSeekSessionState {
+    var actualPositionMs by mutableLongStateOf(0L)
+    var actualDurationMs by mutableLongStateOf(0L)
+    var previewPositionMs by mutableLongStateOf(-1L)
+    var committedTargetMs by mutableLongStateOf(-1L)
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MetaDetailsScreen(
@@ -251,13 +265,70 @@ fun MetaDetailsScreen(
     val currentShowTrailerControls by rememberUpdatedState(uiState.showTrailerControls)
     var trailerSeekOverlayVisible by remember { mutableStateOf(false) }
     val trailerSeekOverlayState = remember { TrailerSeekOverlayState() }
+    val trailerSeekSessionState = remember { TrailerSeekSessionState() }
     var trailerSeekToken by remember { mutableIntStateOf(0) }
     var trailerSeekDeltaMs by remember { mutableLongStateOf(0L) }
     var lastUserInteractionDispatchMs by remember { mutableLongStateOf(0L) }
-    val onTrailerProgressChanged = remember(trailerSeekOverlayState) {
+    val onTrailerProgressChanged = remember(trailerSeekOverlayState, trailerSeekSessionState) {
         { position: Long, duration: Long ->
-            trailerSeekOverlayState.positionMs = position
+            trailerSeekSessionState.actualPositionMs = position
+            trailerSeekSessionState.actualDurationMs = duration
             trailerSeekOverlayState.durationMs = duration
+            when {
+                trailerSeekSessionState.previewPositionMs >= 0L -> {
+                    trailerSeekOverlayState.positionMs = trailerSeekSessionState.previewPositionMs
+                }
+                trailerSeekSessionState.committedTargetMs >= 0L -> {
+                    trailerSeekOverlayState.positionMs = trailerSeekSessionState.committedTargetMs
+                    if (kotlin.math.abs(position - trailerSeekSessionState.committedTargetMs) <= 1_000L) {
+                        trailerSeekSessionState.committedTargetMs = -1L
+                        trailerSeekOverlayState.positionMs = position
+                    }
+                }
+                else -> {
+                    trailerSeekOverlayState.positionMs = position
+                }
+            }
+        }
+    }
+    val updateTrailerSeekPreview = remember(trailerSeekSessionState, trailerSeekOverlayState) {
+        { deltaMs: Long ->
+            val durationMs = trailerSeekSessionState.actualDurationMs
+                .coerceAtLeast(trailerSeekOverlayState.durationMs)
+                .coerceAtLeast(0L)
+            val basePositionMs = when {
+                trailerSeekSessionState.previewPositionMs >= 0L -> trailerSeekSessionState.previewPositionMs
+                trailerSeekSessionState.committedTargetMs >= 0L -> trailerSeekSessionState.committedTargetMs
+                else -> trailerSeekSessionState.actualPositionMs
+            }
+            trailerSeekSessionState.previewPositionMs = (basePositionMs + deltaMs).coerceIn(0L, durationMs)
+            trailerSeekSessionState.committedTargetMs = -1L
+            trailerSeekOverlayState.positionMs = trailerSeekSessionState.previewPositionMs
+            trailerSeekOverlayState.durationMs = durationMs
+            trailerSeekOverlayVisible = true
+            true
+        }
+    }
+    val commitTrailerSeekPreview = remember(trailerSeekSessionState, trailerSeekOverlayState) {
+        {
+            val targetPositionMs = trailerSeekSessionState.previewPositionMs
+            if (targetPositionMs < 0L) {
+                false
+            } else {
+                val deltaMs = targetPositionMs - trailerSeekSessionState.actualPositionMs
+                trailerSeekSessionState.previewPositionMs = -1L
+                trailerSeekSessionState.committedTargetMs = targetPositionMs
+                trailerSeekOverlayState.positionMs = targetPositionMs
+                trailerSeekOverlayVisible = true
+                if (kotlin.math.abs(deltaMs) <= 250L) {
+                    trailerSeekSessionState.committedTargetMs = -1L
+                    true
+                } else {
+                    trailerSeekDeltaMs = deltaMs
+                    trailerSeekToken += 1
+                    true
+                }
+            }
         }
     }
 
@@ -285,6 +356,13 @@ fun MetaDetailsScreen(
             .onPreviewKeyEvent { keyEvent ->
                 if (currentIsTrailerPlaying) {
                     if (currentShowTrailerControls) {
+                        if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                            return@onPreviewKeyEvent when (keyEvent.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_LEFT,
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> commitTrailerSeekPreview()
+                                else -> false
+                            }
+                        }
                         if (keyEvent.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
                             return@onPreviewKeyEvent false
                         }
@@ -311,10 +389,7 @@ fun MetaDetailsScreen(
                                     repeatCount >= 2 -> -5_000L
                                     else -> -3_000L
                                 }
-                                trailerSeekDeltaMs = delta
-                                trailerSeekToken += 1
-                                trailerSeekOverlayVisible = true
-                                true
+                                updateTrailerSeekPreview(delta)
                             }
                             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                                 val repeatCount = keyEvent.nativeKeyEvent.repeatCount
@@ -324,10 +399,7 @@ fun MetaDetailsScreen(
                                     repeatCount >= 2 -> 5_000L
                                     else -> 3_000L
                                 }
-                                trailerSeekDeltaMs = delta
-                                trailerSeekToken += 1
-                                trailerSeekOverlayVisible = true
-                                true
+                                updateTrailerSeekPreview(delta)
                             }
                             else -> false
                         }
@@ -533,6 +605,12 @@ fun MetaDetailsScreen(
                     onTrailerControlKey = { keyCode, action, repeatCount ->
                         if (!uiState.showTrailerControls || !uiState.isTrailerPlaying) {
                             false
+                        } else if (action == KeyEvent.ACTION_UP) {
+                            when (keyCode) {
+                                KeyEvent.KEYCODE_DPAD_LEFT,
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> commitTrailerSeekPreview()
+                                else -> false
+                            }
                         } else if (action != KeyEvent.ACTION_DOWN) {
                             false
                         } else {
@@ -555,16 +633,10 @@ fun MetaDetailsScreen(
                                     true
                                 }
                                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                    trailerSeekDeltaMs = -seekStepMs
-                                    trailerSeekToken += 1
-                                    trailerSeekOverlayVisible = true
-                                    true
+                                    updateTrailerSeekPreview(-seekStepMs)
                                 }
                                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    trailerSeekDeltaMs = seekStepMs
-                                    trailerSeekToken += 1
-                                    trailerSeekOverlayVisible = true
-                                    true
+                                    updateTrailerSeekPreview(seekStepMs)
                                 }
                                 else -> false
                             }
@@ -646,7 +718,14 @@ fun MetaDetailsScreen(
         )
     }
 
-    LaunchedEffect(trailerSeekOverlayVisible, uiState.isTrailerPlaying, uiState.showTrailerControls, trailerSeekToken) {
+    LaunchedEffect(
+        trailerSeekOverlayVisible,
+        uiState.isTrailerPlaying,
+        uiState.showTrailerControls,
+        trailerSeekToken,
+        trailerSeekSessionState.previewPositionMs,
+        trailerSeekSessionState.committedTargetMs
+    ) {
         if (trailerSeekOverlayVisible && uiState.isTrailerPlaying && uiState.showTrailerControls) {
             delay(3000)
             trailerSeekOverlayVisible = false
@@ -655,6 +734,8 @@ fun MetaDetailsScreen(
 
     LaunchedEffect(uiState.isTrailerPlaying, uiState.showTrailerControls) {
         if (!uiState.isTrailerPlaying || !uiState.showTrailerControls) {
+            trailerSeekSessionState.previewPositionMs = -1L
+            trailerSeekSessionState.committedTargetMs = -1L
             trailerSeekOverlayVisible = false
         }
     }
@@ -1287,6 +1368,7 @@ private fun MetaDetailsContent(
         })
         bmp.asImageBitmap()
     }
+    var iframeTrailerPlaybackReady by remember(trailerUrl, trailerAudioUrl) { mutableStateOf(false) }
 
     // Animated gradient alpha (moved outside subcomposition scope)
 
@@ -1305,6 +1387,7 @@ private fun MetaDetailsContent(
             trailerSeekDeltaMs = trailerSeekDeltaMs,
             onTrailerControlKey = onTrailerControlKey,
             onTrailerProgressChanged = onTrailerProgressChanged,
+            onTrailerPlaybackReady = { iframeTrailerPlaybackReady = true },
             onTrailerEnded = onTrailerEnded,
             isScrolledPastHero = isScrolledPastHero,
             leftGradient = leftGradientBitmap,
@@ -1342,7 +1425,12 @@ private fun MetaDetailsContent(
                         mdbListRatings = mdbListRatings,
                         hideMetaInfoImdb = showMdbListImdb,
                         showFullReleaseDate = showFullReleaseDate,
-                        trailerAvailable = trailerButtonEnabled && !trailerUrl.isNullOrBlank(),
+                        trailerAvailable = trailerButtonEnabled && when {
+                            isMetaDetailsIframeTrailerSource(trailerUrl, trailerAudioUrl) -> {
+                                iframeTrailerPlaybackReady
+                            }
+                            else -> !trailerUrl.isNullOrBlank()
+                        },
                         onTrailerClick = onTrailerButtonClick,
                         hideLogoDuringTrailer = hideLogoDuringTrailer,
                         isTrailerPlaying = isTrailerPlaying,
@@ -1730,6 +1818,7 @@ private fun BackdropLayer(
     trailerSeekDeltaMs: Long,
     onTrailerControlKey: (keyCode: Int, action: Int, repeatCount: Int) -> Boolean,
     onTrailerProgressChanged: (Long, Long) -> Unit,
+    onTrailerPlaybackReady: () -> Unit,
     onTrailerEnded: () -> Unit,
     isScrolledPastHero: Boolean,
     leftGradient: ImageBitmap,
@@ -1774,6 +1863,7 @@ private fun BackdropLayer(
             seekDeltaMs = if (showTrailerControls) trailerSeekDeltaMs else 0L,
             onRemoteKey = onTrailerControlKey,
             onProgressChanged = onTrailerProgressChanged,
+            onPlaybackReady = onTrailerPlaybackReady,
             onEnded = onTrailerEnded,
             modifier = Modifier.fillMaxSize()
         )

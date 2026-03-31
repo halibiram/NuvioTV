@@ -15,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -57,6 +58,7 @@ fun TrailerPlayer(
     trailerAudioUrl: String? = null,
     isPlaying: Boolean,
     onEnded: () -> Unit,
+    onPlaybackReady: () -> Unit = {},
     onFirstFrameRendered: () -> Unit = {},
     muted: Boolean = false,
     seekRequestToken: Int = 0,
@@ -78,6 +80,7 @@ fun TrailerPlayer(
             youtubeVideoId = youtubeVideoId,
             isPlaying = isPlaying,
             onEnded = onEnded,
+            onPlaybackReady = onPlaybackReady,
             onFirstFrameRendered = onFirstFrameRendered,
             muted = muted,
             seekRequestToken = seekRequestToken,
@@ -96,6 +99,7 @@ fun TrailerPlayer(
             trailerAudioUrl = trailerAudioUrl,
             isPlaying = isPlaying,
             onEnded = onEnded,
+            onPlaybackReady = onPlaybackReady,
             onFirstFrameRendered = onFirstFrameRendered,
             muted = muted,
             seekRequestToken = seekRequestToken,
@@ -118,6 +122,7 @@ private fun ExoTrailerPlayer(
     trailerAudioUrl: String? = null,
     isPlaying: Boolean,
     onEnded: () -> Unit,
+    onPlaybackReady: () -> Unit = {},
     onFirstFrameRendered: () -> Unit = {},
     muted: Boolean = false,
     seekRequestToken: Int = 0,
@@ -137,11 +142,13 @@ private fun ExoTrailerPlayer(
     val currentTrailerUrl by rememberUpdatedState(trailerUrl)
     val currentTrailerAudioUrl by rememberUpdatedState(trailerAudioUrl)
     val currentOnEnded by rememberUpdatedState(onEnded)
+    val currentOnPlaybackReady by rememberUpdatedState(onPlaybackReady)
     val currentOnFirstFrameRendered by rememberUpdatedState(onFirstFrameRendered)
     val currentOnProgressChanged by rememberUpdatedState(onProgressChanged)
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
     val zoomScale = if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
     var hasRenderedFirstFrame by remember(trailerUrl) { mutableStateOf(false) }
+    var lastHandledSeekRequestToken by remember(trailerUrl, trailerAudioUrl) { mutableIntStateOf(0) }
     val playerAlphaState = animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
         animationSpec = tween(durationMillis = 300),
@@ -210,7 +217,8 @@ private fun ExoTrailerPlayer(
 
     LaunchedEffect(seekRequestToken, seekDeltaMs, trailerPlayer) {
         val player = trailerPlayer ?: return@LaunchedEffect
-        if (seekRequestToken <= 0) return@LaunchedEffect
+        if (seekRequestToken <= 0 || seekRequestToken == lastHandledSeekRequestToken) return@LaunchedEffect
+        lastHandledSeekRequestToken = seekRequestToken
         val duration = player.duration.takeIf { it > 0 } ?: 0L
         val current = player.currentPosition
         val target = (current + seekDeltaMs).coerceIn(0L, duration.coerceAtLeast(0L))
@@ -239,6 +247,7 @@ private fun ExoTrailerPlayer(
 
             override fun onRenderedFirstFrame() {
                 hasRenderedFirstFrame = true
+                currentOnPlaybackReady()
                 currentOnFirstFrameRendered()
             }
         }
@@ -340,6 +349,7 @@ private fun YouTubeIframeTrailerPlayer(
     youtubeVideoId: String,
     isPlaying: Boolean,
     onEnded: () -> Unit,
+    onPlaybackReady: () -> Unit = {},
     onFirstFrameRendered: () -> Unit = {},
     muted: Boolean = false,
     seekRequestToken: Int = 0,
@@ -356,6 +366,7 @@ private fun YouTubeIframeTrailerPlayer(
     val lifecycleOwner = LocalLifecycleOwner.current
     val activityLifecycleOwner = remember(context) { context as? androidx.lifecycle.LifecycleOwner ?: lifecycleOwner }
     val currentOnEnded by rememberUpdatedState(onEnded)
+    val currentOnPlaybackReady by rememberUpdatedState(onPlaybackReady)
     val currentOnFirstFrameRendered by rememberUpdatedState(onFirstFrameRendered)
     val currentOnProgressChanged by rememberUpdatedState(onProgressChanged)
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
@@ -364,6 +375,7 @@ private fun YouTubeIframeTrailerPlayer(
     var youtubePlayer by remember(youtubeVideoId) { mutableStateOf<YouTubePlayer?>(null) }
     var currentSecond by remember(youtubeVideoId) { mutableFloatStateOf(0f) }
     var durationSeconds by remember(youtubeVideoId) { mutableFloatStateOf(0f) }
+    var lastHandledSeekRequestToken by remember(youtubeVideoId) { mutableIntStateOf(0) }
     val playerAlphaState = animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
         animationSpec = tween(durationMillis = 300),
@@ -396,10 +408,12 @@ private fun YouTubeIframeTrailerPlayer(
                     override fun onReady(player: YouTubePlayer) {
                         youtubePlayer = player
                         runCatching { player.mute() }
+                        currentOnPlaybackReady()
                     }
 
                     override fun onStateChange(player: YouTubePlayer, state: PlayerConstants.PlayerState) {
                         when (state) {
+                            PlayerConstants.PlayerState.VIDEO_CUED -> currentOnPlaybackReady()
                             PlayerConstants.PlayerState.ENDED -> currentOnEnded()
                             else -> Unit
                         }
@@ -454,7 +468,7 @@ private fun YouTubeIframeTrailerPlayer(
             durationSeconds = 0f
             currentOnProgressChanged(0L, 0L)
             runCatching { player.pause() }
-            runCatching { player.seekTo(0f) }
+            runCatching { player.cueVideo(youtubeVideoId, 0f) }
         }
     }
 
@@ -474,7 +488,8 @@ private fun YouTubeIframeTrailerPlayer(
 
     LaunchedEffect(seekRequestToken, seekDeltaMs, youtubePlayer, currentSecond, durationSeconds) {
         val player = youtubePlayer ?: return@LaunchedEffect
-        if (seekRequestToken <= 0) return@LaunchedEffect
+        if (seekRequestToken <= 0 || seekRequestToken == lastHandledSeekRequestToken) return@LaunchedEffect
+        lastHandledSeekRequestToken = seekRequestToken
         val durationMs = (durationSeconds * 1_000f).roundToLong().coerceAtLeast(0L)
         val currentMs = (currentSecond * 1_000f).roundToLong().coerceAtLeast(0L)
         val targetMs = (currentMs + seekDeltaMs).coerceIn(0L, durationMs)
