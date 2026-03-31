@@ -253,9 +253,6 @@ val syncStandardDebugApksForLegacyWorkflows = tasks.register<Sync>("syncStandard
         name = legacyStandardDebugNames[name] ?: name.removePrefix("app-standard-")
     }
     includeEmptyDirs = false
-    doLast {
-        delete(standardDebugDir)
-    }
 }
 
 val syncStandardReleaseApksForLegacyScript = tasks.register<Sync>("syncStandardReleaseApksForLegacyScript") {
@@ -270,9 +267,6 @@ val syncStandardReleaseApksForLegacyScript = tasks.register<Sync>("syncStandardR
         name = legacyStandardReleaseNames[name] ?: name.removePrefix("app-standard-")
     }
     includeEmptyDirs = false
-    doLast {
-        delete(standardReleaseDir)
-    }
 }
 
 val syncIframeOnlyReleaseApks = tasks.register<Sync>("syncIframeOnlyReleaseApks") {
@@ -287,9 +281,6 @@ val syncIframeOnlyReleaseApks = tasks.register<Sync>("syncIframeOnlyReleaseApks"
         name = legacyIframeOnlyReleaseNames[name] ?: name.removePrefix("app-iframeOnly-")
     }
     includeEmptyDirs = false
-    doLast {
-        delete(iframeOnlyReleaseDir)
-    }
 }
 
 tasks.matching { it.name == "assembleRelease" }.configureEach {

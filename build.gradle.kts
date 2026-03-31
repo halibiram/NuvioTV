@@ -13,7 +13,7 @@ plugins {
 tasks.register("assembleDebug") {
     group = "build"
     description = "Assembles the standard debug app variant."
-    dependsOn(":app:assembleStandardDebug")
+    dependsOn(":app:syncStandardDebugApksForLegacyWorkflows")
 }
 
 tasks.register("installDebug") {
@@ -31,7 +31,7 @@ tasks.register("uninstallDebug") {
 tasks.register("assembleRelease") {
     group = "build"
     description = "Assembles the standard release app variant."
-    dependsOn(":app:assembleRelease")
+    dependsOn(":app:syncStandardReleaseApksForLegacyScript")
 }
 
 tasks.register("bundleRelease") {
