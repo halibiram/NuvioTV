@@ -87,6 +87,8 @@ sealed class MetaDetailsEvent {
     data class OnMarkSeasonWatched(val season: Int) : MetaDetailsEvent()
     data class OnMarkSeasonUnwatched(val season: Int) : MetaDetailsEvent()
     data class OnMarkPreviousEpisodesWatched(val video: Video) : MetaDetailsEvent()
+    data class OnMoreLikeThisItemFocused(val item: MetaPreview) : MetaDetailsEvent()
+    data class OnCollectionItemFocused(val item: MetaPreview) : MetaDetailsEvent()
     data object OnLibraryLongPress : MetaDetailsEvent()
     data class OnPickerMembershipToggled(val listKey: String) : MetaDetailsEvent()
     data object OnPickerSave : MetaDetailsEvent()

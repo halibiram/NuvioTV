@@ -3,6 +3,7 @@ package com.nuvio.tv.core.tmdb
 import android.util.Log
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.data.remote.api.TmdbApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,6 +28,10 @@ class TmdbService @Inject constructor(
     
     // Cache: TMDB ID -> IMDB ID  
     private val tmdbToImdbCache = ConcurrentHashMap<Int, String>()
+
+    // In-flight lookups to dedupe duplicate concurrent requests
+    private val imdbToTmdbInFlight = ConcurrentHashMap<String, CompletableDeferred<Int?>>()
+    private val tmdbToImdbInFlight = ConcurrentHashMap<String, CompletableDeferred<String?>>()
     
     // Mutex for thread-safe cache operations
     private val cacheMutex = Mutex()
@@ -44,11 +49,26 @@ class TmdbService @Inject constructor(
             Log.w(TAG, "Invalid IMDB ID format: $imdbId")
             return@withContext null
         }
+
+        val normalizedType = normalizeMediaType(mediaType)
+        val inFlightKey = "$normalizedType:$imdbId"
         
         // Check cache first
         imdbToTmdbCache[imdbId]?.let { cached ->
             Log.d(TAG, "Cache hit: IMDB $imdbId -> TMDB $cached")
             return@withContext cached
+        }
+
+        imdbToTmdbInFlight[inFlightKey]?.let { existing ->
+            Log.d(TAG, "Joining in-flight TMDB lookup for IMDB: $imdbId (type: $normalizedType)")
+            return@withContext existing.await()
+        }
+
+        val deferred = CompletableDeferred<Int?>()
+        val existingDeferred = imdbToTmdbInFlight.putIfAbsent(inFlightKey, deferred)
+        if (existingDeferred != null) {
+            Log.d(TAG, "Joining in-flight TMDB lookup for IMDB: $imdbId (type: $normalizedType)")
+            return@withContext existingDeferred.await()
         }
         
         try {
@@ -62,13 +82,16 @@ class TmdbService @Inject constructor(
             
             if (!response.isSuccessful) {
                 Log.e(TAG, "TMDB API error: ${response.code()} - ${response.message()}")
+                deferred.complete(null)
                 return@withContext null
             }
             
-            val body = response.body() ?: return@withContext null
+            val body = response.body() ?: run {
+                deferred.complete(null)
+                return@withContext null
+            }
             
             // Determine which results to use based on media type
-            val normalizedType = normalizeMediaType(mediaType)
             val result = when (normalizedType) {
                 "movie" -> body.movieResults?.firstOrNull()
                 "tv", "series" -> body.tvResults?.firstOrNull()
@@ -83,16 +106,21 @@ class TmdbService @Inject constructor(
                     imdbToTmdbCache[imdbId] = found.id
                     tmdbToImdbCache[found.id] = imdbId
                 }
+                deferred.complete(found.id)
                 
                 return@withContext found.id
             }
             
             Log.w(TAG, "No TMDB result found for IMDB: $imdbId")
+            deferred.complete(null)
             null
             
         } catch (e: Exception) {
             Log.e(TAG, "Error looking up TMDB ID for $imdbId: ${e.message}", e)
+            deferred.complete(null)
             null
+        } finally {
+            imdbToTmdbInFlight.remove(inFlightKey, deferred)
         }
     }
     
@@ -109,11 +137,25 @@ class TmdbService @Inject constructor(
             Log.d(TAG, "Cache hit: TMDB $tmdbId -> IMDB $cached")
             return@withContext cached
         }
+
+        val normalizedType = normalizeMediaType(mediaType)
+        val inFlightKey = "$normalizedType:$tmdbId"
+
+        tmdbToImdbInFlight[inFlightKey]?.let { existing ->
+            Log.d(TAG, "Joining in-flight IMDB lookup for TMDB: $tmdbId (type: $normalizedType)")
+            return@withContext existing.await()
+        }
+
+        val deferred = CompletableDeferred<String?>()
+        val existingDeferred = tmdbToImdbInFlight.putIfAbsent(inFlightKey, deferred)
+        if (existingDeferred != null) {
+            Log.d(TAG, "Joining in-flight IMDB lookup for TMDB: $tmdbId (type: $normalizedType)")
+            return@withContext existingDeferred.await()
+        }
         
         try {
             Log.d(TAG, "Looking up IMDB ID for TMDB: $tmdbId (type: $mediaType)")
             
-            val normalizedType = normalizeMediaType(mediaType)
             val response = when (normalizedType) {
                 "movie" -> tmdbApi.getMovieExternalIds(tmdbId, TMDB_API_KEY)
                 "tv", "series" -> tmdbApi.getTvExternalIds(tmdbId, TMDB_API_KEY)
@@ -122,10 +164,14 @@ class TmdbService @Inject constructor(
             
             if (!response.isSuccessful) {
                 Log.e(TAG, "TMDB API error: ${response.code()} - ${response.message()}")
+                deferred.complete(null)
                 return@withContext null
             }
             
-            val body = response.body() ?: return@withContext null
+            val body = response.body() ?: run {
+                deferred.complete(null)
+                return@withContext null
+            }
             
             body.imdbId?.let { imdbId ->
                 Log.d(TAG, "Found IMDB ID: $imdbId for TMDB: $tmdbId")
@@ -135,16 +181,21 @@ class TmdbService @Inject constructor(
                     tmdbToImdbCache[tmdbId] = imdbId
                     imdbToTmdbCache[imdbId] = tmdbId
                 }
+                deferred.complete(imdbId)
                 
                 return@withContext imdbId
             }
             
             Log.w(TAG, "No IMDB ID found for TMDB: $tmdbId")
+            deferred.complete(null)
             null
             
         } catch (e: Exception) {
             Log.e(TAG, "Error looking up IMDB ID for $tmdbId: ${e.message}", e)
+            deferred.complete(null)
             null
+        } finally {
+            tmdbToImdbInFlight.remove(inFlightKey, deferred)
         }
     }
     

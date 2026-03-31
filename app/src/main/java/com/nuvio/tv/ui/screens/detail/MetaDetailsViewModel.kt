@@ -23,6 +23,7 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TmdbSettings
 import com.nuvio.tv.domain.model.TraktCommentReview
@@ -102,6 +103,9 @@ class MetaDetailsViewModel @Inject constructor(
     private var nextToWatchJob: Job? = null
     private var commentsJob: Job? = null
     private var commentsLoadMoreJob: Job? = null
+    private var episodeThumbnailRetryJob: Job? = null
+    private val moreLikeThisLocalizedRequests = mutableSetOf<String>()
+    private val collectionLocalizedRequests = mutableSetOf<String>()
 
     private var trailerDelayMs = 7000L
     private var trailerAutoplayEnabled = false
@@ -283,6 +287,8 @@ class MetaDetailsViewModel @Inject constructor(
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
             is MetaDetailsEvent.OnMarkSeasonUnwatched -> markSeasonUnwatched(event.season)
             is MetaDetailsEvent.OnMarkPreviousEpisodesWatched -> markPreviousEpisodesWatched(event.video)
+            is MetaDetailsEvent.OnMoreLikeThisItemFocused -> maybeUpgradeMoreLikeThisArtwork(event.item)
+            is MetaDetailsEvent.OnCollectionItemFocused -> maybeUpgradeCollectionArtwork(event.item)
             MetaDetailsEvent.OnLibraryLongPress -> openListPicker()
             is MetaDetailsEvent.OnPickerMembershipToggled -> togglePickerMembership(event.listKey)
             MetaDetailsEvent.OnPickerSave -> savePickerMembership()
@@ -442,6 +448,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun loadMeta() {
         viewModelScope.launch {
+            episodeThumbnailRetryJob?.cancel()
             cancelCommentsRequests()
             _uiState.update {
                 it.copy(
@@ -605,6 +612,7 @@ class MetaDetailsViewModel @Inject constructor(
         loadMoreLikeThisAsync(meta)
         val enriched = enrichMeta(meta)
         applyMeta(enriched)
+        scheduleEpisodeThumbnailRetries(enriched)
         // Episode ratings and MDBList are independent — launch both without waiting.
         loadEpisodeRatingsAsync(enriched)
         viewModelScope.launch { loadMDBListRatings(enriched) }
@@ -810,6 +818,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun loadMoreLikeThisAsync(meta: Meta) {
         moreLikeThisJob?.cancel()
+        moreLikeThisLocalizedRequests.clear()
         moreLikeThisJob = viewModelScope.launch {
             val source = if (shouldLoadTraktMoreLikeThis(meta)) {
                 MoreLikeThisSource.TRAKT
@@ -895,6 +904,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun loadCollectionAsync(collectionId: Int, collectionName: String?, settings: TmdbSettings) {
         collectionJob?.cancel()
+        collectionLocalizedRequests.clear()
         collectionJob = viewModelScope.launch {
             if (!settings.enabled || !settings.useCollections) {
                 _uiState.update { it.copy(collection = emptyList(), collectionName = null) }
@@ -922,6 +932,78 @@ class MetaDetailsViewModel @Inject constructor(
                 state.copy(collection = filteredItems, collectionName = collectionName)
             }
         }
+    }
+
+    private fun maybeUpgradeMoreLikeThisArtwork(item: MetaPreview) {
+        maybeUpgradeLocalizedArtwork(
+            item = item,
+            requestedIds = moreLikeThisLocalizedRequests,
+            currentItems = { state -> state.moreLikeThis },
+            updateItems = { state, items -> state.copy(moreLikeThis = items) }
+        )
+    }
+
+    private fun maybeUpgradeCollectionArtwork(item: MetaPreview) {
+        maybeUpgradeLocalizedArtwork(
+            item = item,
+            requestedIds = collectionLocalizedRequests,
+            currentItems = { state -> state.collection },
+            updateItems = { state, items -> state.copy(collection = items) }
+        )
+    }
+
+    private fun maybeUpgradeLocalizedArtwork(
+        item: MetaPreview,
+        requestedIds: MutableSet<String>,
+        currentItems: (MetaDetailsUiState) -> List<MetaPreview>,
+        updateItems: (MetaDetailsUiState, List<MetaPreview>) -> MetaDetailsUiState
+    ) {
+        if (!item.id.startsWith("tmdb:")) return
+
+        viewModelScope.launch {
+            val settings = tmdbSettingsDataStore.settings.first()
+            if (!settings.enabled) {
+                return@launch
+            }
+            if (!requestedIds.add(item.id)) {
+                return@launch
+            }
+
+            val localizedBackdrop = tmdbMetadataService.fetchLocalizedBackdrop(
+                item = item,
+                language = settings.language
+            ) ?: return@launch
+
+            val updatedItem = item.withLocalizedBackdrop(localizedBackdrop)
+            if (updatedItem == item) {
+                return@launch
+            }
+
+            _uiState.update { state ->
+                val items = currentItems(state)
+                if (items.none { it.id == item.id }) {
+                    state
+                } else {
+                    val updatedItems = items.map { existing ->
+                        if (existing.id == item.id) existing.withLocalizedBackdrop(localizedBackdrop) else existing
+                    }
+                    updateItems(state, updatedItems)
+                }
+            }
+        }
+    }
+
+    private fun MetaPreview.withLocalizedBackdrop(localizedBackdrop: String): MetaPreview {
+        val normalizedBackdrop = localizedBackdrop.trim()
+        if (normalizedBackdrop.isBlank()) return this
+        val updatedPoster = normalizedBackdrop
+        if (normalizedBackdrop == background && updatedPoster == poster) {
+            return this
+        }
+        return copy(
+            poster = updatedPoster,
+            background = normalizedBackdrop
+        )
     }
 
     private suspend fun loadMDBListRatings(meta: Meta) {
@@ -1130,19 +1212,7 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         if (!episodeMap.isNullOrEmpty()) {
-            updated = updated.copy(
-                videos = meta.videos.map { video ->
-                    val key = if (video.season != null && video.episode != null) video.season to video.episode else null
-                    val ep = key?.let { episodeMap[it] }
-                    video.copy(
-                        title = ep?.title ?: video.title,
-                        overview = ep?.overview ?: video.overview,
-                        released = ep?.airDate ?: video.released,
-                        thumbnail = ep?.thumbnail ?: video.thumbnail,
-                        runtime = ep?.runtimeMinutes
-                    )
-                }
-            )
+            updated = applyEpisodeEnrichment(updated, episodeMap)
         }
 
         if (enrichment?.collectionId != null) {
@@ -1150,6 +1220,100 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         return updated
+    }
+
+    private fun scheduleEpisodeThumbnailRetries(meta: Meta) {
+        episodeThumbnailRetryJob?.cancel()
+
+        episodeThumbnailRetryJob = viewModelScope.launch {
+            val settings = tmdbSettingsDataStore.settings.first()
+            if (!settings.enabled || !settings.useEpisodes) return@launch
+
+            val tmdbContentType = resolveTmdbContentType(meta)
+            if (tmdbContentType !in listOf(ContentType.SERIES, ContentType.TV)) return@launch
+
+            val tmdbLookupType = tmdbContentType.toApiString()
+            val tmdbId = tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
+                ?: tmdbService.ensureTmdbId(itemId, itemType)
+                ?: return@launch
+
+            EPISODE_THUMBNAIL_RETRY_DELAYS_MS.forEach { delayMs ->
+                delay(delayMs)
+
+                val currentMeta = _uiState.value.meta ?: return@launch
+                if (currentMeta.id != meta.id) return@launch
+
+                val missingSeasons = findSeasonsMissingEpisodeThumbnails(currentMeta)
+                if (missingSeasons.isEmpty()) return@launch
+
+                val retryMap = tmdbMetadataService.fetchEpisodeEnrichment(
+                    tmdbId = tmdbId,
+                    seasonNumbers = missingSeasons,
+                    language = settings.language
+                )
+                if (retryMap.isEmpty()) {
+                    return@forEach
+                }
+
+                var mergedMeta: Meta? = null
+                _uiState.update { state ->
+                    val stateMeta = state.meta
+                    if (stateMeta == null || stateMeta.id != meta.id) {
+                        state
+                    } else {
+                        val updatedMeta = applyEpisodeEnrichment(stateMeta, retryMap)
+                        if (updatedMeta == stateMeta) {
+                            state
+                        } else {
+                            mergedMeta = updatedMeta
+                            state.copy(
+                                meta = updatedMeta,
+                                episodesForSeason = getEpisodesForSeason(updatedMeta.videos, state.selectedSeason)
+                            )
+                        }
+                    }
+                }
+
+                mergedMeta?.let {
+                    reevaluateSeriesWatchedBadge()
+                    calculateNextToWatch()
+                }
+
+                val latestMeta = _uiState.value.meta ?: return@launch
+                if (latestMeta.id != meta.id || findSeasonsMissingEpisodeThumbnails(latestMeta).isEmpty()) {
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun applyEpisodeEnrichment(
+        meta: Meta,
+        episodeMap: Map<Pair<Int, Int>, com.nuvio.tv.core.tmdb.TmdbEpisodeEnrichment>
+    ): Meta {
+        val updatedVideos = meta.videos.map { video ->
+            val key = if (video.season != null && video.episode != null) video.season to video.episode else null
+            val episodeEnrichment = key?.let { episodeMap[it] }
+            video.copy(
+                title = episodeEnrichment?.title ?: video.title,
+                overview = episodeEnrichment?.overview ?: video.overview,
+                released = episodeEnrichment?.airDate ?: video.released,
+                thumbnail = episodeEnrichment?.thumbnail ?: video.thumbnail,
+                runtime = episodeEnrichment?.runtimeMinutes ?: video.runtime
+            )
+        }
+        return if (updatedVideos == meta.videos) meta else meta.copy(videos = updatedVideos)
+    }
+
+    private fun findSeasonsMissingEpisodeThumbnails(meta: Meta): List<Int> {
+        return meta.videos
+            .asSequence()
+            .filter { it.season != null && it.episode != null }
+            .filter { it.thumbnail.isNullOrBlank() }
+            .mapNotNull { it.season }
+            .distinct()
+            .sorted()
+            .toList()
     }
 
     private fun resolveTmdbContentType(meta: Meta): ContentType {
@@ -1995,5 +2159,10 @@ class MetaDetailsViewModel @Inject constructor(
         idleTimerJob?.cancel()
         trailerFetchJob?.cancel()
         nextToWatchJob?.cancel()
+        episodeThumbnailRetryJob?.cancel()
+    }
+
+    companion object {
+        private val EPISODE_THUMBNAIL_RETRY_DELAYS_MS = listOf(3_000L, 12_000L)
     }
 }

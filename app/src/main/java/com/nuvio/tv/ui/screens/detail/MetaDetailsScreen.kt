@@ -593,6 +593,12 @@ fun MetaDetailsScreen(
                     },
                     commentOverlayDirection = commentOverlayDirection,
                     restorePlayFocusAfterTrailerBackToken = restorePlayFocusAfterTrailerBackToken,
+                    onMoreLikeThisItemFocused = {
+                        viewModel.onEvent(MetaDetailsEvent.OnMoreLikeThisItemFocused(it))
+                    },
+                    onCollectionItemFocused = {
+                        viewModel.onEvent(MetaDetailsEvent.OnCollectionItemFocused(it))
+                    },
                     onNavigateToCastDetail = onNavigateToCastDetail,
                     onNavigateToTmdbEntityBrowse = onNavigateToTmdbEntityBrowse,
                     onNavigateToDetail = onNavigateToDetail
@@ -732,6 +738,8 @@ private fun MetaDetailsContent(
     onDismissCommentOverlay: () -> Unit,
     commentOverlayDirection: Int,
     restorePlayFocusAfterTrailerBackToken: Int,
+    onMoreLikeThisItemFocused: (MetaPreview) -> Unit,
+    onCollectionItemFocused: (MetaPreview) -> Unit,
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
     onNavigateToTmdbEntityBrowse: (entityKind: String, entityId: Int, entityName: String, sourceType: String) -> Unit = { _, _, _, _ -> },
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> }
@@ -1503,6 +1511,7 @@ private fun MetaDetailsContent(
                                     onRestoreFocusHandled = {
                                         clearPendingRestore()
                                     },
+                                    onItemFocused = onMoreLikeThisItemFocused,
                                     onItemClick = { item ->
                                         markMoreLikeThisRestore(item.id)
                                         onNavigateToDetail(item.id, item.apiType, null)
@@ -1520,6 +1529,7 @@ private fun MetaDetailsContent(
                                     onRestoreFocusHandled = {
                                         clearPendingRestore()
                                     },
+                                    onItemFocused = onCollectionItemFocused,
                                     onItemClick = { item ->
                                         markCollectionRestore(item.id)
                                         onNavigateToDetail(item.id, item.apiType, null)
