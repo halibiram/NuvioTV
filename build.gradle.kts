@@ -27,3 +27,15 @@ tasks.register("uninstallDebug") {
     description = "Uninstalls the standard debug app variant."
     dependsOn(":app:uninstallStandardDebug")
 }
+
+tasks.register("assembleRelease") {
+    group = "build"
+    description = "Assembles the standard release app variant."
+    dependsOn(":app:assembleRelease")
+}
+
+tasks.register("bundleRelease") {
+    group = "build"
+    description = "Bundles the standard release app variant."
+    dependsOn(":app:bundleStandardRelease")
+}
