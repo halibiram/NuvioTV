@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import com.nuvio.tv.BuildConfig
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -112,13 +113,15 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             )
         }
 
-        item(key = "audio_trailer_source") {
-            TrailerPlaybackModeSettingsItem(
-                selectedMode = trailerSettings.playbackMode,
-                onModeSelected = onSetTrailerPlaybackMode,
-                onFocused = onItemFocused,
-                enabled = enabled
-            )
+        if (BuildConfig.TRAILER_SOURCE_SELECTION_ENABLED) {
+            item(key = "audio_trailer_source") {
+                TrailerPlaybackModeSettingsItem(
+                    selectedMode = trailerSettings.playbackMode,
+                    onModeSelected = onSetTrailerPlaybackMode,
+                    onFocused = onItemFocused,
+                    enabled = enabled
+                )
+            }
         }
     }
 

@@ -9,3 +9,21 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.androidx.baselineprofile) apply false
 }
+
+tasks.register("assembleDebug") {
+    group = "build"
+    description = "Assembles the standard debug app variant."
+    dependsOn(":app:assembleStandardDebug")
+}
+
+tasks.register("installDebug") {
+    group = "install"
+    description = "Installs the standard debug app variant."
+    dependsOn(":app:installStandardDebug")
+}
+
+tasks.register("uninstallDebug") {
+    group = "install"
+    description = "Uninstalls the standard debug app variant."
+    dependsOn(":app:uninstallStandardDebug")
+}

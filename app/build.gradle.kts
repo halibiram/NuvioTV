@@ -8,6 +8,7 @@
     alias(libs.plugins.kotlin.serialization)
 }
 
+import org.gradle.api.tasks.Sync
 import java.util.Properties
 
 val localProperties = Properties().apply {
@@ -65,6 +66,22 @@ android {
         // In-app updater (GitHub Releases)
         buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
         buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
+    }
+
+    flavorDimensions += "trailerPlayback"
+
+    productFlavors {
+        create("standard") {
+            dimension = "trailerPlayback"
+            buildConfigField("boolean", "TRAILER_IFRAME_ONLY", "false")
+            buildConfigField("boolean", "TRAILER_SOURCE_SELECTION_ENABLED", "true")
+        }
+
+        create("iframeOnly") {
+            dimension = "trailerPlayback"
+            buildConfigField("boolean", "TRAILER_IFRAME_ONLY", "true")
+            buildConfigField("boolean", "TRAILER_SOURCE_SELECTION_ENABLED", "false")
+        }
     }
 
     signingConfigs {
@@ -187,8 +204,105 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
-        variant.applicationId.set("com.nuviodebug.com")
+        if (variant.productFlavors.any { (_, flavorName) -> flavorName == "standard" }) {
+            variant.applicationId.set("com.nuviodebug.com")
+        }
     }
+}
+
+val legacyStandardDebugDir = layout.buildDirectory.dir("outputs/apk/debug")
+val standardDebugDir = layout.buildDirectory.dir("outputs/apk/standard/debug")
+val legacyStandardReleaseDir = layout.buildDirectory.dir("outputs/apk/release")
+val standardReleaseDir = layout.buildDirectory.dir("outputs/apk/standard/release")
+val legacyIframeOnlyReleaseDir = layout.buildDirectory.dir("outputs/apk/release/iframeOnly")
+val iframeOnlyReleaseDir = layout.buildDirectory.dir("outputs/apk/iframeOnly/release")
+
+val legacyStandardDebugNames = mapOf(
+    "app-standard-arm64-v8a-debug.apk" to "app-arm64-v8a-debug.apk",
+    "app-standard-armeabi-v7a-debug.apk" to "app-armeabi-v7a-debug.apk",
+    "app-standard-x86_64-debug.apk" to "app-x86_64-debug.apk",
+    "app-standard-x86-debug.apk" to "app-x86-debug.apk",
+    "app-standard-universal-debug.apk" to "app-universal-debug.apk"
+)
+
+val legacyStandardReleaseNames = mapOf(
+    "app-standard-arm64-v8a-release.apk" to "app-arm64-v8a-release.apk",
+    "app-standard-armeabi-v7a-release.apk" to "app-armeabi-v7a-release.apk",
+    "app-standard-x86_64-release.apk" to "app-x86_64-release.apk",
+    "app-standard-x86-release.apk" to "app-x86-release.apk",
+    "app-standard-universal-release.apk" to "app-universal-release.apk"
+)
+
+val legacyIframeOnlyReleaseNames = mapOf(
+    "app-iframeOnly-arm64-v8a-release.apk" to "app-arm64-v8a-release.apk",
+    "app-iframeOnly-armeabi-v7a-release.apk" to "app-armeabi-v7a-release.apk",
+    "app-iframeOnly-x86_64-release.apk" to "app-x86_64-release.apk",
+    "app-iframeOnly-x86-release.apk" to "app-x86-release.apk",
+    "app-iframeOnly-universal-release.apk" to "app-universal-release.apk"
+)
+
+val syncStandardDebugApksForLegacyWorkflows = tasks.register<Sync>("syncStandardDebugApksForLegacyWorkflows") {
+    dependsOn("assembleStandardDebug")
+    doFirst {
+        delete(legacyStandardDebugDir)
+    }
+    from(standardDebugDir)
+    include("*.apk")
+    into(legacyStandardDebugDir)
+    eachFile {
+        name = legacyStandardDebugNames[name] ?: name.removePrefix("app-standard-")
+    }
+    includeEmptyDirs = false
+    doLast {
+        delete(standardDebugDir)
+    }
+}
+
+val syncStandardReleaseApksForLegacyScript = tasks.register<Sync>("syncStandardReleaseApksForLegacyScript") {
+    dependsOn("assembleStandardRelease")
+    doFirst {
+        delete(legacyStandardReleaseDir)
+    }
+    from(standardReleaseDir)
+    include("*.apk")
+    into(legacyStandardReleaseDir)
+    eachFile {
+        name = legacyStandardReleaseNames[name] ?: name.removePrefix("app-standard-")
+    }
+    includeEmptyDirs = false
+    doLast {
+        delete(standardReleaseDir)
+    }
+}
+
+val syncIframeOnlyReleaseApks = tasks.register<Sync>("syncIframeOnlyReleaseApks") {
+    dependsOn("assembleIframeOnlyRelease")
+    doFirst {
+        delete(legacyIframeOnlyReleaseDir)
+    }
+    from(iframeOnlyReleaseDir)
+    include("*.apk")
+    into(legacyIframeOnlyReleaseDir)
+    eachFile {
+        name = legacyIframeOnlyReleaseNames[name] ?: name.removePrefix("app-iframeOnly-")
+    }
+    includeEmptyDirs = false
+    doLast {
+        delete(iframeOnlyReleaseDir)
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    setDependsOn(listOf("assembleStandardRelease"))
+    finalizedBy(syncStandardReleaseApksForLegacyScript)
+}
+
+tasks.matching { it.name == "assembleStandardDebug" }.configureEach {
+    finalizedBy(syncStandardDebugApksForLegacyWorkflows)
+}
+
+tasks.matching { it.name == "assembleIframeOnlyRelease" }.configureEach {
+    finalizedBy(syncIframeOnlyReleaseApks)
 }
 
 composeCompiler {

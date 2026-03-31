@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.local
 
+import com.nuvio.tv.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -29,14 +30,20 @@ class TrailerSettingsDataStore @Inject constructor(
 
     val settings: Flow<TrailerSettings> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
-            TrailerSettings(
-                enabled = prefs[enabledKey] ?: true,
-                delaySeconds = prefs[delaySecondsKey] ?: 7,
-                playbackMode = prefs[playbackModeKey]
+            val playbackMode = if (BuildConfig.TRAILER_IFRAME_ONLY) {
+                TrailerPlaybackMode.YOUTUBE_IFRAME
+            } else {
+                prefs[playbackModeKey]
                     ?.let { stored ->
                         runCatching { TrailerPlaybackMode.valueOf(stored) }.getOrNull()
                     }
                     ?: TrailerPlaybackMode.IN_APP
+            }
+
+            TrailerSettings(
+                enabled = prefs[enabledKey] ?: true,
+                delaySeconds = prefs[delaySecondsKey] ?: 7,
+                playbackMode = playbackMode
             )
         }
     }
@@ -50,6 +57,7 @@ class TrailerSettingsDataStore @Inject constructor(
     }
 
     suspend fun setPlaybackMode(mode: TrailerPlaybackMode) {
+        if (BuildConfig.TRAILER_IFRAME_ONLY) return
         store().edit { it[playbackModeKey] = mode.name }
     }
 }
