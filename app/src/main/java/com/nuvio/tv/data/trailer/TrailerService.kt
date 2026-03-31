@@ -8,8 +8,10 @@ import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbVideoResult
 import com.nuvio.tv.data.remote.api.TrailerApi
+import java.time.Clock
 import java.net.URI
 import java.time.Instant
+import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,22 +21,42 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "TrailerService"
 private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
+private val YOUTUBE_SOURCE_CACHE_TTL: Duration = Duration.ofHours(3)
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
 @Singleton
-class TrailerService @Inject constructor(
+class TrailerService(
     private val trailerApi: TrailerApi,
     private val tmdbApi: TmdbApi,
     private val inAppYouTubeExtractor: InAppYouTubeExtractor,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
-    private val tmdbService: TmdbService
+    private val tmdbService: TmdbService,
+    private val clock: Clock
 ) {
-    // Cache: "title|year|tmdbId|type" -> trailer playback source (NEGATIVE_CACHE sentinel for misses)
+    @Inject
+    constructor(
+        trailerApi: TrailerApi,
+        tmdbApi: TmdbApi,
+        inAppYouTubeExtractor: InAppYouTubeExtractor,
+        trailerSettingsDataStore: TrailerSettingsDataStore,
+        tmdbSettingsDataStore: TmdbSettingsDataStore,
+        tmdbService: TmdbService
+    ) : this(
+        trailerApi = trailerApi,
+        tmdbApi = tmdbApi,
+        inAppYouTubeExtractor = inAppYouTubeExtractor,
+        trailerSettingsDataStore = trailerSettingsDataStore,
+        tmdbSettingsDataStore = tmdbSettingsDataStore,
+        tmdbService = tmdbService,
+        clock = Clock.systemUTC()
+    )
+
+    // Cache: "playbackMode|title|year|tmdbId|type" -> trailer playback source (NEGATIVE_CACHE sentinel for misses)
     private val cache = ConcurrentHashMap<String, TrailerPlaybackSource>()
     private val NEGATIVE_CACHE = TrailerPlaybackSource(videoUrl = "")
-    // Session cache: youtubeVideoId -> resolved playback source (success-only)
-    private val youtubeSourceCache = ConcurrentHashMap<String, TrailerPlaybackSource>()
+    // Time-bound cache: "playbackMode|youtubeVideoId" -> resolved playback source (success-only)
+    private val youtubeSourceCache = ConcurrentHashMap<String, CachedTrailerPlaybackSource>()
 
     /**
      * Search for a trailer by title, year, tmdbId, and type.
@@ -163,15 +185,17 @@ class TrailerService @Inject constructor(
         playbackMode: TrailerPlaybackMode? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         val resolvedPlaybackMode = playbackMode ?: getPreferredTrailerPlaybackMode()
-        var youtubeKey: String? = null
         try {
-            youtubeKey = extractYouTubeVideoId(youtubeUrl)
+            val youtubeKey = extractYouTubeVideoId(youtubeUrl)
             val resolvedYoutubeKey = youtubeKey?.takeIf { it.isNotBlank() }
-            if (resolvedYoutubeKey != null) {
-                youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)]?.let { cached ->
+            val youtubeCacheKey = resolvedYoutubeKey?.let {
+                youtubeCacheKey(resolvedPlaybackMode, it)
+            }
+            if (youtubeCacheKey != null) {
+                getValidCachedYoutubeSource(youtubeCacheKey)?.let { cached ->
                     Log.d(
                         TAG,
-                        "YouTube session cache hit for mode=$resolvedPlaybackMode key=${obfuscateYoutubeKey(resolvedYoutubeKey)}"
+                        "YouTube cache hit for mode=$resolvedPlaybackMode key=${obfuscateYoutubeKey(resolvedYoutubeKey)}"
                     )
                     return@withContext cached
                 }
@@ -179,7 +203,12 @@ class TrailerService @Inject constructor(
 
             if (resolvedPlaybackMode == TrailerPlaybackMode.YOUTUBE_IFRAME) {
                 val iframeSource = resolvedYoutubeKey?.let(::youtubeIframeSource) ?: return@withContext null
-                youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)] = iframeSource
+                if (youtubeCacheKey != null) {
+                    youtubeSourceCache[youtubeCacheKey] = CachedTrailerPlaybackSource(
+                        playbackSource = iframeSource,
+                        cachedAt = Instant.now(clock)
+                    )
+                }
                 Log.d(TAG, "Using configured YouTube iframe source for ${summarizeUrl(youtubeUrl)}")
                 return@withContext iframeSource
             }
@@ -187,8 +216,11 @@ class TrailerService @Inject constructor(
             Log.d(TAG, "Attempting in-app YouTube extraction for ${summarizeUrl(youtubeUrl)}")
             val localSource = inAppYouTubeExtractor.extractPlaybackSource(youtubeUrl)
             if (localSource != null) {
-                if (resolvedYoutubeKey != null) {
-                    youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)] = localSource
+                if (youtubeCacheKey != null) {
+                    youtubeSourceCache[youtubeCacheKey] = CachedTrailerPlaybackSource(
+                        playbackSource = localSource,
+                        cachedAt = Instant.now(clock)
+                    )
                 }
                 Log.d(
                     TAG,
@@ -216,9 +248,11 @@ class TrailerService @Inject constructor(
                 return@withContext null
             }
 
-            if (resolvedYoutubeKey != null) {
-                youtubeSourceCache[youtubeCacheKey(resolvedPlaybackMode, resolvedYoutubeKey)] =
-                    TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
+            if (youtubeCacheKey != null) {
+                youtubeSourceCache[youtubeCacheKey] = CachedTrailerPlaybackSource(
+                    playbackSource = TrailerPlaybackSource(videoUrl = validatedFallbackUrl),
+                    cachedAt = Instant.now(clock)
+                )
             }
             Log.d(TAG, "Using backend fallback source for ${summarizeUrl(youtubeUrl)}")
             TrailerPlaybackSource(videoUrl = validatedFallbackUrl)
@@ -338,6 +372,19 @@ class TrailerService @Inject constructor(
         return "$playbackMode|$youtubeKey"
     }
 
+    private fun getValidCachedYoutubeSource(cacheKey: String): TrailerPlaybackSource? {
+        val cached = youtubeSourceCache[cacheKey] ?: return null
+        val age = Duration.between(cached.cachedAt, Instant.now(clock))
+        if (age <= YOUTUBE_SOURCE_CACHE_TTL) {
+            return cached.playbackSource
+        }
+
+        youtubeSourceCache.remove(cacheKey, cached)
+        val youtubeKey = cacheKey.substringAfterLast('|', missingDelimiterValue = cacheKey)
+        Log.d(TAG, "YouTube cache expired for key=${obfuscateYoutubeKey(youtubeKey)} age=${age.toMinutes()}m")
+        return null
+    }
+
     fun clearCache() {
         cache.clear()
         youtubeSourceCache.clear()
@@ -385,6 +432,11 @@ class TrailerService @Inject constructor(
             }
         }.getOrNull()
     }
+
+    private data class CachedTrailerPlaybackSource(
+        val playbackSource: TrailerPlaybackSource,
+        val cachedAt: Instant
+    )
 }
 
 internal fun normalizeTmdbTrailerLanguage(language: String?): String {

@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.content.Context
 import android.os.SystemClock
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
@@ -28,6 +29,7 @@ import com.nuvio.tv.domain.repository.CatalogRepository
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -46,6 +48,7 @@ import javax.inject.Inject
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
+    @ApplicationContext internal val appContext: Context,
     internal val addonRepository: AddonRepository,
     internal val catalogRepository: CatalogRepository,
     internal val watchProgressRepository: WatchProgressRepository,
@@ -60,7 +63,8 @@ class HomeViewModel @Inject constructor(
     internal val tmdbService: TmdbService,
     internal val tmdbMetadataService: TmdbMetadataService,
     internal val trailerService: TrailerService,
-    internal val watchedItemsPreferences: WatchedItemsPreferences
+    internal val watchedItemsPreferences: WatchedItemsPreferences,
+    internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -127,6 +131,7 @@ class HomeViewModel @Inject constructor(
     internal var lastHeroEnrichmentSignature: String? = null
     internal var lastHeroEnrichedItems: List<MetaPreview> = emptyList()
     internal var heroItemOrder: List<String> = emptyList()
+    internal val modernCarouselRowBuildCache = ModernCarouselRowBuildCache()
     internal val prefetchedExternalMetaIds = Collections.synchronizedSet(mutableSetOf<String>())
     internal val externalMetaPrefetchInFlightIds = Collections.synchronizedSet(mutableSetOf<String>())
     internal var externalMetaPrefetchJob: Job? = null
@@ -135,6 +140,8 @@ class HomeViewModel @Inject constructor(
     internal val cwMetaCache = Collections.synchronizedMap(mutableMapOf<String, Meta?>())
     internal val cwTmdbIdCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
+    internal val discoveredOlderNextUpItems = Collections.synchronizedList(mutableListOf<ContinueWatchingItem.NextUp>())
+    internal val fullyWatchedSeriesIds get() = watchedSeriesStateHolder
     internal var tmdbEnrichFocusJob: Job? = null
     internal var pendingTmdbEnrichItemId: String? = null
     internal var adjacentItemPrefetchJob: Job? = null
@@ -143,6 +150,7 @@ class HomeViewModel @Inject constructor(
     internal val movieWatchedObserverJobs = mutableMapOf<String, Job>()
     internal var movieWatchedBatchJob: Job? = null
     internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
+    internal var seriesWatchedObserverJob: Job? = null
     internal var libraryTabsObserverJob: Job? = null
     internal var activePosterListPickerInput: LibraryEntryInput? = null
     internal var posterStatusObservationEnabled: Boolean = false
@@ -158,8 +166,10 @@ class HomeViewModel @Inject constructor(
         get() = trailerPreviewAudioUrlsState
 
     init {
+        watchedSeriesStateHolder.loadFromDisk()
         observeLayoutPreferences()
         observeTrailerPlaybackMode()
+        observeModernHomePresentation()
         observeExternalMetaPrefetchPreference()
         loadHomeCatalogOrderPreference()
         loadDisabledHomeCatalogPreference()
@@ -188,6 +198,8 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun observeLayoutPreferences() = observeLayoutPreferencesPipeline()
+
+    private fun observeModernHomePresentation() = observeModernHomePresentationPipeline()
 
     private fun observeExternalMetaPrefetchPreference() = observeExternalMetaPrefetchPreferencePipeline()
 
@@ -414,6 +426,7 @@ class HomeViewModel @Inject constructor(
         startupAuthNoticeJob?.cancel()
         posterStatusReconcileJob?.cancel()
         movieWatchedBatchJob?.cancel()
+        seriesWatchedObserverJob?.cancel()
         cancelInFlightCatalogLoads()
         posterLibraryObserverJobs.values.forEach { it.cancel() }
         movieWatchedObserverJobs.values.forEach { it.cancel() }
