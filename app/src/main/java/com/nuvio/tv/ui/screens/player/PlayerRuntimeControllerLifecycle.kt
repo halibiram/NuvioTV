@@ -35,6 +35,7 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     errorRetryJob = null
     _exoPlayer?.release()
     _exoPlayer = null
+    playbackSpeedAwareAudioOutputProvider = null
 }
 
 internal fun PlayerRuntimeController.notifyAudioSessionUpdate(active: Boolean) {

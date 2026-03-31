@@ -1033,6 +1033,7 @@ private fun PlayerControlsOverlay(
     skipButtonVisible: Boolean = false
 ) {
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val displayedSeekPosition = uiState.pendingPreviewSeekPosition ?: uiState.currentPosition
     val customPlayPainter = rememberRawSvgPainter(R.raw.ic_player_play)
     val customPausePainter = rememberRawSvgPainter(R.raw.ic_player_pause)
     val customSubtitlePainter = rememberRawSvgPainter(R.raw.ic_player_subtitles)
@@ -1154,7 +1155,7 @@ private fun PlayerControlsOverlay(
 
             // Progress bar
             ProgressBar(
-                currentPosition = uiState.pendingPreviewSeekPosition ?: uiState.currentPosition,
+                currentPosition = displayedSeekPosition,
                 duration = uiState.duration,
                 onSeekPreview = { delta ->
                     viewModel.onEvent(PlayerEvent.OnPreviewSeekBy(delta))
@@ -1331,7 +1332,7 @@ private fun PlayerControlsOverlay(
 
                 // Right side - Time display only
                 Text(
-                    text = "${formatTime(uiState.currentPosition)} / ${formatTime(uiState.duration)}",
+                    text = "${formatTime(displayedSeekPosition)} / ${formatTime(uiState.duration)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.9f)
                 )
@@ -1530,13 +1531,15 @@ private fun ProgressBar(
 
 @Composable
 private fun SeekOverlay(uiState: PlayerUiState) {
+    val displayedSeekPosition = uiState.pendingPreviewSeekPosition ?: uiState.currentPosition
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 32.dp, vertical = 24.dp)
     ) {
         ProgressBar(
-            currentPosition = uiState.currentPosition,
+            currentPosition = displayedSeekPosition,
             duration = uiState.duration,
             onSeekPreview = {},
             onSeekCommit = {}
@@ -1550,7 +1553,7 @@ private fun SeekOverlay(uiState: PlayerUiState) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${formatTime(uiState.currentPosition)} / ${formatTime(uiState.duration)}",
+                text = "${formatTime(displayedSeekPosition)} / ${formatTime(uiState.duration)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )

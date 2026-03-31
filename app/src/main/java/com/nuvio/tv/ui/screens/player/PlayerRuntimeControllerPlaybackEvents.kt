@@ -38,10 +38,9 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 if (playerDuration > lastKnownDuration) {
                     lastKnownDuration = playerDuration
                 }
-                val displayPosition = pendingPreviewSeekPosition ?: pos
                 _uiState.update {
                     it.copy(
-                        currentPosition = displayPosition,
+                        currentPosition = pos,
                         duration = playerDuration.coerceAtLeast(0L)
                     )
                 }
@@ -437,7 +436,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     .coerceAtLeast(0L)
                     .coerceAtMost(maxDuration)
                 player.seekTo(target)
-                _uiState.update { it.copy(currentPosition = target) }
+                _uiState.update { it.copy(currentPosition = target, pendingPreviewSeekPosition = null) }
                 scheduleProgressSyncAfterSeek()
             }
             if (_uiState.value.showControls) {
@@ -454,7 +453,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     .coerceAtLeast(0L)
                     .coerceAtMost(maxDuration)
                 pendingPreviewSeekPosition = target
-                _uiState.update { it.copy(currentPosition = target) }
+                _uiState.update { it.copy(pendingPreviewSeekPosition = target) }
             }
             if (_uiState.value.showControls) {
                 showControlsTemporarily()
@@ -466,7 +465,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             val target = pendingPreviewSeekPosition
             if (target != null) {
                 _exoPlayer?.seekTo(target)
-                _uiState.update { it.copy(currentPosition = target) }
+                _uiState.update { it.copy(currentPosition = target, pendingPreviewSeekPosition = null) }
                 pendingPreviewSeekPosition = null
                 scheduleProgressSyncAfterSeek()
                 if (_uiState.value.showControls) {
@@ -479,7 +478,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         is PlayerEvent.OnSeekTo -> {
             pendingPreviewSeekPosition = null
             _exoPlayer?.seekTo(event.position)
-            _uiState.update { it.copy(currentPosition = event.position) }
+            _uiState.update { it.copy(currentPosition = event.position, pendingPreviewSeekPosition = null) }
             scheduleProgressSyncAfterSeek()
             if (_uiState.value.showControls) {
                 showControlsTemporarily()
@@ -560,7 +559,14 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         is PlayerEvent.OnSetPlaybackSpeed -> {
-            _exoPlayer?.setPlaybackSpeed(event.speed)
+            val selectedAudioIsEac3 = _exoPlayer?.let(::selectedAudioIsEac3) == true
+            playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
+                event.speed,
+                selectedAudioIsEac3 = selectedAudioIsEac3
+            )
+            _exoPlayer?.let { player ->
+                player.setPlaybackSpeed(event.speed)
+            }
             _uiState.update { 
                 it.copy(
                     playbackSpeed = event.speed,
