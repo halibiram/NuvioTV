@@ -2,6 +2,8 @@ package com.nuvio.tv.domain.model
 
 data class TmdbSettings(
     val enabled: Boolean = false,
+    val modernHomeEnabled: Boolean = false,
+    val enrichContinueWatching: Boolean = true,
     // TMDB language preference (ISO-639-1, default English)
     val language: String = "en",
     // Group: Artwork (logo, backdrop)
@@ -19,5 +21,7 @@ data class TmdbSettings(
     // Group: Episodes (episode titles, overviews, thumbnails)
     val useEpisodes: Boolean = true,
     // Group: Recommendations (more like this)
-    val useMoreLikeThis: Boolean = true
+    val useMoreLikeThis: Boolean = true,
+    // Group: Collections
+    val useCollections: Boolean = true
 )

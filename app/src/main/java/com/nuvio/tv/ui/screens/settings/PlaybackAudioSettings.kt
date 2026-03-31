@@ -50,6 +50,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
+import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.TrailerSettings
@@ -60,6 +61,7 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
     playerSettings: PlayerSettings,
     trailerSettings: TrailerSettings,
     onShowAudioLanguageDialog: () -> Unit,
+    onShowSecondaryAudioLanguageDialog: () -> Unit,
     onShowDecoderPriorityDialog: () -> Unit,
     onSetTrailerEnabled: (Boolean) -> Unit,
     onSetTrailerDelaySeconds: (Int) -> Unit,
@@ -132,7 +134,7 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             AudioLanguageOption.DEVICE -> stringResource(R.string.audio_lang_device)
             else -> AVAILABLE_SUBTITLE_LANGUAGES.find {
                 it.code == playerSettings.preferredAudioLanguage
-            }?.name ?: playerSettings.preferredAudioLanguage
+            }?.displayName ?: playerSettings.preferredAudioLanguage
         }
 
         NavigationSettingsItem(
@@ -140,6 +142,21 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             title = stringResource(R.string.audio_preferred_lang),
             subtitle = audioLangName,
             onClick = onShowAudioLanguageDialog,
+            onFocused = onItemFocused,
+            enabled = enabled
+        )
+    }
+
+    item(key = "audio_secondary_preferred_language") {
+        val secondaryAudioLangName = playerSettings.secondaryPreferredAudioLanguage?.let { code ->
+            AVAILABLE_SUBTITLE_LANGUAGES.find { it.code == code }?.displayName ?: code
+        } ?: stringResource(R.string.sub_not_set)
+
+        NavigationSettingsItem(
+            icon = Icons.Default.Language,
+            title = stringResource(R.string.sub_secondary_lang),
+            subtitle = secondaryAudioLangName,
+            onClick = onShowSecondaryAudioLanguageDialog,
             onFocused = onItemFocused,
             enabled = enabled
         )
@@ -222,12 +239,16 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
 @Composable
 internal fun AudioSettingsDialogs(
     showAudioLanguageDialog: Boolean,
+    showSecondaryAudioLanguageDialog: Boolean,
     showDecoderPriorityDialog: Boolean,
     selectedLanguage: String,
+    selectedSecondaryLanguage: String?,
     selectedPriority: Int,
     onSetPreferredAudioLanguage: (String) -> Unit,
+    onSetSecondaryPreferredAudioLanguage: (String?) -> Unit,
     onSetDecoderPriority: (Int) -> Unit,
     onDismissAudioLanguageDialog: () -> Unit,
+    onDismissSecondaryAudioLanguageDialog: () -> Unit,
     onDismissDecoderPriorityDialog: () -> Unit
 ) {
     if (showAudioLanguageDialog) {
@@ -238,6 +259,19 @@ internal fun AudioSettingsDialogs(
                 onDismissAudioLanguageDialog()
             },
             onDismiss = onDismissAudioLanguageDialog
+        )
+    }
+
+    if (showSecondaryAudioLanguageDialog) {
+        LanguageSelectionDialog(
+            title = stringResource(R.string.sub_secondary_lang),
+            selectedLanguage = selectedSecondaryLanguage,
+            showNoneOption = true,
+            onLanguageSelected = {
+                onSetSecondaryPreferredAudioLanguage(it)
+                onDismissSecondaryAudioLanguageDialog()
+            },
+            onDismiss = onDismissSecondaryAudioLanguageDialog
         )
     }
 
@@ -264,7 +298,7 @@ private fun AudioLanguageSelectionDialog(
         AudioLanguageOption.DEFAULT to stringResource(R.string.audio_lang_default),
         AudioLanguageOption.DEVICE to stringResource(R.string.audio_lang_device)
     )
-    val allOptions = specialOptions + AVAILABLE_SUBTITLE_LANGUAGES.map { it.code to it.name }
+    val allOptions = specialOptions + AVAILABLE_SUBTITLE_LANGUAGES.sortedBy { it.displayName.lowercase() }.map { it.code to it.displayName }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()

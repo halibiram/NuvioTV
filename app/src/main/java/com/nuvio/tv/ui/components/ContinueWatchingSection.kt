@@ -3,8 +3,11 @@ package com.nuvio.tv.ui.components
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -52,7 +55,6 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
 import androidx.compose.ui.window.Dialog
-import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -62,10 +64,13 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlin.math.roundToInt
 import java.util.concurrent.TimeUnit
+import com.nuvio.tv.ui.util.localizeEpisodeTitle
 
 private val CwCardShape = RoundedCornerShape(12.dp)
 private val CwClipShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
 private val BadgeShape = RoundedCornerShape(4.dp)
+private val CwNewEpisodeBadgeColor = Color(0xFF1D4ED8)
+private val CwNewSeasonBadgeColor = Color(0xFFB45309)
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -75,9 +80,12 @@ fun ContinueWatchingSection(
     onDetailsClick: (ContinueWatchingItem) -> Unit = onItemClick,
     onRemoveItem: (ContinueWatchingItem) -> Unit,
     onStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
+    showManualPlayOption: Boolean = false,
+    onPlayManually: (ContinueWatchingItem) -> Unit = {},
     modifier: Modifier = Modifier,
     focusedItemIndex: Int = -1,
-    onItemFocused: (itemIndex: Int) -> Unit = {}
+    onItemFocused: (itemIndex: Int) -> Unit = {},
+    blurUnwatchedEpisodes: Boolean = false
 ) {
     if (items.isEmpty()) return
 
@@ -122,14 +130,16 @@ fun ContinueWatchingSection(
             )
         }
 
+        val restoreFocusRequester = remember(lastFocusedIndex, focusRequesters.size) {
+            val idx = if (lastFocusedIndex >= 0 && lastFocusedIndex < focusRequesters.size)
+                lastFocusedIndex else 0
+            focusRequesters.getOrNull(idx) ?: FocusRequester.Default
+        }
+
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRestorer {
-                        val idx = if (lastFocusedIndex >= 0 && lastFocusedIndex < focusRequesters.size)
-                            lastFocusedIndex else 0
-                        focusRequesters.getOrNull(idx) ?: FocusRequester.Default
-                    },
+                .focusRestorer(restoreFocusRequester),
             contentPadding = PaddingValues(horizontal = 48.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             state = listState
@@ -154,6 +164,7 @@ fun ContinueWatchingSection(
                     item = progress,
                     onClick = { onItemClick(progress) },
                     onLongPress = { optionsItem = progress },
+                    blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                     modifier = Modifier
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused && lastFocusedIndex != index) {
@@ -185,6 +196,11 @@ fun ContinueWatchingSection(
             onStartFromBeginning = {
                 onStartFromBeginning(menuItem)
                 optionsItem = null
+            },
+            showPlayManually = showManualPlayOption,
+            onPlayManually = {
+                onPlayManually(menuItem)
+                optionsItem = null
             }
         )
     }
@@ -214,23 +230,29 @@ fun ContinueWatchingCard(
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
     cardWidth: Dp = 288.dp,
-    imageHeight: Dp = 162.dp
+    imageHeight: Dp = 162.dp,
+    blurUnwatchedEpisodes: Boolean = false
 ) {
-    var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
 
-    val progress = (item as? ContinueWatchingItem.InProgress)?.progress
-    val nextUp = (item as? ContinueWatchingItem.NextUp)?.info
-    val episodeStr = progress?.episodeDisplayString ?: nextUp?.let { "S${it.season}E${it.episode}" }
+    val progress = remember(item) { (item as? ContinueWatchingItem.InProgress)?.progress }
+    val nextUp = remember(item) { (item as? ContinueWatchingItem.NextUp)?.info }
+    val episodeStr = remember(progress, nextUp) {
+        progress?.episodeDisplayString ?: nextUp?.let { "S${it.season}E${it.episode}" }
+    }
     val strAirsDate = stringResource(R.string.cw_airs_date, nextUp?.airDateLabel ?: "")
     val strUpcoming = stringResource(R.string.cw_upcoming)
     val strNextUp = stringResource(R.string.cw_next_up)
+    val strNewEpisode = stringResource(R.string.cw_new_episode)
+    val strNewSeason = stringResource(R.string.cw_new_season)
     val strResume = stringResource(R.string.cw_resume)
+    val strPercentWatched = stringResource(R.string.cw_percent_watched)
     val strHoursMinLeft = stringResource(R.string.cw_hours_min_left)
     val strMinLeft = stringResource(R.string.cw_min_left)
-    val strAlmostDone = stringResource(R.string.cw_almost_done)
     val nextUpBadgeText = nextUp?.let { info ->
-        if (!info.hasAired) {
+        if (info.isReleaseAlert) {
+            if (info.isNewSeasonRelease) strNewSeason else strNewEpisode
+        } else if (!info.hasAired) {
             info.airDateLabel?.let { strAirsDate } ?: strUpcoming
         } else {
             strNextUp
@@ -238,46 +260,50 @@ fun ContinueWatchingCard(
     }
     val remainingText = progress?.let {
         remember(it.position, it.duration, it.progressPercent) {
-            when {
-                it.duration > 0L -> formatRemainingTime(it.remainingTime, strHoursMinLeft, strMinLeft, strAlmostDone)
-                it.progressPercent != null -> "${it.progressPercent.toInt().coerceIn(0, 100)}% watched"
-                else -> strResume
-            }
+            formatContinueWatchingProgressLabel(
+                progress = it,
+                resumeLabel = strResume,
+                percentWatchedLabel = strPercentWatched,
+                hoursMinLeftLabel = strHoursMinLeft,
+                minLeftLabel = strMinLeft
+            )
         }
     }
-    val watchedPercentText = progress?.let {
-        val dbPercent = it.progressPercent ?: (it.progressPercentage * 100f)
-        "${dbPercent.coerceIn(0f, 100f).roundToInt()}%"
-    }
-    val badgeText = if (BuildConfig.IS_DEBUG_BUILD && watchedPercentText != null) {
-        remainingText?.let { "$it · $watchedPercentText" } ?: watchedPercentText
-    } else {
+    val badgeText = remember(remainingText, nextUpBadgeText, strNextUp) {
         remainingText ?: nextUpBadgeText ?: strNextUp
     }
-    val progressFraction = progress?.progressPercentage ?: 0f
-    val imageModel = when {
-        nextUp != null && !nextUp.hasAired -> firstNonBlank(
-            nextUp.backdrop,
-            nextUp.poster,
-            nextUp.thumbnail,
-            progress?.backdrop,
-            progress?.poster
-        )
-        else -> firstNonBlank(
-            nextUp?.thumbnail,
-            progress?.backdrop,
-            progress?.poster,
-            nextUp?.backdrop,
-            nextUp?.poster
-        )
+    val progressFraction = remember(progress) { progress?.progressPercentage ?: 0f }
+    val imageModel = remember(nextUp, progress, item) {
+        when {
+            nextUp != null && !nextUp.hasAired -> firstNonBlank(
+                nextUp.backdrop,
+                nextUp.poster,
+                nextUp.thumbnail,
+                progress?.backdrop,
+                progress?.poster
+            )
+            nextUp != null -> firstNonBlank(
+                nextUp.thumbnail,
+                nextUp.backdrop,
+                nextUp.poster
+            )
+            else -> firstNonBlank(
+                (item as? ContinueWatchingItem.InProgress)?.episodeThumbnail,
+                progress?.backdrop,
+                progress?.poster
+            )
+        }
     }
-    val titleText = progress?.name ?: nextUp?.name.orEmpty()
-    val episodeTitle = when {
-        progress != null -> progress.episodeTitle
-        nextUp != null && !nextUp.hasAired -> nextUp.episodeTitle ?: nextUp.airDateLabel?.let { stringResource(R.string.cw_airs_date, it) }
-        else -> nextUp?.episodeTitle
-    }
+    val titleText = remember(progress, nextUp) { progress?.name ?: nextUp?.name.orEmpty() }
     val context = LocalContext.current
+    val strAirsDateForEpisode = nextUp?.airDateLabel?.let { stringResource(R.string.cw_airs_date, it) }
+    val episodeTitle = remember(progress, nextUp, context, strAirsDateForEpisode) {
+        when {
+            progress != null -> progress.episodeTitle?.localizeEpisodeTitle(context)
+            nextUp != null && !nextUp.hasAired -> nextUp.episodeTitle?.localizeEpisodeTitle(context) ?: strAirsDateForEpisode
+            else -> nextUp?.episodeTitle?.localizeEpisodeTitle(context)
+        }
+    }
     val density = LocalDensity.current
     val requestWidthPx = remember(cardWidth, density) {
         with(density) { cardWidth.roundToPx() }
@@ -285,27 +311,30 @@ fun ContinueWatchingCard(
     val requestHeightPx = remember(imageHeight, density) {
         with(density) { imageHeight.roundToPx() }
     }
-    val imageRequest = remember(imageModel, requestWidthPx, requestHeightPx) {
+    val shouldBlur = blurUnwatchedEpisodes && nextUp != null
+    val imageRequest = remember(imageModel, requestWidthPx, requestHeightPx, shouldBlur) {
         ImageRequest.Builder(context)
             .data(imageModel)
             .crossfade(false)
-            .memoryCacheKey("${imageModel}_${requestWidthPx}x${requestHeightPx}")
+            .memoryCacheKey("${imageModel}_${requestWidthPx}x${requestHeightPx}_blur${shouldBlur}")
             .size(width = requestWidthPx, height = requestHeightPx)
+            .apply {
+                if (shouldBlur) transformations(com.nuvio.tv.ui.util.BlurTransformation())
+            }
             .build()
     }
 
     val bgColor = NuvioColors.Background
-    val overlayBrush = remember(bgColor) {
-        Brush.verticalGradient(
-            colorStops = arrayOf(
-                0.0f to Color.Transparent,
-                0.5f to Color.Transparent,
-                0.8f to bgColor.copy(alpha = 0.7f),
-                1.0f to bgColor.copy(alpha = 0.95f)
-            )
-        )
+    val badgeBackground = remember(bgColor, nextUp) {
+        when {
+            nextUp?.isNewSeasonRelease == true -> CwNewSeasonBadgeColor
+            nextUp?.isReleaseAlert == true -> CwNewEpisodeBadgeColor
+            else -> bgColor.copy(alpha = 0.8f)
+        }
     }
-    val badgeBackground = remember(bgColor) { bgColor.copy(alpha = 0.8f) }
+    
+    val bgCardColor = NuvioColors.BackgroundCard
+    val backgroundPainter = remember(bgCardColor) { androidx.compose.ui.graphics.painter.ColorPainter(bgCardColor) }
 
     Card(
         onClick = {
@@ -317,7 +346,6 @@ fun ContinueWatchingCard(
         },
         modifier = modifier
             .width(cardWidth)
-            .onFocusChanged { isFocused = it.isFocused }
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
@@ -341,8 +369,8 @@ fun ContinueWatchingCard(
             },
         shape = CardDefaults.shape(shape = CwCardShape),
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -350,7 +378,7 @@ fun ContinueWatchingCard(
                 shape = CwCardShape
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.02f)
+        scale = CardDefaults.scale(focusedScale = 1f)
     ) {
         Column {
             // Thumbnail with progress overlay
@@ -368,15 +396,36 @@ fun ContinueWatchingCard(
                         model = imageRequest,
                         contentDescription = titleText,
                         modifier = Modifier.fillMaxSize(),
+                        placeholder = backgroundPainter,
+                        error = backgroundPainter,
+                        fallback = backgroundPainter,
                         contentScale = ContentScale.Crop
                     )
                 }
 
-                // Gradient overlay for text readability
+                // Gradient overlay for text readability - Optimized bounding to avoid transparent overdraw
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(overlayBrush)
+                        .drawWithCache {
+                            val startYPos = size.height * 0.5f // Skip top 50%
+                            val gradient = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Transparent,
+                                    0.6f to bgColor.copy(alpha = 0.7f), // Mapped from original 0.8
+                                    1.0f to bgColor.copy(alpha = 0.95f)
+                                ),
+                                startY = startYPos,
+                                endY = size.height
+                            )
+                            onDrawBehind { 
+                                drawRect(
+                                    brush = gradient,
+                                    topLeft = Offset(0f, startYPos),
+                                    size = Size(size.width, size.height - startYPos)
+                                ) 
+                            }
+                        }
                 )
 
                 // Content info at bottom
@@ -390,7 +439,7 @@ fun ContinueWatchingCard(
                         Text(
                             text = episodeStr,
                             style = MaterialTheme.typography.labelMedium,
-                            color = NuvioColors.Primary
+                            color = NuvioColors.TextPrimary
                         )
                     }
 
@@ -461,7 +510,9 @@ fun ContinueWatchingOptionsDialog(
     onDismiss: () -> Unit,
     onRemove: () -> Unit,
     onDetails: () -> Unit,
-    onStartFromBeginning: () -> Unit = {}
+    onStartFromBeginning: () -> Unit = {},
+    showPlayManually: Boolean = false,
+    onPlayManually: () -> Unit = {}
 ) {
     val title = when (item) {
         is ContinueWatchingItem.InProgress -> item.progress.name
@@ -490,6 +541,19 @@ fun ContinueWatchingOptionsDialog(
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
+        }
+
+        if (showPlayManually) {
+            Button(
+                onClick = onPlayManually,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioColors.BackgroundCard,
+                    contentColor = NuvioColors.TextPrimary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.play_manually))
+            }
         }
 
         if (item is ContinueWatchingItem.InProgress) {

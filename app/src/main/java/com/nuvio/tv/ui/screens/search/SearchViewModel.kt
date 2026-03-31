@@ -1,18 +1,23 @@
 package com.nuvio.tv.ui.screens.search
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.R
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.skipStep
+import com.nuvio.tv.domain.model.supportsExtra
 import com.nuvio.tv.core.util.filterReleasedItems
 import com.nuvio.tv.core.util.isUnreleased
 import com.nuvio.tv.domain.repository.AddonRepository
 import java.time.LocalDate
 import com.nuvio.tv.domain.repository.CatalogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,11 +34,18 @@ import javax.inject.Inject
 class SearchViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository,
-    private val layoutPreferenceDataStore: LayoutPreferenceDataStore
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository,
+    private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
+
+    private val _watchedMovieIds = MutableStateFlow<Set<String>>(emptySet())
+    val watchedMovieIds: StateFlow<Set<String>> = _watchedMovieIds.asStateFlow()
+    val watchedSeriesIds: StateFlow<Set<String>> = watchedSeriesStateHolder.fullyWatchedSeriesIds
 
     private val catalogsMap = linkedMapOf<String, CatalogRow>()
     private val catalogOrder = mutableListOf<String>()
@@ -41,6 +53,7 @@ class SearchViewModel @Inject constructor(
     private var activeSearchJobs: List<Job> = emptyList()
     private var discoverJob: Job? = null
     private var catalogRowsUpdateJob: Job? = null
+    private var suggestionJob: Job? = null
     private var hasRenderedFirstCatalog = false
     private var pendingCatalogResponses = 0
     private var revealBatchAfterNextDiscoverFetch = false
@@ -49,9 +62,15 @@ class SearchViewModel @Inject constructor(
     private companion object {
         const val DISCOVER_INITIAL_LIMIT = 100
         const val DISCOVER_SHOW_MORE_BATCH = 50
+        const val SUGGESTION_DEBOUNCE_MS = 150L
+        const val MAX_SUGGESTIONS = 8
     }
 
     init {
+        viewModelScope.launch {
+            watchProgressRepository.observeWatchedMovieIds()
+                .collect { ids -> _watchedMovieIds.value = ids }
+        }
         viewModelScope.launch {
             layoutPreferenceDataStore.searchDiscoverEnabled.collectLatest { enabled ->
                 _uiState.update { it.copy(discoverEnabled = enabled) }
@@ -145,6 +164,83 @@ class SearchViewModel @Inject constructor(
         // Search is explicit on submit only; stop any in-flight requests while editing.
         activeSearchJobs.forEach { it.cancel() }
         activeSearchJobs = emptyList()
+
+        fetchSuggestions(query.trim())
+    }
+
+    private fun fetchSuggestions(query: String) {
+        suggestionJob?.cancel()
+
+        if (query.length < 2) {
+            _uiState.update { it.copy(suggestions = emptyList()) }
+            return
+        }
+
+        // Don't show suggestions if the query already matches the submitted search
+        if (query == _uiState.value.submittedQuery.trim() && _uiState.value.catalogRows.isNotEmpty()) {
+            _uiState.update { it.copy(suggestions = emptyList()) }
+            return
+        }
+
+        suggestionJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(SUGGESTION_DEBOUNCE_MS)
+
+            val addons = try {
+                addonRepository.getInstalledAddons().first()
+            } catch (_: Exception) {
+                return@launch
+            }
+
+            val allTargets = buildSearchTargets(addons)
+            val firstAddonId = allTargets.firstOrNull()?.first?.id
+            val searchTargets = if (firstAddonId != null) allTargets.filter { it.first.id == firstAddonId } else emptyList()
+            if (searchTargets.isEmpty()) {
+                _uiState.update { it.copy(suggestions = emptyList()) }
+                return@launch
+            }
+
+            val collectedNames = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+            val queryLower = query.lowercase()
+            val suggestionJobs = searchTargets.map { (addon, catalog) ->
+                launch {
+                    try {
+                        catalogRepository.getCatalog(
+                            addonBaseUrl = addon.baseUrl,
+                            addonId = addon.id,
+                            addonName = addon.displayName,
+                            catalogId = catalog.id,
+                            catalogName = catalog.name,
+                            type = catalog.apiType,
+                            skip = 0,
+                            skipStep = 100,
+                            extraArgs = mapOf("search" to query),
+                            supportsSkip = false
+                        ).collect { result ->
+                            if (result is NetworkResult.Success && _uiState.value.query.trim() == query) {
+                                var added = false
+                                result.data.items.forEach { item ->
+                                    if (collectedNames.add(item.name)) added = true
+                                }
+                                // Push updated suggestions immediately as each addon responds
+                                if (added) {
+                                    val sorted = collectedNames
+                                        .sortedWith(
+                                            compareByDescending<String> { it.lowercase().startsWith(queryLower) }
+                                                .thenBy { it.lowercase() }
+                                        )
+                                        .take(MAX_SUGGESTIONS)
+                                    _uiState.update { it.copy(suggestions = sorted) }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Ignore per-catalog errors for suggestions
+                    }
+                }
+            }
+
+            suggestionJobs.joinAll()
+        }
     }
 
     private fun submitSearch() {
@@ -153,10 +249,12 @@ class SearchViewModel @Inject constructor(
 
     private fun performSearch(rawQuery: String) {
         val query = rawQuery.trim()
+        suggestionJob?.cancel()
         _uiState.update {
             it.copy(
                 submittedQuery = query,
-                query = rawQuery
+                query = rawQuery,
+                suggestions = emptyList()
             )
         }
 
@@ -204,7 +302,7 @@ class SearchViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isSearching = false,
-                        error = "No searchable catalogs found in installed addons",
+                        error = context.getString(R.string.search_error_no_catalogs),
                         catalogRows = emptyList()
                     )
                 }
@@ -243,7 +341,8 @@ class SearchViewModel @Inject constructor(
     }
 
     private suspend fun loadCatalog(addon: Addon, catalog: CatalogDescriptor, query: String) {
-        val supportsSkip = catalog.extra.any { it.name == "skip" }
+        val supportsSkip = catalog.supportsExtra("skip")
+        val skipStep = catalog.skipStep()
         catalogRepository.getCatalog(
             addonBaseUrl = addon.baseUrl,
             addonId = addon.id,
@@ -252,6 +351,7 @@ class SearchViewModel @Inject constructor(
             catalogName = catalog.name,
             type = catalog.apiType,
             skip = 0,
+            skipStep = skipStep,
             extraArgs = mapOf("search" to query),
             supportsSkip = supportsSkip
         ).collect { result ->
@@ -302,8 +402,7 @@ class SearchViewModel @Inject constructor(
                 return@launch
             }
 
-            // Use actual loaded item count for skip, not fixed 100-page size
-            val nextSkip = currentRow.items.size
+            val nextSkip = (currentRow.currentPage + 1) * currentRow.skipStep
             catalogRepository.getCatalog(
                 addonBaseUrl = addon.baseUrl,
                 addonId = addon.id,
@@ -312,6 +411,7 @@ class SearchViewModel @Inject constructor(
                 catalogName = currentRow.catalogName,
                 type = currentRow.apiType,
                 skip = nextSkip,
+                skipStep = currentRow.skipStep,
                 extraArgs = mapOf("search" to query),
                 supportsSkip = currentRow.supportsSkip
             ).collect { result ->
@@ -384,11 +484,12 @@ class SearchViewModel @Inject constructor(
         val discoverCatalogs = addons.flatMap { addon ->
             addon.catalogs
                 .filter { catalog ->
-                    !catalog.extra.any { it.name == "search" && it.isRequired }
+                    !(catalog.supportsExtra("search") &&
+                        catalog.extra.any { it.name.equals("search", ignoreCase = true) && it.isRequired })
                 }
                 .map { catalog ->
                     val genres = catalog.extra
-                        .firstOrNull { it.name == "genre" }
+                        .firstOrNull { it.name.equals("genre", ignoreCase = true) }
                         ?.options
                         .orEmpty()
                     DiscoverCatalog(
@@ -400,7 +501,8 @@ class SearchViewModel @Inject constructor(
                         catalogName = catalog.name,
                         type = catalog.apiType,
                         genres = genres,
-                        supportsSkip = catalog.extra.any { it.name == "skip" }
+                        supportsSkip = catalog.supportsExtra("skip"),
+                        skipStep = catalog.skipStep()
                     )
                 }
         }
@@ -537,7 +639,7 @@ class SearchViewModel @Inject constructor(
             }
 
             val currentPage = if (reset) 1 else state.discoverPage + 1
-            val skip = if (currentPage <= 1) 0 else state.discoverResults.size + state.pendingDiscoverResults.size
+            val skip = if (currentPage <= 1) 0 else (currentPage - 1) * selectedCatalog.skipStep
             val visibleCountBeforeRequest = state.discoverResults.size
             val extraArgs = buildMap<String, String> {
                 state.selectedDiscoverGenre?.takeIf { it.isNotBlank() }?.let { put("genre", it) }
@@ -551,6 +653,7 @@ class SearchViewModel @Inject constructor(
                 catalogName = selectedCatalog.catalogName,
                 type = selectedCatalog.type,
                 skip = skip,
+                skipStep = selectedCatalog.skipStep,
                 extraArgs = extraArgs,
                 supportsSkip = selectedCatalog.supportsSkip
             ).collect { result ->
@@ -629,13 +732,9 @@ class SearchViewModel @Inject constructor(
         val allSearchTargets = addons.flatMap { addon ->
             addon.catalogs
                 .filter { catalog ->
-                    catalog.extra.any { it.name == "search" }
+                    catalog.supportsExtra("search")
                 }
                 .map { catalog -> addon to catalog }
-        }
-
-        val requiredSearchTargets = allSearchTargets.filter { (_, catalog) ->
-            catalog.extra.any { it.name == "search" && it.isRequired }
         }
 
         return allSearchTargets

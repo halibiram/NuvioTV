@@ -1,8 +1,10 @@
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -27,6 +30,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -39,50 +43,102 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
+import androidx.compose.ui.res.stringResource
+
+private data class ModernHeroSecondaryMeta(
+    val highlightText: String?,
+    val ageRating: String?,
+    val status: String?,
+    val details: List<String>
+)
+
+@Composable
+internal fun ModernHeroScene(
+    state: ModernHeroSceneState,
+    bgColor: Color,
+    modifier: Modifier,
+    requestWidthPx: Int,
+    requestHeightPx: Int,
+    onTrailerEnded: () -> Unit,
+    onFirstFrameRendered: () -> Unit
+) {
+    ModernHeroMediaLayer(
+        heroBackdrop = state.heroBackdrop,
+        enrichmentActive = state.enrichmentActive,
+        shouldPlayHeroTrailer = state.shouldPlayTrailer,
+        heroTrailerFirstFrameRendered = state.trailerFirstFrameRendered,
+        heroTrailerUrl = state.trailerUrl,
+        heroTrailerAudioUrl = state.trailerAudioUrl,
+        muted = state.trailerMuted,
+        onTrailerEnded = onTrailerEnded,
+        onFirstFrameRendered = onFirstFrameRendered,
+        modifier = modifier,
+        requestWidthPx = requestWidthPx,
+        requestHeightPx = requestHeightPx
+    )
+    ModernHeroGradientLayer(
+        bgColor = bgColor,
+        isFullScreen = state.fullScreenBackdrop,
+        modifier = modifier
+    )
+}
 
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
-    heroBackdropAlpha: Float,
+    enrichmentActive: Boolean,
     shouldPlayHeroTrailer: Boolean,
+    heroTrailerFirstFrameRendered: Boolean,
     heroTrailerUrl: String?,
     heroTrailerAudioUrl: String?,
-    heroTrailerAlpha: Float,
     muted: Boolean,
-    bgColor: Color,
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit,
     modifier: Modifier,
     requestWidthPx: Int,
     requestHeightPx: Int
 ) {
+    val transitionProgressState = animateFloatAsState(
+        targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
+        animationSpec = tween(durationMillis = 480),
+        label = "heroBackdropTrailerCrossfadeProgress"
+    )
     val localContext = LocalContext.current
+
+    // Freeze the backdrop URL while enrichment is active — only update when enrichment ends
+    // so Coil crossfade starts with the final URL, not an intermediate one.
+    var stableBackdrop by remember { mutableStateOf(heroBackdrop) }
+    if (!enrichmentActive) stableBackdrop = heroBackdrop
+
+    val imageModel = remember(localContext, stableBackdrop, requestWidthPx, requestHeightPx) {
+        ImageRequest.Builder(localContext)
+            .data(stableBackdrop)
+            .crossfade(400)
+            .size(width = requestWidthPx, height = requestHeightPx)
+            .build()
+    }
+
     Box(modifier = modifier) {
-        Crossfade(
-            targetState = heroBackdrop,
+        AsyncImage(
+            model = imageModel,
+            contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = heroBackdropAlpha },
-            animationSpec = tween(durationMillis = 350),
-            label = "modernHeroBackground"
-        ) { imageUrl ->
-            val imageModel = remember(localContext, imageUrl, requestWidthPx, requestHeightPx) {
-                ImageRequest.Builder(localContext)
-                    .data(imageUrl)
-                    .crossfade(false)
-                    .size(width = requestWidthPx, height = requestHeightPx)
-                    .build()
-            }
-            AsyncImage(
-                model = imageModel,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopEnd
-            )
-        }
+                .then(
+                    if (transitionProgressState.value > 0f) {
+                        Modifier.graphicsLayer {
+                            alpha = 1f - transitionProgressState.value
+                        }
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopEnd
+        )
 
         if (shouldPlayHeroTrailer) {
             TrailerPlayer(
@@ -96,73 +152,116 @@ internal fun ModernHeroMediaLayer(
                 overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = heroTrailerAlpha }
+                    .graphicsLayer {
+                        alpha = transitionProgressState.value
+                    }
             )
         }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    val leftBlendSolidWidth = size.width * 0.018f
-                    val horizontalGradientStartX = leftBlendSolidWidth
-                    val horizontalFadeEndX = horizontalGradientStartX + (size.width * 0.36f)
-                    val horizontalGradient = Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0.0f to bgColor,
-                            0.08f to bgColor.copy(alpha = 0.95f),
-                            0.16f to bgColor.copy(alpha = 0.86f),
-                            0.24f to bgColor.copy(alpha = 0.74f),
-                            0.34f to bgColor.copy(alpha = 0.58f),
-                            0.46f to bgColor.copy(alpha = 0.40f),
-                            0.62f to bgColor.copy(alpha = 0.24f),
-                            0.80f to bgColor.copy(alpha = 0.10f),
-                            1.0f to Color.Transparent
-                        ),
-                        startX = horizontalGradientStartX,
-                        endX = horizontalFadeEndX
-                    )
-                    val radialGradient = Brush.radialGradient(
-                        colorStops = arrayOf(
-                            0.0f to bgColor.copy(alpha = 0.78f),
-                            0.55f to bgColor.copy(alpha = 0.52f),
-                            0.80f to bgColor.copy(alpha = 0.16f),
-                            1.0f to Color.Transparent
-                        ),
-                        center = Offset(0f, size.height / 2f),
-                        radius = size.height
-                    )
-                    val verticalGradient = Brush.verticalGradient(
-                        0.78f to Color.Transparent,
-                        0.90f to bgColor.copy(alpha = 0.72f),
-                        0.96f to bgColor.copy(alpha = 0.98f),
-                        1.0f to bgColor
-                    )
-                    onDrawWithContent {
-                        drawContent()
-                        // Blend strip to avoid visible seam at media start edge.
-                        drawRect(
-                            color = bgColor,
-                            size = Size(leftBlendSolidWidth, size.height)
-                        )
-                        drawRect(brush = horizontalGradient, size = size)
-                        drawRect(brush = radialGradient, size = size)
-                        drawRect(brush = verticalGradient, size = size)
-                    }
-                }
-        )
     }
+}
+
+@Composable
+internal fun ModernHeroGradientLayer(
+    bgColor: Color,
+    isFullScreen: Boolean = false,
+    modifier: Modifier
+) {
+    Box(
+        modifier = modifier
+            .drawWithCache {
+                val horizontalFadeEndX = size.width * if (isFullScreen) 0.65f else 0.45f
+                val horizontalGradient = Brush.horizontalGradient(
+                    colorStops = if (isFullScreen) {
+                        arrayOf(
+                            0.0f to bgColor,
+                            0.22f to bgColor.copy(alpha = 0.90f),
+                            0.46f to bgColor.copy(alpha = 0.80f),
+                            0.76f to bgColor.copy(alpha = 0.42f),
+                            1.0f to Color.Transparent
+                        )
+                    } else {
+                        arrayOf(
+                            0.0f to bgColor,
+                            0.22f to bgColor.copy(alpha = 0.86f),
+                            0.46f to bgColor.copy(alpha = 0.56f),
+                            0.76f to bgColor.copy(alpha = 0.16f),
+                            1.0f to Color.Transparent
+                        )
+                    },
+                    startX = 0f,
+                    endX = horizontalFadeEndX
+                )
+
+                val bottomStripStartY = size.height * if (isFullScreen) 0.64f else 0.82f
+                val verticalGradient = Brush.verticalGradient(
+                    colorStops = if (isFullScreen) {
+                        arrayOf(
+                            0.0f to Color.Transparent,
+                            0.30f to bgColor.copy(alpha = 0.35f),
+                            0.60f to bgColor.copy(alpha = 0.75f),
+                            1.0f to bgColor
+                        )
+                    } else {
+                        arrayOf(
+                            0.0f to Color.Transparent,
+                            0.40f to bgColor.copy(alpha = 0.25f),
+                            0.75f to bgColor.copy(alpha = 0.65f),
+                            1.0f to bgColor
+                        )
+                    },
+                    startY = bottomStripStartY,
+                    endY = size.height
+                )
+
+                onDrawBehind {
+                    // 1. Horizontal fade
+                    drawRect(
+                        brush = horizontalGradient,
+                        topLeft = Offset(0f, 0f),
+                        size = Size(horizontalFadeEndX, size.height)
+                    )
+                    
+                    // 2. Bottom vertical strip
+                    drawRect(
+                        brush = verticalGradient,
+                        topLeft = Offset(0f, bottomStripStartY),
+                        size = Size(size.width, size.height - bottomStripStartY)
+                    )
+                }
+            }
+    )
 }
 
 @Composable
 internal fun HeroTitleBlock(
     preview: HeroPreview?,
+    enrichmentActive: Boolean = false,
     portraitMode: Boolean,
+    trailerPlaying: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    if (preview == null) return
+    var stablePreview by remember { mutableStateOf<HeroPreview?>(null) }
 
-    val descriptionMaxLines = if (portraitMode) 4 else 5
+    if (!enrichmentActive && preview != null) stablePreview = preview
+    if (enrichmentActive) stablePreview = null
+
+    if (stablePreview == null) return
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.BottomStart
+    ) {
+        HeroTitleContent(preview = stablePreview!!, portraitMode = portraitMode, trailerPlaying = trailerPlaying)
+    }
+}
+
+@Composable
+private fun HeroTitleContent(
+    preview: HeroPreview?,
+    portraitMode: Boolean,
+    trailerPlaying: Boolean = false
+) {
+    if (preview == null) return
+    val descriptionMaxLines = 4
     val descriptionScale = if (portraitMode) 0.90f else 1f
     val titleScale = if (portraitMode) 0.92f else 1f
     val metaScale = 1f
@@ -181,6 +280,7 @@ internal fun HeroTitleBlock(
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
+                .decoderFactory(SvgDecoder.Factory())
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
         }
@@ -191,6 +291,12 @@ internal fun HeroTitleBlock(
             .decoderFactory(SvgDecoder.Factory())
             .build()
     }
+
+    val metaAlpha by animateFloatAsState(
+        targetValue = if (trailerPlaying) 0f else 1f,
+        animationSpec = tween(durationMillis = 480),
+        label = "heroMetaFade"
+    )
     val scaledTitleStyle = remember(headlineLarge, titleScale) {
         headlineLarge.copy(
             fontSize = headlineLarge.fontSize * titleScale,
@@ -205,7 +311,7 @@ internal fun HeroTitleBlock(
     }
 
     Column(
-        modifier = modifier,
+        modifier = Modifier,
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
         var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
@@ -232,41 +338,88 @@ internal fun HeroTitleBlock(
             )
         }
 
+        val strStatusEnded = stringResource(R.string.series_status_ended)
+        val strStatusContinuing = stringResource(R.string.series_status_continuing)
+        val strStatusCurrent = stringResource(R.string.series_status_current)
+        val strStatusCancelled = stringResource(R.string.series_status_cancelled)
+        val strStatusReleased = stringResource(R.string.series_status_released)
+        val strStatusPlanned = stringResource(R.string.series_status_planned)
+        val strStatusRumored = stringResource(R.string.series_status_rumored)
+        val strStatusInProduction = stringResource(R.string.series_status_in_production)
+        val strStatusPostProduction = stringResource(R.string.series_status_post_production)
+        val secondaryMeta = remember(
+            preview.secondaryHighlightText,
+            preview.ageRatingText,
+            preview.statusText,
+            preview.languageText
+        ) {
+            ModernHeroSecondaryMeta(
+                highlightText = preview.secondaryHighlightText?.trim()?.takeIf { it.isNotBlank() },
+                ageRating = preview.ageRatingText?.trim()?.takeIf { it.isNotBlank() },
+                status = when (preview.statusText?.trim()?.lowercase()) {
+                    "ended" -> strStatusEnded.uppercase()
+                    "continuing", "returning series" -> strStatusContinuing.uppercase()
+                    "current" -> strStatusCurrent.uppercase()
+                    "cancelled", "canceled" -> strStatusCancelled.uppercase()
+                    "released" -> strStatusReleased.uppercase()
+                    "planned" -> strStatusPlanned.uppercase()
+                    "rumored" -> strStatusRumored.uppercase()
+                    "in production" -> strStatusInProduction.uppercase()
+                    "post production" -> strStatusPostProduction.uppercase()
+                    else -> preview.statusText?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+                },
+                details = buildList {
+                    preview.languageText?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+                }
+            )
+        }
+
+        val secondaryHighlightText = secondaryMeta.highlightText
+        val ageRatingBadge = secondaryMeta.ageRating
+        val statusBadge = secondaryMeta.status
+        val secondaryDetails = secondaryMeta.details
+        val hasSecondaryBadge = ageRatingBadge != null || statusBadge != null
+        val showImdbInPrimary = !preview.isSeries && !hasSecondaryBadge && !preview.imdbText.isNullOrBlank()
+        val showImdbInPrimaryWithHighlight = showImdbInPrimary && secondaryHighlightText == null
+        val showImdbInSecondary = !preview.imdbText.isNullOrBlank() &&
+            (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
+
         Row(
+            modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = metaAlpha },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(metaSpacing)
         ) {
-            var hasLeadingMeta = false
-
-            preview.contentTypeText?.takeIf { it.isNotBlank() }?.let { contentType ->
-                Text(
-                    text = contentType,
-                    style = labelMedium,
-                    color = NuvioColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                hasLeadingMeta = true
+            val leadingMetaText = remember(preview.contentTypeText, preview.genres) {
+                buildList {
+                    preview.contentTypeText?.takeIf { it.isNotBlank() }?.let(::add)
+                    preview.genres.firstOrNull()?.takeIf { it.isNotBlank() }?.let(::add)
+                }.joinToString(separator = " • ")
             }
+            val hasLeadingMeta = leadingMetaText.isNotBlank()
 
-            preview.genres.firstOrNull()?.takeIf { it.isNotBlank() }?.let { genre ->
-                if (hasLeadingMeta) {
-                    HeroMetaDivider(metaScale)
-                }
-                Text(
-                    text = genre,
-                    style = labelMedium,
-                    color = NuvioColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                hasLeadingMeta = true
-            }
-
+            val runtimeText = preview.runtimeText
             val yearText = preview.yearText
             val imdbText = preview.imdbText
-            val hasYearOrImdb = !yearText.isNullOrBlank() || !imdbText.isNullOrBlank()
-            if (hasYearOrImdb) {
+            val hasTrailingMeta = !runtimeText.isNullOrBlank() ||
+                !yearText.isNullOrBlank() ||
+                showImdbInPrimaryWithHighlight
+
+            if (hasLeadingMeta) {
+                Text(
+                    text = leadingMetaText,
+                    style = labelMedium,
+                    color = NuvioColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (hasTrailingMeta) {
+                        Modifier.weight(1f, fill = false)
+                    } else {
+                        Modifier
+                    }
+                )
+            }
+
+            if (hasTrailingMeta) {
                 if (hasLeadingMeta) {
                     HeroMetaDivider(metaScale)
                 }
@@ -274,6 +427,17 @@ internal fun HeroTitleBlock(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(metaSpacing)
                 ) {
+                    if (!runtimeText.isNullOrBlank()) {
+                        Text(
+                            text = runtimeText,
+                            style = labelMedium,
+                            color = NuvioColors.TextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    if (!runtimeText.isNullOrBlank() && !yearText.isNullOrBlank()) {
+                        HeroMetaDivider(metaScale)
+                    }
                     if (!yearText.isNullOrBlank()) {
                         Text(
                             text = yearText,
@@ -282,27 +446,90 @@ internal fun HeroTitleBlock(
                             maxLines = 1
                         )
                     }
-                    if (!imdbText.isNullOrBlank()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(imdbMetaSpacing)
-                        ) {
-                            AsyncImage(
-                                model = imdbLogoModel,
-                                contentDescription = "IMDb",
-                                modifier = Modifier.size(30.dp * metaScale),
-                                contentScale = ContentScale.Fit
-                            )
-                            Text(
-                                text = imdbText,
-                                style = labelMedium,
-                                color = NuvioColors.TextSecondary,
-                                maxLines = 1
-                            )
-                        }
+                    if (showImdbInPrimaryWithHighlight && !imdbText.isNullOrBlank()) {
+                        HeroImdbMeta(
+                            imdbText = imdbText,
+                            imdbLogoModel = imdbLogoModel,
+                            textStyle = labelMedium,
+                            textColor = NuvioColors.TextSecondary,
+                            logoSize = 30.dp * metaScale,
+                            spacing = imdbMetaSpacing
+                        )
                     }
                 }
-                hasLeadingMeta = true
+            }
+        }
+
+        if (secondaryHighlightText != null || ageRatingBadge != null || showImdbInSecondary || statusBadge != null || secondaryDetails.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = metaAlpha },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(metaSpacing)
+            ) {
+                val semiBoldLabelMedium = remember(labelMedium) { labelMedium.copy(fontWeight = FontWeight.SemiBold) }
+        secondaryHighlightText?.let { text ->
+                    Text(
+                        text = text,
+                        style = semiBoldLabelMedium,
+                        color = NuvioColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (secondaryHighlightText != null && (hasSecondaryBadge || showImdbInSecondary || secondaryDetails.isNotEmpty())) {
+                    HeroMetaDivider(metaScale)
+                }
+                if (ageRatingBadge != null && statusBadge != null) {
+                    HeroCombinedMetaBadge(
+                        leftText = ageRatingBadge,
+                        rightText = statusBadge,
+                        textStyle = labelMedium,
+                        contentColor = NuvioColors.TextPrimary
+                    )
+                } else {
+                    ageRatingBadge?.let { badge ->
+                        HeroMetaBadge(
+                            text = badge,
+                            textStyle = labelMedium,
+                            contentColor = NuvioColors.TextPrimary
+                        )
+                    }
+                    statusBadge?.let { badge ->
+                        HeroMetaBadge(
+                            text = badge,
+                            textStyle = labelMedium,
+                            contentColor = NuvioColors.TextPrimary
+                        )
+                    }
+                }
+                if ((ageRatingBadge != null || statusBadge != null) && (showImdbInSecondary || secondaryDetails.isNotEmpty())) {
+                    HeroMetaDivider(metaScale)
+                }
+                if (showImdbInSecondary) {
+                    HeroImdbMeta(
+                        imdbText = preview.imdbText.orEmpty(),
+                        imdbLogoModel = imdbLogoModel,
+                        textStyle = labelMedium,
+                        textColor = NuvioColors.TextSecondary,
+                        logoSize = 30.dp * metaScale,
+                        spacing = imdbMetaSpacing
+                    )
+                }
+                if (showImdbInSecondary && secondaryDetails.isNotEmpty()) {
+                    HeroMetaDivider(metaScale)
+                }
+                secondaryDetails.forEachIndexed { index, value ->
+                    Text(
+                        text = value,
+                        style = labelMedium,
+                        color = NuvioColors.TextTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (index < secondaryDetails.lastIndex) {
+                        HeroMetaDivider(metaScale)
+                    }
+                }
             }
         }
 
@@ -312,9 +539,108 @@ internal fun HeroTitleBlock(
                 style = scaledDescriptionStyle,
                 color = NuvioColors.TextPrimary,
                 maxLines = descriptionMaxLines,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.graphicsLayer { alpha = metaAlpha }
             )
         }
+    }
+}
+
+@Composable
+private fun HeroImdbMeta(
+    imdbText: String,
+    imdbLogoModel: Any,
+    textStyle: androidx.compose.ui.text.TextStyle,
+    textColor: Color,
+    logoSize: androidx.compose.ui.unit.Dp,
+    spacing: androidx.compose.ui.unit.Dp
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(spacing)
+    ) {
+        AsyncImage(
+            model = imdbLogoModel,
+            contentDescription = stringResource(R.string.cd_imdb),
+            modifier = Modifier.size(logoSize),
+            contentScale = ContentScale.Fit
+        )
+        Text(
+            text = imdbText,
+            style = textStyle,
+            color = textColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun HeroCombinedMetaBadge(
+    leftText: String,
+    rightText: String,
+    textStyle: androidx.compose.ui.text.TextStyle,
+    contentColor: Color
+) {
+    val dividerColor = contentColor.copy(alpha = 0.55f)
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(
+                border = BorderStroke(1.dp, dividerColor),
+                shape = RoundedCornerShape(6.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        val semiBoldStyle = remember(textStyle) { textStyle.copy(fontWeight = FontWeight.SemiBold) }
+        Text(
+            text = leftText,
+            style = semiBoldStyle,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(12.dp)
+                .background(dividerColor)
+        )
+        Text(
+            text = rightText,
+            style = semiBoldStyle,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun HeroMetaBadge(
+    text: String,
+    textStyle: androidx.compose.ui.text.TextStyle,
+    contentColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(
+                border = BorderStroke(1.dp, contentColor.copy(alpha = 0.55f)),
+                shape = RoundedCornerShape(6.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = remember(textStyle) { textStyle.copy(fontWeight = FontWeight.SemiBold) },
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

@@ -75,6 +75,9 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
+import android.view.inputmethod.CompletionInfo
+import android.view.inputmethod.InputMethodManager
+import androidx.compose.ui.platform.LocalView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -90,8 +93,15 @@ fun SearchScreen(
     onOpenDiscover: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
+    val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsState()
     val context = LocalContext.current
+    val view = LocalView.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val strVoiceNoSpeech = stringResource(R.string.search_voice_no_speech)
+    val strVoiceMicPermission = stringResource(R.string.search_voice_mic_permission)
+    val strVoiceFailed = stringResource(R.string.search_voice_failed)
+    val strVoiceUnavailable = stringResource(R.string.search_voice_unavailable)
     val voiceFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val discoverFirstItemFocusRequester = remember { FocusRequester() }
@@ -116,7 +126,7 @@ fun SearchScreen(
             pendingFocusMoveHadExistingSearchRows =
                 uiState.submittedQuery.trim().length >= 2 && uiState.catalogRows.any { it.items.isNotEmpty() }
         } else {
-            Toast.makeText(context, "No speech detected. Try again.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, strVoiceNoSpeech, Toast.LENGTH_SHORT).show()
         }
     }
     val isVoiceSearchAvailable = remember(context) { SpeechRecognizer.isRecognitionAvailable(context) }
@@ -154,7 +164,7 @@ fun SearchScreen(
                 }
             )
         } else {
-            Toast.makeText(context, "Microphone permission is required for voice search.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, strVoiceMicPermission, Toast.LENGTH_SHORT).show()
         }
     }
     LaunchedEffect(hasRecordAudioPermission) {
@@ -172,7 +182,7 @@ fun SearchScreen(
             override fun onError(error: Int) {
                 isVoiceListening = false
                 if (error != SpeechRecognizer.ERROR_CLIENT) {
-                    Toast.makeText(context, "Voice recognition failed. Try again.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, strVoiceFailed, Toast.LENGTH_SHORT).show()
                 }
             }
 
@@ -200,7 +210,7 @@ fun SearchScreen(
     }
     val launchVoiceSearch: () -> Unit = {
         if (!isVoiceSearchAvailable || speechRecognizer == null) {
-            Toast.makeText(context, "Voice search is unavailable on this device.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, strVoiceUnavailable, Toast.LENGTH_SHORT).show()
         } else if (!recordAudioPermissionGranted) {
             requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
         } else {
@@ -216,7 +226,7 @@ fun SearchScreen(
                 )
             }.onFailure {
                 isVoiceListening = false
-                Toast.makeText(context, "Voice search is unavailable on this device.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, strVoiceUnavailable, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -247,6 +257,38 @@ fun SearchScreen(
         uiState.catalogRows
     ) {
         if (isDiscoverMode) false else trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { it.items.isNotEmpty() }
+    }
+    val submitCurrentQuery: (String) -> Unit = { submittedQuery ->
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        focusResults = false
+        if (submittedQuery.length >= 2) {
+            pendingFocusMoveToResultsQuery = submittedQuery
+            pendingFocusMoveSawSearching = false
+            pendingFocusMoveHadExistingSearchRows =
+                trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { row -> row.items.isNotEmpty() }
+        } else {
+            pendingFocusMoveToResultsQuery = null
+            pendingFocusMoveSawSearching = false
+            pendingFocusMoveHadExistingSearchRows = false
+        }
+    }
+    val handleQueryChanged: (String) -> Unit = { nextQuery ->
+        val previousQuery = uiState.query.trim()
+        val trimmedNextQuery = nextQuery.trim()
+        val selectedSuggestion = trimmedNextQuery.length >= 2 &&
+            trimmedNextQuery != trimmedSubmittedQuery &&
+            uiState.suggestions.any { it.equals(trimmedNextQuery, ignoreCase = true) } &&
+            trimmedNextQuery.startsWith(previousQuery, ignoreCase = true) &&
+            trimmedNextQuery.length - previousQuery.length > 1
+
+        focusResults = false
+        pendingFocusMoveToResultsQuery = null
+        pendingFocusMoveSawSearching = false
+        pendingFocusMoveHadExistingSearchRows = false
+        viewModel.onEvent(SearchEvent.QueryChanged(nextQuery))
+        if (selectedSuggestion) {
+            submitCurrentQuery(trimmedNextQuery)
+        }
     }
 
     LaunchedEffect(focusResults, isDiscoverMode, uiState.discoverResults.size) {
@@ -300,6 +342,17 @@ fun SearchScreen(
         runCatching { topInputFocusRequester.requestFocus() }
     }
 
+    // Push search suggestions to the native keyboard suggestion bar
+    LaunchedEffect(uiState.suggestions) {
+        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            ?: return@LaunchedEffect
+        val reversed = uiState.suggestions.asReversed()
+        val completions = reversed.mapIndexed { index, name ->
+            CompletionInfo(index.toLong(), index, name)
+        }.toTypedArray()
+        imm.displayCompletions(view, completions)
+    }
+
     val latestPendingDiscoverRestore by rememberUpdatedState(pendingDiscoverRestoreOnResume)
     val latestShouldKeepSearchFocus by rememberUpdatedState(
         focusResults || uiState.isSearching || isVoiceListening
@@ -333,8 +386,7 @@ fun SearchScreen(
 
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background),
+            .fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
         if (isDiscoverMode) {
@@ -349,29 +401,12 @@ fun SearchScreen(
                     voiceFocusRequester = if (isVoiceSearchAvailable) voiceFocusRequester else null,
                     searchFocusRequester = searchFocusRequester,
                     onAttached = { isSearchFieldAttached = true },
-                    onQueryChanged = {
-                        focusResults = false
-                        pendingFocusMoveToResultsQuery = null
-                        pendingFocusMoveSawSearching = false
-                        pendingFocusMoveHadExistingSearchRows = false
-                        viewModel.onEvent(SearchEvent.QueryChanged(it))
-                    },
+                    onQueryChanged = handleQueryChanged,
                     onSubmit = {
-                        val submittedQuery = uiState.query.trim()
-                        viewModel.onEvent(SearchEvent.SubmitSearch)
-                        focusResults = false
-                        if (submittedQuery.length >= 2) {
-                            pendingFocusMoveToResultsQuery = submittedQuery
-                            pendingFocusMoveSawSearching = false
-                            pendingFocusMoveHadExistingSearchRows =
-                                trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { row -> row.items.isNotEmpty() }
-                        } else {
-                            pendingFocusMoveToResultsQuery = null
-                            pendingFocusMoveSawSearching = false
-                            pendingFocusMoveHadExistingSearchRows = false
-                        }
+                        submitCurrentQuery(uiState.query.trim())
                     },
                     showVoiceSearch = isVoiceSearchAvailable,
+                    isVoiceListening = isVoiceListening,
                     onVoiceSearch = launchVoiceSearch,
                     onMoveToResults = { focusResults = true },
                     onOpenDiscover = onOpenDiscover,
@@ -406,29 +441,12 @@ fun SearchScreen(
                         voiceFocusRequester = if (isVoiceSearchAvailable) voiceFocusRequester else null,
                         searchFocusRequester = searchFocusRequester,
                         onAttached = { isSearchFieldAttached = true },
-                        onQueryChanged = {
-                            focusResults = false
-                            pendingFocusMoveToResultsQuery = null
-                            pendingFocusMoveSawSearching = false
-                            pendingFocusMoveHadExistingSearchRows = false
-                            viewModel.onEvent(SearchEvent.QueryChanged(it))
-                        },
+                        onQueryChanged = handleQueryChanged,
                         onSubmit = {
-                            val submittedQuery = uiState.query.trim()
-                            viewModel.onEvent(SearchEvent.SubmitSearch)
-                            focusResults = false
-                            if (submittedQuery.length >= 2) {
-                                pendingFocusMoveToResultsQuery = submittedQuery
-                                pendingFocusMoveSawSearching = false
-                                pendingFocusMoveHadExistingSearchRows =
-                                    trimmedSubmittedQuery.length >= 2 && uiState.catalogRows.any { row -> row.items.isNotEmpty() }
-                            } else {
-                                pendingFocusMoveToResultsQuery = null
-                                pendingFocusMoveSawSearching = false
-                                pendingFocusMoveHadExistingSearchRows = false
-                            }
+                            submitCurrentQuery(uiState.query.trim())
                         },
                         showVoiceSearch = isVoiceSearchAvailable,
+                        isVoiceListening = isVoiceListening,
                         onVoiceSearch = launchVoiceSearch,
                         onMoveToResults = {
                             focusResults = true
@@ -491,8 +509,8 @@ fun SearchScreen(
                     uiState.catalogRows.isEmpty() || uiState.catalogRows.none { it.items.isNotEmpty() } -> {
                         item {
                             EmptyScreenState(
-                                title = "No Results",
-                                subtitle = "Try searching with different keywords",
+                                title = stringResource(R.string.search_no_results_title),
+                                subtitle = stringResource(R.string.search_no_results_subtitle),
                                 icon = Icons.Default.Search
                             )
                         }
@@ -513,6 +531,10 @@ fun SearchScreen(
                                 showAddonName = uiState.catalogAddonNameEnabled,
                                 showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
                                 enableRowFocusRestorer = false,
+                                isItemWatched = { item ->
+                                    val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
+                                    if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
+                                },
                                 focusedItemIndex = if (focusResults && index == 0) 0 else -1,
                                 onItemFocused = {
                                     if (focusResults) {
@@ -548,6 +570,7 @@ private fun SearchInputField(
     onQueryChanged: (String) -> Unit,
     onSubmit: () -> Unit,
     showVoiceSearch: Boolean,
+    isVoiceListening: Boolean,
     onVoiceSearch: () -> Unit,
     onMoveToResults: () -> Unit,
     onOpenDiscover: () -> Unit,
@@ -580,7 +603,7 @@ private fun SearchInputField(
         ) {
             Icon(
                 imageVector = Icons.Default.Explore,
-                contentDescription = "Open discover",
+                contentDescription = stringResource(R.string.cd_open_discover),
                 tint = NuvioColors.TextPrimary
             )
         }
@@ -601,19 +624,19 @@ private fun SearchInputField(
                     .onFocusChanged { isVoiceButtonFocused = it.isFocused }
                     .size(56.dp)
                     .border(
-                        width = if (isVoiceButtonFocused) 2.dp else 1.dp,
-                        color = if (isVoiceButtonFocused) NuvioColors.FocusRing else NuvioColors.Border,
+                        width = if (isVoiceButtonFocused || isVoiceListening) 2.dp else 1.dp,
+                        color = if (isVoiceListening) NuvioColors.Primary else if (isVoiceButtonFocused) NuvioColors.FocusRing else NuvioColors.Border,
                         shape = RoundedCornerShape(12.dp)
                     )
                     .background(
-                        color = NuvioColors.BackgroundCard,
+                        color = if (isVoiceListening) NuvioColors.Primary.copy(alpha = 0.2f) else NuvioColors.BackgroundCard,
                         shape = RoundedCornerShape(12.dp)
                     )
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice search",
-                    tint = NuvioColors.TextPrimary
+                    contentDescription = stringResource(R.string.cd_voice_search),
+                    tint = if (isVoiceListening) NuvioColors.Primary else NuvioColors.TextPrimary
                 )
             }
 

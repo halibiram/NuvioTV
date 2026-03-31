@@ -26,12 +26,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import com.nuvio.tv.data.trailer.YoutubeChunkedDataSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import android.view.LayoutInflater
+import com.nuvio.tv.R
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.delay
 
@@ -56,6 +59,7 @@ fun TrailerPlayer(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val activityLifecycleOwner = remember(context) { context as? androidx.lifecycle.LifecycleOwner ?: lifecycleOwner }
     val currentIsPlaying by rememberUpdatedState(isPlaying)
     val currentTrailerUrl by rememberUpdatedState(trailerUrl)
     val currentTrailerAudioUrl by rememberUpdatedState(trailerAudioUrl)
@@ -65,7 +69,7 @@ fun TrailerPlayer(
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
     val zoomScale = if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
     var hasRenderedFirstFrame by remember(trailerUrl) { mutableStateOf(false) }
-    val playerAlpha by animateFloatAsState(
+    val playerAlphaState = animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
         animationSpec = tween(durationMillis = 300),
         label = "trailerFirstFrameAlpha"
@@ -73,7 +77,17 @@ fun TrailerPlayer(
 
     val trailerPlayer = remember(trailerUrl, trailerAudioUrl) {
         if (trailerUrl != null) {
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs = */ 30_000,
+                    /* maxBufferMs = */ 120_000,
+                    /* bufferForPlaybackMs = */ 5_000,
+                    /* bufferForPlaybackAfterRebufferMs = */ 10_000
+                )
+                .build()
             ExoPlayer.Builder(context)
+                .setLoadControl(loadControl)
+                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                 .build()
                 .apply {
                     repeatMode = Player.REPEAT_MODE_OFF
@@ -96,7 +110,7 @@ fun TrailerPlayer(
         if (isPlaying && trailerUrl != null) {
             hasRenderedFirstFrame = false
             if (!trailerAudioUrl.isNullOrBlank()) {
-                val mediaSourceFactory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(context))
+                val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
                 val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerUrl))
                 val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerAudioUrl))
                 player.setMediaSource(MergingMediaSource(videoSource, audioSource))
@@ -141,7 +155,7 @@ fun TrailerPlayer(
         currentOnProgressChanged(0L, 0L)
     }
 
-    DisposableEffect(lifecycleOwner, trailerPlayer) {
+    DisposableEffect(activityLifecycleOwner, trailerPlayer) {
         val player = trailerPlayer ?: return@DisposableEffect onDispose {}
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -161,7 +175,7 @@ fun TrailerPlayer(
                     if (currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
                         if (player.currentMediaItem == null) {
                             if (!currentTrailerAudioUrl.isNullOrBlank()) {
-                                val mediaSourceFactory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(context))
+                                val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
                                 val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(currentTrailerUrl!!))
                                 val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(currentTrailerAudioUrl!!))
                                 player.setMediaSource(MergingMediaSource(videoSource, audioSource))
@@ -191,9 +205,9 @@ fun TrailerPlayer(
             }
         }
         player.addListener(listener)
-        lifecycleOwner.lifecycle.addObserver(observer)
+        activityLifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            runCatching { lifecycleOwner.lifecycle.removeObserver(observer) }
+            runCatching { activityLifecycleOwner.lifecycle.removeObserver(observer) }
             runCatching { player.removeListener(listener) }
             if (releaseCalled.compareAndSet(false, true)) {
                 runCatching { player.stop() }
@@ -211,17 +225,14 @@ fun TrailerPlayer(
         ) {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
+                    (LayoutInflater.from(ctx).inflate(R.layout.trailer_player_view, null) as PlayerView).apply {
                         player = trailerPlayer
-                        useController = false
                         isFocusable = true
                         isFocusableInTouchMode = true
                         setOnKeyListener { _, keyCode, event ->
                             currentOnRemoteKey(keyCode, event.action, event.repeatCount)
                         }
                         keepScreenOn = true
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         resizeMode = if (cropToFill) {
                             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         } else {
@@ -239,7 +250,7 @@ fun TrailerPlayer(
                 modifier = modifier
                     .clipToBounds()
                     .graphicsLayer {
-                        alpha = playerAlpha
+                        alpha = playerAlphaState.value
                         scaleX = zoomScale
                         scaleY = zoomScale
                     }

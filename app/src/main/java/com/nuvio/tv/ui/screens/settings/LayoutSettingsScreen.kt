@@ -223,7 +223,21 @@ fun LayoutSettingsContent(
                         )
                     }
 
-                    if (uiState.heroSectionEnabled && uiState.availableCatalogs.isNotEmpty()) {
+                    if (uiState.selectedLayout == HomeLayout.MODERN) {
+                        CompactToggleRow(
+                            title = stringResource(R.string.layout_fullscreen_hero_backdrop),
+                            subtitle = stringResource(R.string.layout_fullscreen_hero_backdrop_sub),
+                            checked = uiState.modernHeroFullScreenBackdropEnabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetModernHeroFullScreenBackdropEnabled(!uiState.modernHeroFullScreenBackdropEnabled)
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.HOME_LAYOUT }
+                        )
+                    }
+
+                    if (uiState.heroSectionEnabled && uiState.availableCatalogs.isNotEmpty() && uiState.selectedLayout != HomeLayout.MODERN) {
                         Text(
                             text = stringResource(R.string.layout_hero_catalogs),
                             style = MaterialTheme.typography.labelLarge,
@@ -302,17 +316,19 @@ fun LayoutSettingsContent(
                             onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                         )
                     }
-                    CompactToggleRow(
-                        title = stringResource(R.string.layout_show_hero),
-                        subtitle = stringResource(R.string.layout_show_hero_sub),
-                        checked = uiState.heroSectionEnabled,
-                        onToggle = {
-                            viewModel.onEvent(
-                                LayoutSettingsEvent.SetHeroSectionEnabled(!uiState.heroSectionEnabled)
-                            )
-                        },
-                        onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
-                    )
+                    if (uiState.selectedLayout != HomeLayout.MODERN) {
+                        CompactToggleRow(
+                            title = stringResource(R.string.layout_show_hero),
+                            subtitle = stringResource(R.string.layout_show_hero_sub),
+                            checked = uiState.heroSectionEnabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetHeroSectionEnabled(!uiState.heroSectionEnabled)
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                        )
+                    }
                     CompactToggleRow(
                         title = stringResource(R.string.layout_show_discover),
                         subtitle = stringResource(R.string.layout_show_discover_sub),
@@ -372,6 +388,17 @@ fun LayoutSettingsContent(
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                     )
+                    CompactToggleRow(
+                        title = stringResource(R.string.layout_blur_cw_next_up),
+                        subtitle = stringResource(R.string.layout_blur_cw_next_up_sub),
+                        checked = uiState.blurContinueWatchingNextUp,
+                        onToggle = {
+                            viewModel.onEvent(
+                                LayoutSettingsEvent.SetBlurContinueWatchingNextUp(!uiState.blurContinueWatchingNextUp)
+                            )
+                        },
+                        onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                    )
                 }
             }
 
@@ -423,9 +450,22 @@ fun LayoutSettingsContent(
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
                     )
+
+                    CompactToggleRow(
+                        title = stringResource(R.string.layout_show_full_release_date),
+                        subtitle = stringResource(R.string.layout_show_full_release_date_sub),
+                        checked = uiState.showFullReleaseDate,
+                        onToggle = {
+                            viewModel.onEvent(
+                                LayoutSettingsEvent.SetShowFullReleaseDate(!uiState.showFullReleaseDate)
+                            )
+                        },
+                        onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
+                    )
                 }
             }
 
+            if (uiState.selectedLayout != HomeLayout.GRID) {
             item(key = "focused_poster_section") {
                 CollapsibleSectionCard(
                     title = stringResource(R.string.layout_section_focused),
@@ -462,7 +502,7 @@ fun LayoutSettingsContent(
                             subtitle = stringResource(R.string.layout_expand_delay_sub),
                             value = uiState.focusedPosterBackdropExpandDelaySeconds,
                             valueText = "${uiState.focusedPosterBackdropExpandDelaySeconds}s",
-                            minValue = 1,
+                            minValue = 0,
                             maxValue = 10,
                             step = 1,
                             onValueChange = { seconds ->
@@ -534,6 +574,7 @@ fun LayoutSettingsContent(
                         )
                     }
                 }
+            }
             }
 
             item(key = "poster_style_section") {

@@ -66,6 +66,7 @@ internal enum class SettingsCategory {
     PLUGINS,
     INTEGRATION,
     PLAYBACK,
+    ADVANCED,
     TRAKT,
     ABOUT,
     DEBUG
@@ -74,7 +75,8 @@ internal enum class SettingsCategory {
 private enum class IntegrationSettingsSection {
     Hub,
     Tmdb,
-    MdbList
+    MdbList,
+    AnimeSkip
 }
 
 internal enum class SettingsSectionDestination {
@@ -161,6 +163,13 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
+        category = SettingsCategory.ADVANCED,
+        title = stringResource(R.string.settings_advanced),
+        icon = Icons.Default.Build,
+        subtitle = stringResource(R.string.settings_advanced_subtitle),
+        destination = SettingsSectionDestination.Inline
+    ),
+    SettingsSectionSpec(
         category = SettingsCategory.DEBUG,
         title = stringResource(R.string.settings_debug),
         icon = Icons.Default.BugReport,
@@ -174,6 +183,8 @@ fun SettingsScreen(
     showBuiltInHeader: Boolean = true,
     onNavigateToTrakt: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
+    onNavigateToManageProfiles: () -> Unit = {},
+    onNavigateToSupportersContributors: () -> Unit = {},
     profileViewModel: ProfileSettingsViewModel = hiltViewModel()
 ) {
     val isPrimaryProfileActive by profileViewModel.isPrimaryProfileActive.collectAsStateWithLifecycle()
@@ -191,6 +202,7 @@ fun SettingsScreen(
         }
     }
 
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var selectedCategory by remember(visibleSections) {
         mutableStateOf(
             visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
@@ -205,6 +217,7 @@ fun SettingsScreen(
                 SettingsCategory.LAYOUT to FocusRequester(),
                 SettingsCategory.INTEGRATION to FocusRequester(),
                 SettingsCategory.PLAYBACK to FocusRequester(),
+                SettingsCategory.ADVANCED to FocusRequester(),
                 SettingsCategory.ABOUT to FocusRequester()
             )
     }
@@ -212,6 +225,7 @@ fun SettingsScreen(
     val integrationHubFocusRequester = remember { FocusRequester() }
     val integrationTmdbFocusRequester = remember { FocusRequester() }
     val integrationMdbListFocusRequester = remember { FocusRequester() }
+    val integrationAnimeSkipFocusRequester = remember { FocusRequester() }
     var integrationSection by remember { mutableStateOf(IntegrationSettingsSection.Hub) }
     var pendingContentFocusCategory by remember { mutableStateOf<SettingsCategory?>(null) }
     var pendingContentFocusRequestId by remember { mutableLongStateOf(0L) }
@@ -247,7 +261,6 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(
                 start = 32.dp,
                 end = 32.dp,
@@ -268,7 +281,7 @@ fun SettingsScreen(
                 LazyColumn(
                     modifier = Modifier
                         .focusRequester(railContainerFocusRequester)
-                        .width(282.dp)
+                        .width(220.dp)
                         .fillMaxHeight()
                         .onFocusChanged { state ->
                             val justGainedFocus = !railHadFocus && state.hasFocus
@@ -286,11 +299,10 @@ fun SettingsScreen(
                             }
                         }
                         .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                            val toDetailKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                            if (event.type == KeyEventType.KeyDown && event.key == toDetailKey) {
                                 allowDetailAutofocus = true
-                                pendingContentFocusCategory = selectedCategory
-                                pendingContentFocusRequestId += 1L
-                                true
+                                false
                             } else {
                                 false
                             }
@@ -333,8 +345,9 @@ fun SettingsScreen(
                         .weight(1f)
                         .fillMaxHeight()
                         .onKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                                val movedLeft = focusManager.moveFocus(FocusDirection.Left)
+                            val toRailKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                            if (event.type == KeyEventType.KeyDown && event.key == toRailKey) {
+                                val movedLeft = focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)
                                 if (!movedLeft) {
                                     allowDetailAutofocus = false
                                     val requested = railFocusRequesters[selectedCategory]?.let { requester ->
@@ -358,7 +371,9 @@ fun SettingsScreen(
                         }
                 ) {
                     when (selectedCategory) {
-                        SettingsCategory.PROFILES -> ProfileSettingsContent()
+                        SettingsCategory.PROFILES -> ProfileSettingsContent(
+                            onManageProfiles = onNavigateToManageProfiles
+                        )
                         SettingsCategory.APPEARANCE -> ThemeSettingsContent(
                             initialFocusRequester = if (allowDetailAutofocus) {
                                 contentFocusRequesters[SettingsCategory.APPEARANCE]
@@ -380,6 +395,13 @@ fun SettingsScreen(
                                 null
                             }
                         )
+                        SettingsCategory.ADVANCED -> NetworkSettingsContent(
+                            initialFocusRequester = if (allowDetailAutofocus) {
+                                contentFocusRequesters[SettingsCategory.ADVANCED]
+                            } else {
+                                null
+                            }
+                        )
                         SettingsCategory.INTEGRATION -> IntegrationSettingsContent(
                             selectedSection = integrationSection,
                             onSelectSection = { integrationSection = it },
@@ -391,9 +413,11 @@ fun SettingsScreen(
                             hubFocusRequester = integrationHubFocusRequester,
                             tmdbFocusRequester = integrationTmdbFocusRequester,
                             mdbListFocusRequester = integrationMdbListFocusRequester,
+                            animeSkipFocusRequester = integrationAnimeSkipFocusRequester,
                             autoFocusEnabled = allowDetailAutofocus
                         )
                         SettingsCategory.ABOUT -> AboutSettingsContent(
+                            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
                             initialFocusRequester = if (allowDetailAutofocus) {
                                 contentFocusRequesters[SettingsCategory.ABOUT]
                             } else {
@@ -476,6 +500,7 @@ private fun IntegrationSettingsContent(
     hubFocusRequester: FocusRequester,
     tmdbFocusRequester: FocusRequester,
     mdbListFocusRequester: FocusRequester,
+    animeSkipFocusRequester: FocusRequester,
     autoFocusEnabled: Boolean
 ) {
     BackHandler(enabled = selectedSection != IntegrationSettingsSection.Hub) {
@@ -489,6 +514,7 @@ private fun IntegrationSettingsContent(
             IntegrationSettingsSection.Hub -> hubEntryFocusRequester
             IntegrationSettingsSection.Tmdb -> tmdbFocusRequester
             IntegrationSettingsSection.MdbList -> mdbListFocusRequester
+            IntegrationSettingsSection.AnimeSkip -> animeSkipFocusRequester
         }
         runCatching { requester.requestFocus() }
     }
@@ -527,6 +553,13 @@ private fun IntegrationSettingsContent(
                                 onClick = { onSelectSection(IntegrationSettingsSection.MdbList) }
                             )
                         }
+                        item(key = "integration_hub_animeskip") {
+                            SettingsActionRow(
+                                title = "Anime-Skip",
+                                subtitle = stringResource(R.string.settings_animeskip_subtitle),
+                                onClick = { onSelectSection(IntegrationSettingsSection.AnimeSkip) }
+                            )
+                        }
                     }
                 }
             }
@@ -541,6 +574,12 @@ private fun IntegrationSettingsContent(
         IntegrationSettingsSection.MdbList -> {
             MDBListSettingsContent(
                 initialFocusRequester = mdbListFocusRequester
+            )
+        }
+
+        IntegrationSettingsSection.AnimeSkip -> {
+            AnimeSkipSettingsContent(
+                initialFocusRequester = animeSkipFocusRequester
             )
         }
     }
