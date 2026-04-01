@@ -199,6 +199,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
+                    .setReleaseTimeoutMs(3000)
                     .build()
             }
 
@@ -207,6 +208,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
                     .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setReleaseTimeoutMs(3000)
                     .buildWithAssSupportCompat(
                         context = context,
                         renderType = libassRenderType,
@@ -364,6 +366,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        if (isReleasingPlayer && error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT) {
+                            return
+                        }
                         val detailedError = buildString {
                             append(error.message ?: "Playback error")
                             val cause = error.cause
