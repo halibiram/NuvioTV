@@ -53,9 +53,9 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.nuvio.tv.ui.components.ProfileAvatarCircle
 import com.nuvio.tv.ui.theme.NuvioColors
-import coil.compose.rememberAsyncImagePainter
-import coil.decode.SvgDecoder
-import coil.request.ImageRequest
+import coil3.compose.rememberAsyncImagePainter
+import coil3.svg.SvgDecoder
+import coil3.request.*
 
 private val SidebarLeadingVisualSize = 34.dp
 private val SidebarContentGap = 14.dp

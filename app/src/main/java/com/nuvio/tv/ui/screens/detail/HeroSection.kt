@@ -56,7 +56,7 @@ import androidx.tv.material3.IconButton
 import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import android.util.Log
@@ -74,8 +74,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.painter.Painter
-import coil.decode.SvgDecoder
-import coil.request.ImageRequest
+import coil3.svg.SvgDecoder
+import coil3.request.*
 import java.util.Locale
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -933,7 +933,7 @@ private fun rememberRawSvgPainter(
             .decoderFactory(SvgDecoder.Factory())
             .build()
     }
-    return coil.compose.rememberAsyncImagePainter(model = model)
+    return coil3.compose.rememberAsyncImagePainter(model = model)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

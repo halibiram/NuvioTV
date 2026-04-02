@@ -65,8 +65,8 @@ import android.view.KeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import coil.request.ImageRequest
-import coil.decode.SvgDecoder
+import coil3.request.*
+import coil3.svg.SvgDecoder
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
@@ -79,7 +79,7 @@ import androidx.tv.material3.FilterChipDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.nuvio.tv.core.player.ExternalPlayerLauncher
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.domain.model.Stream

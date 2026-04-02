@@ -63,8 +63,8 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.screens.detail.formatReleaseDate
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.*
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import kotlinx.coroutines.delay
