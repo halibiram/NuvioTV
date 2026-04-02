@@ -420,7 +420,7 @@ fun NetworkSettingsContent(
                             value = downloadMbps?.let { "%.1f Mbps".format(it) },
                             loading = testState == NetworkTestState.TestingDownload
                         )
-                    )
+                    }
 
                     if (testState == NetworkTestState.Error && errorMessage != null) {
                         Text(
