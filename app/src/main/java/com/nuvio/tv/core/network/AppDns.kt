@@ -244,12 +244,15 @@ object AppDnsManager : Dns {
             val newConfig = transform(currentConfig)
             if (currentConfig == newConfig) return false
             if (config.compareAndSet(currentConfig, newConfig)) {
-                clearCache()
+                val providerChanged = currentConfig.provider != newConfig.provider
+                if (providerChanged) {
+                    clearCache()
+                    scheduleConnectionEviction()
+                }
                 Log.i(
                     TAG,
-                    "DNS config updated provider=${currentConfig.provider.storageValue}->${newConfig.provider.storageValue}, ipv4First=${currentConfig.ipv4FirstEnabled}->${newConfig.ipv4FirstEnabled}, cache=${currentConfig.dnsCacheEnabled}->${newConfig.dnsCacheEnabled}, trackedClients=${trackedClients.size}, evictionScheduled=true"
+                    "DNS config updated provider=${currentConfig.provider.storageValue}->${newConfig.provider.storageValue}, ipv4First=${currentConfig.ipv4FirstEnabled}->${newConfig.ipv4FirstEnabled}, cache=${currentConfig.dnsCacheEnabled}->${newConfig.dnsCacheEnabled}, trackedClients=${trackedClients.size}, evictionScheduled=$providerChanged"
                 )
-                scheduleConnectionEviction()
                 return true
             }
         }
