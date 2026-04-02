@@ -62,6 +62,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.core.network.AppDnsProvider
+import com.nuvio.tv.core.network.buildWithAppDns
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +73,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
-import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -92,7 +92,6 @@ private fun newNetworkTestClient(connectTimeoutMs: Long, readTimeoutMs: Long): O
                 maxRequestsPerHost = 64
             }
         )
-        .dns(Dns.SYSTEM)
         .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
         .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
         .callTimeout(0, TimeUnit.MILLISECONDS)
@@ -100,7 +99,7 @@ private fun newNetworkTestClient(connectTimeoutMs: Long, readTimeoutMs: Long): O
         .retryOnConnectionFailure(true)
         .followRedirects(true)
         .followSslRedirects(true)
-        .build()
+        .buildWithAppDns()
 
 private fun fetchText(url: String, connectTimeoutMs: Long, readTimeoutMs: Long): String {
     val request = Request.Builder()
@@ -209,13 +208,13 @@ fun NetworkSettingsContent(
     fun runSpeedTest() {
         scope.launch {
             connectionType = getConnectionType(context)
-            testState = NetworkTestState.TestingLatency
             latencyMs = null
             downloadMbps = null
             errorMessage = null
 
             try {
                 // ── Latency: average 3 round-trips to Cloudflare ─────────────
+                testState = NetworkTestState.TestingLatency
                 var totalMs = 0L
                 withContext(Dispatchers.IO) {
                     val latencyClient = newNetworkTestClient(connectTimeoutMs = 5_000, readTimeoutMs = 5_000)
@@ -377,7 +376,10 @@ fun NetworkSettingsContent(
                                 else -> R.string.network_testing_download
                             }
                         ) else null,
-                        onClick = { if (!isRunning) runSpeedTest() },
+                        onClick = {
+                            dnsSettingsExpanded = false
+                            if (!isRunning) runSpeedTest()
+                        },
                         modifier = Modifier.focusRequester(runFocusRequester)
                     )
                 }
@@ -418,7 +420,7 @@ fun NetworkSettingsContent(
                             value = downloadMbps?.let { "%.1f Mbps".format(it) },
                             loading = testState == NetworkTestState.TestingDownload
                         )
-                    }
+                    )
 
                     if (testState == NetworkTestState.Error && errorMessage != null) {
                         Text(

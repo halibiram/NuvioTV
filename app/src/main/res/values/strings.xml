@@ -246,7 +246,7 @@
     <string name="settings_network">Network speed</string>
     <string name="settings_network_subtitle">Latency and download diagnostics</string>
     <string name="settings_advanced">Advanced</string>
-    <string name="settings_advanced_subtitle">Run network speed diagnostics</string>
+    <string name="settings_advanced_subtitle">DNS settings, latency, and download tests</string>
     <string name="network_speed_test_run">Run Speed Test</string>
     <string name="network_speed_test_running">Running Speed Test</string>
     <string name="network_speed_test_subtitle">Measure download speed and latency</string>

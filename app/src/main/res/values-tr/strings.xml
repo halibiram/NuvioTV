@@ -245,7 +245,7 @@
     <string name="settings_network">Ağ Hızı</string>
     <string name="settings_network_subtitle">Gecikme ve indirme hızı testleri</string>
     <string name="settings_advanced">Gelişmiş</string>
-    <string name="settings_advanced_subtitle">Ağ hızı tanılaması çalıştır</string>
+    <string name="settings_advanced_subtitle">DNS ayarları, gecikme ve indirme testleri</string>
     <string name="network_speed_test_run">Hız Testi Başlat</string>
     <string name="network_speed_test_running">Hız Testi Çalışıyor</string>
     <string name="network_speed_test_subtitle">İndirme hızını ve gecikmeyi ölç</string>
