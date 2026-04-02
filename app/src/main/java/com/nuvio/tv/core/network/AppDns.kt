@@ -11,7 +11,9 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -46,17 +48,26 @@ enum class AppDnsProvider(val storageValue: String) {
 
 data class AppDnsConfig(
     val provider: AppDnsProvider = AppDnsProvider.SYSTEM,
-    val ipv4FirstEnabled: Boolean = true
+    val ipv4FirstEnabled: Boolean = true,
+    val dnsCacheEnabled: Boolean = true
+)
+
+private data class CachedDnsEntry(
+    val addresses: List<InetAddress>,
+    val cachedAtMs: Long
 )
 
 object AppDnsManager : Dns {
     private const val TAG = "AppDnsManager"
+    private const val DNS_CACHE_TTL_MS = 3 * 60 * 60 * 1000L
 
     private val systemDns: Dns = Dns.SYSTEM
     private val config = AtomicReference(AppDnsConfig())
     private val trackedClients = CopyOnWriteArrayList<WeakReference<OkHttpClient>>()
+    private val dnsCache = ConcurrentHashMap<String, CachedDnsEntry>()
     private val evictionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val evictionScheduled = AtomicBoolean(false)
+    private val plainDnsQueryExecutor = Executors.newFixedThreadPool(4)
 
     private val dohBootstrapClient by lazy {
         OkHttpClient.Builder()
@@ -140,23 +151,49 @@ object AppDnsManager : Dns {
         return updateConfig { it.copy(ipv4FirstEnabled = enabled) }
     }
 
+    fun setDnsCacheEnabled(enabled: Boolean): Boolean {
+        return updateConfig { it.copy(dnsCacheEnabled = enabled) }
+    }
+
     fun setConfig(newConfig: AppDnsConfig): Boolean {
         return updateConfig { newConfig }
+    }
+
+    fun clearCache() {
+        val clearedEntries = dnsCache.size
+        dnsCache.clear()
+        if (BuildConfig.IS_DEBUG_BUILD) {
+            Log.d(TAG, "DNS cache cleared entries=$clearedEntries")
+        }
     }
 
     override fun lookup(hostname: String): List<InetAddress> {
         val activeConfig = config.get()
         val startedAtNanos = System.nanoTime()
 
+        getCachedAddresses(hostname = hostname, activeConfig = activeConfig)?.let { cachedAddresses ->
+            logLookupSuccess(
+                hostname = hostname,
+                activeConfig = activeConfig,
+                addresses = cachedAddresses,
+                elapsedMs = elapsedMs(startedAtNanos),
+                fallbackUsed = false,
+                cacheHit = true
+            )
+            return cachedAddresses
+        }
+
         return try {
             val resolvedAddresses = resolveWithProvider(activeConfig.provider, hostname)
             val orderedAddresses = reorderAddresses(resolvedAddresses, activeConfig.ipv4FirstEnabled)
+            cacheAddresses(hostname = hostname, activeConfig = activeConfig, addresses = orderedAddresses)
             logLookupSuccess(
                 hostname = hostname,
                 activeConfig = activeConfig,
                 addresses = orderedAddresses,
                 elapsedMs = elapsedMs(startedAtNanos),
-                fallbackUsed = false
+                fallbackUsed = false,
+                cacheHit = false
             )
             orderedAddresses
         } catch (primaryError: Exception) {
@@ -169,12 +206,14 @@ object AppDnsManager : Dns {
                     addresses = systemDns.lookup(hostname),
                     ipv4FirstEnabled = activeConfig.ipv4FirstEnabled
                 )
+                cacheAddresses(hostname = hostname, activeConfig = activeConfig, addresses = fallbackAddresses)
                 logLookupSuccess(
                     hostname = hostname,
                     activeConfig = activeConfig,
                     addresses = fallbackAddresses,
                     elapsedMs = elapsedMs(startedAtNanos),
-                    fallbackUsed = true
+                    fallbackUsed = true,
+                    cacheHit = false
                 )
                 fallbackAddresses
             } else {
@@ -205,9 +244,10 @@ object AppDnsManager : Dns {
             val newConfig = transform(currentConfig)
             if (currentConfig == newConfig) return false
             if (config.compareAndSet(currentConfig, newConfig)) {
+                clearCache()
                 Log.i(
                     TAG,
-                    "DNS config updated provider=${currentConfig.provider.storageValue}->${newConfig.provider.storageValue}, ipv4First=${currentConfig.ipv4FirstEnabled}->${newConfig.ipv4FirstEnabled}, trackedClients=${trackedClients.size}, evictionScheduled=true"
+                    "DNS config updated provider=${currentConfig.provider.storageValue}->${newConfig.provider.storageValue}, ipv4First=${currentConfig.ipv4FirstEnabled}->${newConfig.ipv4FirstEnabled}, cache=${currentConfig.dnsCacheEnabled}->${newConfig.dnsCacheEnabled}, trackedClients=${trackedClients.size}, evictionScheduled=true"
                 )
                 scheduleConnectionEviction()
                 return true
@@ -325,24 +365,63 @@ object AppDnsManager : Dns {
     }
 
     private fun queryResolver(hostname: String, resolver: SimpleResolver): List<InetAddress> {
-        val ipv4Records = Lookup(hostname, Type.A).apply {
-            setResolver(resolver)
-            setCache(null)
-        }.run().orEmpty()
+        val ipv4Future = plainDnsQueryExecutor.submit<List<InetAddress>> {
+            runLookup(hostname = hostname, resolver = resolver, type = Type.A)
+        }
+        val ipv6Future = plainDnsQueryExecutor.submit<List<InetAddress>> {
+            runLookup(hostname = hostname, resolver = resolver, type = Type.AAAA)
+        }
 
-        val ipv6Records = Lookup(hostname, Type.AAAA).apply {
+        val ipv4Addresses = runCatching { ipv4Future.get() }.getOrElse { emptyList() }
+        val ipv6Addresses = runCatching { ipv6Future.get() }.getOrElse { emptyList() }
+
+        if (ipv4Addresses.isEmpty() && ipv6Addresses.isEmpty()) {
+            throw UnknownHostException("No DNS records for $hostname via ${resolver.address}")
+        }
+
+        return buildList {
+            addAll(ipv4Addresses)
+            addAll(ipv6Addresses)
+        }
+    }
+
+    private fun runLookup(hostname: String, resolver: SimpleResolver, type: Int): List<InetAddress> {
+        val records = Lookup(hostname, type).apply {
             setResolver(resolver)
             setCache(null)
         }.run().orEmpty()
 
         return buildList {
-            ipv4Records.forEach { record ->
-                if (record is ARecord) add(record.address)
-            }
-            ipv6Records.forEach { record ->
-                if (record is AAAARecord) add(record.address)
+            records.forEach { record ->
+                when (record) {
+                    is ARecord -> add(record.address)
+                    is AAAARecord -> add(record.address)
+                }
             }
         }
+    }
+
+    private fun getCachedAddresses(hostname: String, activeConfig: AppDnsConfig): List<InetAddress>? {
+        if (!activeConfig.dnsCacheEnabled) return null
+        val cachedEntry = dnsCache[hostname] ?: return null
+        val isExpired = System.currentTimeMillis() - cachedEntry.cachedAtMs > DNS_CACHE_TTL_MS
+        if (isExpired) {
+            dnsCache.remove(hostname)
+            return null
+        }
+        return cachedEntry.addresses
+    }
+
+    private fun cacheAddresses(
+        hostname: String,
+        activeConfig: AppDnsConfig,
+        addresses: List<InetAddress>
+    ) {
+        if (!activeConfig.dnsCacheEnabled || addresses.isEmpty()) return
+        dnsCache[hostname] = CachedDnsEntry(
+            addresses = addresses,
+            cachedAtMs = System.currentTimeMillis()
+        )
     }
 
     private fun logLookupSuccess(
@@ -350,13 +429,14 @@ object AppDnsManager : Dns {
         activeConfig: AppDnsConfig,
         addresses: List<InetAddress>,
         elapsedMs: Long,
-        fallbackUsed: Boolean
+        fallbackUsed: Boolean,
+        cacheHit: Boolean
     ) {
         if (!BuildConfig.IS_DEBUG_BUILD) return
         val addressSummary = addresses.joinToString { it.hostAddress ?: it.toString() }
         Log.d(
             TAG,
-            "DNS lookup host=$hostname provider=${activeConfig.provider.storageValue} ipv4First=${activeConfig.ipv4FirstEnabled} fallback=$fallbackUsed elapsedMs=$elapsedMs addresses=[$addressSummary]"
+            "DNS lookup host=$hostname provider=${activeConfig.provider.storageValue} ipv4First=${activeConfig.ipv4FirstEnabled} cache=${activeConfig.dnsCacheEnabled} cacheHit=$cacheHit fallback=$fallbackUsed elapsedMs=$elapsedMs addresses=[$addressSummary]"
         )
     }
 

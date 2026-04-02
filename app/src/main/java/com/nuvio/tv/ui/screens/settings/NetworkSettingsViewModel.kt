@@ -27,7 +27,8 @@ class NetworkSettingsViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         dnsProvider = settings.provider,
-                        ipv4FirstEnabled = settings.ipv4FirstEnabled
+                        ipv4FirstEnabled = settings.ipv4FirstEnabled,
+                        dnsCacheEnabled = settings.dnsCacheEnabled
                     )
                 }
             }
@@ -47,9 +48,17 @@ class NetworkSettingsViewModel @Inject constructor(
             dataStore.setIpv4FirstEnabled(enabled)
         }
     }
+
+    fun setDnsCacheEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            AppDnsManager.setDnsCacheEnabled(enabled)
+            dataStore.setDnsCacheEnabled(enabled)
+        }
+    }
 }
 
 data class NetworkSettingsUiState(
     val dnsProvider: AppDnsProvider = AppDnsProvider.SYSTEM,
-    val ipv4FirstEnabled: Boolean = true
+    val ipv4FirstEnabled: Boolean = true,
+    val dnsCacheEnabled: Boolean = true
 )

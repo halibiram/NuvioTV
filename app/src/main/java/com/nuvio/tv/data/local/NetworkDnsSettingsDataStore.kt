@@ -24,6 +24,7 @@ class NetworkDnsSettingsDataStore @Inject constructor(
     private val providerKey = stringPreferencesKey("network_dns_provider")
     private val legacyModeKey = stringPreferencesKey("network_dns_mode")
     private val ipv4FirstEnabledKey = booleanPreferencesKey("network_dns_ipv4_first_enabled")
+    private val dnsCacheEnabledKey = booleanPreferencesKey("network_dns_cache_enabled")
 
     val settings: Flow<NetworkDnsSettings> = dataStore.data.map { prefs ->
         val legacyValue = prefs[legacyModeKey]
@@ -37,9 +38,11 @@ class NetworkDnsSettingsDataStore @Inject constructor(
                 null, "ipv4_first" -> true
                 else -> false
             }
+        val dnsCacheEnabled = prefs[dnsCacheEnabledKey] ?: true
         NetworkDnsSettings(
             provider = provider,
-            ipv4FirstEnabled = ipv4FirstEnabled
+            ipv4FirstEnabled = ipv4FirstEnabled,
+            dnsCacheEnabled = dnsCacheEnabled
         )
     }
 
@@ -54,9 +57,16 @@ class NetworkDnsSettingsDataStore @Inject constructor(
             prefs[ipv4FirstEnabledKey] = enabled
         }
     }
+
+    suspend fun setDnsCacheEnabled(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[dnsCacheEnabledKey] = enabled
+        }
+    }
 }
 
 data class NetworkDnsSettings(
     val provider: AppDnsProvider = AppDnsProvider.SYSTEM,
-    val ipv4FirstEnabled: Boolean = true
+    val ipv4FirstEnabled: Boolean = true,
+    val dnsCacheEnabled: Boolean = true
 )

@@ -352,6 +352,14 @@ fun NetworkSettingsContent(
                             onToggle = { viewModel.setIpv4FirstEnabled(!uiState.ipv4FirstEnabled) }
                         )
                     }
+                    item(key = "network_dns_cache") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.network_dns_cache_title),
+                            subtitle = stringResource(R.string.network_dns_cache_subtitle),
+                            checked = uiState.dnsCacheEnabled,
+                            onToggle = { viewModel.setDnsCacheEnabled(!uiState.dnsCacheEnabled) }
+                        )
+                    }
                 }
                 item(key = "network_speed_test_action") {
                     val runFocusRequester = remember { FocusRequester() }

@@ -21,7 +21,8 @@ class NetworkDnsInitializer @Inject constructor(
                 AppDnsManager.setConfig(
                     AppDnsConfig(
                         provider = settings.provider,
-                        ipv4FirstEnabled = settings.ipv4FirstEnabled
+                        ipv4FirstEnabled = settings.ipv4FirstEnabled,
+                        dnsCacheEnabled = settings.dnsCacheEnabled
                     )
                 )
             }

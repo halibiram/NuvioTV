@@ -283,6 +283,8 @@
     <string name="network_dns_provider_mullvad_doh_subtitle">Use DNS-over-HTTPS via dns.mullvad.net</string>
     <string name="network_dns_ipv4_first_title">IPv4 First</string>
     <string name="network_dns_ipv4_first_subtitle">Prefer IPv4 before IPv6 for app traffic; enabled by default</string>
+    <string name="network_dns_cache_title">DNS Cache</string>
+    <string name="network_dns_cache_subtitle">Cache resolved DNS results; toggling this setting clears the current DNS cache</string>
     <string name="network_dns_mode_selected">Active</string>
     <string name="network_latency_label">Latency</string>
     <string name="network_download_label">Download</string>
