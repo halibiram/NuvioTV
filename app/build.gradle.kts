@@ -257,8 +257,6 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
-    implementation(libs.coil.network.okhttp)
-
     // Navigation
     implementation(libs.navigation.compose)
 

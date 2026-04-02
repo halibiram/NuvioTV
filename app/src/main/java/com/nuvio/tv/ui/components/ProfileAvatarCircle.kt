@@ -17,8 +17,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
-import coil3.request.*
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 @Composable
 fun ProfileAvatarCircle(

@@ -60,8 +60,8 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import coil3.compose.AsyncImage
-import coil3.request.*
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlin.math.roundToInt
 import java.util.concurrent.TimeUnit
 import com.nuvio.tv.ui.util.localizeEpisodeTitle

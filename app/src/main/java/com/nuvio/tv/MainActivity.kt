@@ -135,9 +135,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import coil3.compose.rememberAsyncImagePainter
-import coil3.svg.SvgDecoder
-import coil3.request.*
+import coil.compose.rememberAsyncImagePainter
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 

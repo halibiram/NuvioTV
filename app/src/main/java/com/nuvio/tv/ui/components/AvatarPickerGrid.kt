@@ -54,8 +54,8 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.floor
 import kotlin.math.max
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
-import coil3.request.*
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.nuvio.tv.R
 import com.nuvio.tv.data.remote.supabase.AvatarCatalogItem
 import com.nuvio.tv.ui.theme.NuvioColors

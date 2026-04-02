@@ -54,7 +54,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,9 +67,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImagePainter
-import coil3.compose.rememberAsyncImagePainter
-import coil3.request.*
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
 import com.nuvio.tv.core.qr.QrCodeGenerator
@@ -931,7 +930,6 @@ private fun ContributorAvatar(
             .crossfade(true)
             .build()
     )
-    val painterState by painter.state.collectAsState()
 
     Box(
         modifier = modifier
@@ -940,7 +938,7 @@ private fun ContributorAvatar(
             .border(1.dp, NuvioColors.Border, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        if (avatarUrl.isNullOrBlank() || painterState is AsyncImagePainter.State.Error) {
+        if (avatarUrl.isNullOrBlank() || painter.state is AsyncImagePainter.State.Error) {
             Text(
                 text = login.take(1).uppercase(),
                 style = MaterialTheme.typography.titleMedium,
