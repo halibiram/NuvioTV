@@ -26,11 +26,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,11 +54,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
+import com.nuvio.tv.core.network.AppDnsProvider
+import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -63,13 +70,54 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 
 private enum class NetworkTestState { Idle, TestingLatency, TestingDownload, Done, Error }
 
 private enum class ConnectionType { WiFi, Ethernet, Offline }
+
+private const val NETWORK_TEST_USER_AGENT = "Mozilla/5.0"
+
+private fun newNetworkTestClient(connectTimeoutMs: Long, readTimeoutMs: Long): OkHttpClient =
+    OkHttpClient.Builder()
+        .dispatcher(
+            Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 64
+            }
+        )
+        .dns(Dns.SYSTEM)
+        .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+        .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
+        .retryOnConnectionFailure(true)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
+private fun fetchText(url: String, connectTimeoutMs: Long, readTimeoutMs: Long): String {
+    val request = Request.Builder()
+        .url(url)
+        .header("User-Agent", NETWORK_TEST_USER_AGENT)
+        .get()
+        .build()
+    return newNetworkTestClient(connectTimeoutMs, readTimeoutMs)
+        .newCall(request)
+        .execute()
+        .use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Unexpected response code ${response.code} for $url")
+            }
+            response.body?.string() ?: throw IllegalStateException("Empty response body for $url")
+        }
+}
 
 private fun getConnectionType(context: android.content.Context): ConnectionType {
     val cm = context.getSystemService<ConnectivityManager>() ?: return ConnectionType.Offline
@@ -114,47 +162,47 @@ private fun ConnectionStatusBadge(type: ConnectionType) {
 
 private suspend fun fetchFastComUrls(): List<String> = withContext(Dispatchers.IO) {
     // 1. Load fast.com page to find the app JS bundle URL
-    val html = (URL("https://fast.com").openConnection() as HttpURLConnection).run {
-        connectTimeout = 10_000
-        readTimeout = 15_000
-        setRequestProperty("User-Agent", "Mozilla/5.0")
-        inputStream.bufferedReader().use { it.readText() }.also { disconnect() }
-    }
+    val html = fetchText(
+        url = "https://fast.com",
+        connectTimeoutMs = 10_000,
+        readTimeoutMs = 15_000
+    )
     val scriptPath = Regex("""<script src="(/app[^"]+\.js)"""").find(html)?.groupValues?.get(1)
         ?: throw Exception("fast.com: script path not found")
 
     // 2. Extract the API token from the JS bundle
-    val js = (URL("https://fast.com$scriptPath").openConnection() as HttpURLConnection).run {
-        connectTimeout = 10_000
-        readTimeout = 30_000
-        setRequestProperty("User-Agent", "Mozilla/5.0")
-        inputStream.bufferedReader().use { it.readText() }.also { disconnect() }
-    }
+    val js = fetchText(
+        url = "https://fast.com$scriptPath",
+        connectTimeoutMs = 10_000,
+        readTimeoutMs = 30_000
+    )
     val token = Regex("""token:"([^"]+)"""").find(js)?.groupValues?.get(1)
         ?: throw Exception("fast.com: token not found in bundle")
 
     // 3. Fetch CDN URLs from the speed-test API
-    val apiJson = (URL("https://api.fast.com/netflix/speedtest/v2?https=true&token=$token&urlCount=15")
-        .openConnection() as HttpURLConnection).run {
-        connectTimeout = 5_000
-        readTimeout = 10_000
-        setRequestProperty("User-Agent", "Mozilla/5.0")
-        inputStream.bufferedReader().use { it.readText() }.also { disconnect() }
-    }
+    val apiJson = fetchText(
+        url = "https://api.fast.com/netflix/speedtest/v2?https=true&token=$token&urlCount=15",
+        connectTimeoutMs = 5_000,
+        readTimeoutMs = 10_000
+    )
     val targets = JSONObject(apiJson).getJSONArray("targets")
     (0 until targets.length()).map { targets.getJSONObject(it).getString("url") }
 }
 
 @Composable
 fun NetworkSettingsContent(
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    viewModel: NetworkSettingsViewModel = hiltViewModel()
 ) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var connectionType by remember { mutableStateOf(getConnectionType(context)) }
     var testState by remember { mutableStateOf(NetworkTestState.Idle) }
     var latencyMs by remember { mutableStateOf<Long?>(null) }
     var downloadMbps by remember { mutableStateOf<Double?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showDnsProviderDialog by remember { mutableStateOf(false) }
+    var dnsSettingsExpanded by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
@@ -170,17 +218,21 @@ fun NetworkSettingsContent(
                 // ── Latency: average 3 round-trips to Cloudflare ─────────────
                 var totalMs = 0L
                 withContext(Dispatchers.IO) {
+                    val latencyClient = newNetworkTestClient(connectTimeoutMs = 5_000, readTimeoutMs = 5_000)
+                    val request = Request.Builder()
+                        .url("https://cloudflare.com/cdn-cgi/trace")
+                        .header("User-Agent", NETWORK_TEST_USER_AGENT)
+                        .get()
+                        .build()
                     repeat(3) {
-                        val conn = URL("https://cloudflare.com/cdn-cgi/trace")
-                            .openConnection() as HttpURLConnection
-                        conn.requestMethod = "GET"
-                        conn.connectTimeout = 5_000
-                        conn.readTimeout = 5_000
                         val t0 = System.currentTimeMillis()
-                        conn.connect()
-                        conn.inputStream.use { it.read() }
+                        latencyClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                throw IllegalStateException("Unexpected response code ${response.code} for latency probe")
+                            }
+                            response.body?.byteStream()?.use { it.read() }
+                        }
                         totalMs += System.currentTimeMillis() - t0
-                        conn.disconnect()
                     }
                 }
                 latencyMs = totalMs / 3
@@ -191,6 +243,7 @@ fun NetworkSettingsContent(
                     val urls = fetchFastComUrls()
                     val deadline = System.currentTimeMillis() + 10_000L
                     val startTime = System.currentTimeMillis()
+                    val downloadClient = newNetworkTestClient(connectTimeoutMs = 5_000, readTimeoutMs = 15_000)
 
                     // Open 4 connections per URL → 60 parallel streams total
                     val streams = urls.flatMap { url -> List(4) { url } }
@@ -200,19 +253,22 @@ fun NetworkSettingsContent(
                                 var bytes = 0L
                                 val buf = ByteArray(65536)
                                 try {
-                                    val conn = URL(url).openConnection() as HttpURLConnection
-                                    conn.connectTimeout = 5_000
-                                    conn.readTimeout = 15_000
-                                    conn.connect()
-                                    conn.inputStream.use { stream ->
-                                        var read: Int = 0
-                                        while (System.currentTimeMillis() < deadline &&
-                                            stream.read(buf).also { read = it } != -1
-                                        ) {
-                                            bytes += read
+                                    val request = Request.Builder()
+                                        .url(url)
+                                        .header("User-Agent", NETWORK_TEST_USER_AGENT)
+                                        .get()
+                                        .build()
+                                    downloadClient.newCall(request).execute().use { response ->
+                                        if (!response.isSuccessful) return@use
+                                        response.body?.byteStream()?.use { stream ->
+                                            var read: Int = 0
+                                            while (System.currentTimeMillis() < deadline &&
+                                                stream.read(buf).also { read = it } != -1
+                                            ) {
+                                                bytes += read
+                                            }
                                         }
                                     }
-                                    conn.disconnect()
                                 } catch (_: Exception) {}
                                 bytes
                             }
@@ -256,13 +312,49 @@ fun NetworkSettingsContent(
 
         SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item(key = "network_speed_test_action") {
-                    val runFocusRequester = remember { initialFocusRequester ?: FocusRequester() }
+                item(key = "network_dns_section_header") {
+                    val dnsFocusRequester = remember { initialFocusRequester ?: FocusRequester() }
                     LaunchedEffect(Unit) {
                         if (initialFocusRequester != null) {
-                            runCatching { runFocusRequester.requestFocus() }
+                            runCatching { dnsFocusRequester.requestFocus() }
                         }
                     }
+                    SettingsActionRow(
+                        title = stringResource(R.string.network_dns_section_title),
+                        subtitle = stringResource(
+                            R.string.network_dns_section_subtitle,
+                            dnsProviderLabel(uiState.dnsProvider)
+                        ),
+                        value = if (dnsSettingsExpanded) {
+                            stringResource(R.string.network_dns_section_open)
+                        } else {
+                            stringResource(R.string.network_dns_section_closed)
+                        },
+                        onClick = { dnsSettingsExpanded = !dnsSettingsExpanded },
+                        modifier = Modifier.focusRequester(dnsFocusRequester),
+                        trailingIcon = if (dnsSettingsExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight
+                    )
+                }
+                if (dnsSettingsExpanded) {
+                    item(key = "network_dns_mode") {
+                        SettingsActionRow(
+                            title = stringResource(R.string.network_dns_mode_title),
+                            subtitle = stringResource(R.string.network_dns_mode_subtitle),
+                            value = dnsProviderLabel(uiState.dnsProvider),
+                            onClick = { showDnsProviderDialog = true }
+                        )
+                    }
+                    item(key = "network_dns_ipv4_first") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.network_dns_ipv4_first_title),
+                            subtitle = stringResource(R.string.network_dns_ipv4_first_subtitle),
+                            checked = uiState.ipv4FirstEnabled,
+                            onToggle = { viewModel.setIpv4FirstEnabled(!uiState.ipv4FirstEnabled) }
+                        )
+                    }
+                }
+                item(key = "network_speed_test_action") {
+                    val runFocusRequester = remember { FocusRequester() }
                     val isRunning = testState == NetworkTestState.TestingLatency ||
                             testState == NetworkTestState.TestingDownload
                     SettingsActionRow(
@@ -336,6 +428,67 @@ fun NetworkSettingsContent(
                 }
             }
         }
+    }
+
+    if (showDnsProviderDialog) {
+        val dialogFocusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { dialogFocusRequester.requestFocus() }
+        NuvioDialog(
+            onDismiss = { showDnsProviderDialog = false },
+            title = stringResource(R.string.network_dns_dialog_title),
+            subtitle = stringResource(R.string.network_dns_dialog_subtitle),
+            width = 420.dp,
+            suppressFirstKeyUp = false
+        ) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(AppDnsProvider.entries.size) { index ->
+                    val provider = AppDnsProvider.entries[index]
+                    SettingsActionRow(
+                        title = dnsProviderLabel(provider),
+                        subtitle = dnsProviderDescription(provider),
+                        value = if (provider == uiState.dnsProvider) stringResource(R.string.network_dns_mode_selected) else null,
+                        onClick = {
+                            viewModel.setDnsProvider(provider)
+                            showDnsProviderDialog = false
+                        },
+                        modifier = if (index == 0) Modifier.focusRequester(dialogFocusRequester) else Modifier,
+                        trailingIcon = if (provider == uiState.dnsProvider) Icons.Default.Public else Icons.Default.ChevronRight
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun dnsProviderLabel(provider: AppDnsProvider): String {
+    return when (provider) {
+        AppDnsProvider.SYSTEM -> stringResource(R.string.network_dns_provider_system)
+        AppDnsProvider.CLOUDFLARE -> stringResource(R.string.network_dns_provider_cloudflare)
+        AppDnsProvider.GOOGLE -> stringResource(R.string.network_dns_provider_google)
+        AppDnsProvider.QUAD9 -> stringResource(R.string.network_dns_provider_quad9)
+        AppDnsProvider.ADGUARD -> stringResource(R.string.network_dns_provider_adguard)
+        AppDnsProvider.CLOUDFLARE_DOH -> stringResource(R.string.network_dns_provider_cloudflare_doh)
+        AppDnsProvider.GOOGLE_DOH -> stringResource(R.string.network_dns_provider_google_doh)
+        AppDnsProvider.QUAD9_DOH -> stringResource(R.string.network_dns_provider_quad9_doh)
+        AppDnsProvider.ADGUARD_DOH -> stringResource(R.string.network_dns_provider_adguard_doh)
+        AppDnsProvider.MULLVAD_DOH -> stringResource(R.string.network_dns_provider_mullvad_doh)
+    }
+}
+
+@Composable
+private fun dnsProviderDescription(provider: AppDnsProvider): String {
+    return when (provider) {
+        AppDnsProvider.SYSTEM -> stringResource(R.string.network_dns_provider_system_subtitle)
+        AppDnsProvider.CLOUDFLARE -> stringResource(R.string.network_dns_provider_cloudflare_subtitle)
+        AppDnsProvider.GOOGLE -> stringResource(R.string.network_dns_provider_google_subtitle)
+        AppDnsProvider.QUAD9 -> stringResource(R.string.network_dns_provider_quad9_subtitle)
+        AppDnsProvider.ADGUARD -> stringResource(R.string.network_dns_provider_adguard_subtitle)
+        AppDnsProvider.CLOUDFLARE_DOH -> stringResource(R.string.network_dns_provider_cloudflare_doh_subtitle)
+        AppDnsProvider.GOOGLE_DOH -> stringResource(R.string.network_dns_provider_google_doh_subtitle)
+        AppDnsProvider.QUAD9_DOH -> stringResource(R.string.network_dns_provider_quad9_doh_subtitle)
+        AppDnsProvider.ADGUARD_DOH -> stringResource(R.string.network_dns_provider_adguard_doh_subtitle)
+        AppDnsProvider.MULLVAD_DOH -> stringResource(R.string.network_dns_provider_mullvad_doh_subtitle)
     }
 }
 

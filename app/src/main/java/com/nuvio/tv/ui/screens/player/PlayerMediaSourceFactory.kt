@@ -10,13 +10,12 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.text.SubtitleParser
-import com.nuvio.tv.core.network.IPv4FirstDns
+import com.nuvio.tv.core.network.buildWithAppDns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLDecoder
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -39,7 +38,6 @@ internal class PlayerMediaSourceFactory {
             init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
         }
         OkHttpClient.Builder()
-            .dns(IPv4FirstDns())
             .sslSocketFactory(sslContext.socketFactory, trustAllManager)
             .hostnameVerifier { _, _ -> true }
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -48,7 +46,7 @@ internal class PlayerMediaSourceFactory {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
-            .build()
+            .buildWithAppDns()
     }
 
     fun configureSubtitleParsing(
@@ -114,6 +112,14 @@ internal class PlayerMediaSourceFactory {
         private const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        private val probeHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(PROBE_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+                .readTimeout(PROBE_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .buildWithAppDns()
+        }
 
         fun sanitizeHeaders(headers: Map<String, String>?): Map<String, String> {
             val raw: Map<*, *> = headers ?: return emptyMap()
@@ -222,55 +228,57 @@ internal class PlayerMediaSourceFactory {
         }
 
         private fun probeMimeTypeWithHead(url: String, headers: Map<String, String>): String? {
-            val connection = openConnection(url = url, headers = headers, method = "HEAD")
             return try {
-                connection.responseCode
-                normalizeMimeType(connection.contentType)
-                    ?: inferMimeType(url = connection.url?.toString().orEmpty(), filename = null)
+                probeHttpClient.newCall(buildProbeRequest(url = url, headers = headers, method = "HEAD"))
+                    .execute()
+                    .use { response ->
+                        if (!response.isSuccessful) return@use null
+                        normalizeMimeType(response.header("Content-Type"))
+                            ?: inferMimeType(url = response.request.url.toString(), filename = null)
+                    }
             } catch (_: Exception) {
                 null
-            } finally {
-                connection.disconnect()
             }
         }
 
         private fun probeMimeTypeWithRangeGet(url: String, headers: Map<String, String>): String? {
-            val connection = openConnection(
-                url = url,
-                headers = headers,
-                method = "GET",
-                range = "bytes=0-${PROBE_BYTES - 1}"
-            )
             return try {
-                connection.responseCode
-                normalizeMimeType(connection.contentType)
-                    ?: inferMimeType(url = connection.url?.toString().orEmpty(), filename = null)
-                    ?: sniffManifestMimeType(readProbeSnippet(connection.inputStream))
+                probeHttpClient.newCall(
+                    buildProbeRequest(
+                        url = url,
+                        headers = headers,
+                        method = "GET",
+                        range = "bytes=0-${PROBE_BYTES - 1}"
+                    )
+                ).execute().use { response ->
+                    if (!response.isSuccessful && response.code != 206) return@use null
+                    normalizeMimeType(response.header("Content-Type"))
+                        ?: inferMimeType(url = response.request.url.toString(), filename = null)
+                        ?: sniffManifestMimeType(readProbeSnippet(response.body?.byteStream()))
+                }
             } catch (_: Exception) {
                 null
-            } finally {
-                connection.disconnect()
             }
         }
 
-        private fun openConnection(
+        private fun buildProbeRequest(
             url: String,
             headers: Map<String, String>,
             method: String,
             range: String? = null
-        ): HttpURLConnection {
-            return (URL(url).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = PROBE_TIMEOUT_MS
-                readTimeout = PROBE_TIMEOUT_MS
-                requestMethod = method
-                setRequestProperty("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
-                headers.forEach { (key, value) ->
-                    if (key.equals("Range", ignoreCase = true)) return@forEach
-                    if (key.equals("User-Agent", ignoreCase = true)) return@forEach
-                    setRequestProperty(key, value)
-                }
-                range?.let { setRequestProperty("Range", it) }
+        ): Request {
+            val requestBuilder = Request.Builder()
+                .url(url)
+                .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+            headers.forEach { (key, value) ->
+                if (key.equals("Range", ignoreCase = true)) return@forEach
+                if (key.equals("User-Agent", ignoreCase = true)) return@forEach
+                requestBuilder.header(key, value)
+            }
+            range?.let { requestBuilder.header("Range", it) }
+            return when (method) {
+                "HEAD" -> requestBuilder.head().build()
+                else -> requestBuilder.get().build()
             }
         }
 

@@ -244,7 +244,9 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.moshi)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.doh)
     implementation(libs.okhttp.logging)
+    implementation(libs.dnsjava)
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
 
@@ -255,6 +257,7 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
+    implementation(libs.coil.network.okhttp)
 
     // Navigation
     implementation(libs.navigation.compose)

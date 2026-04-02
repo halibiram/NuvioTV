@@ -1,10 +1,12 @@
 package com.nuvio.tv.core.player
 
+import com.nuvio.tv.core.network.buildWithAppDns
+import java.io.InputStream
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * Calculates the OpenSubtitles file hash for a video stream.
@@ -15,6 +17,14 @@ object OpenSubtitlesHasher {
 
     private const val CHUNK_SIZE = 65536L // 64 KB
     private const val LONG_SIZE = 8
+    private val httpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .buildWithAppDns()
+    }
 
     data class Result(val hash: String, val fileSize: Long)
 
@@ -38,49 +48,64 @@ object OpenSubtitlesHasher {
         }
 
     private fun getContentLength(url: String, headers: Map<String, String>): Long? {
-        val conn = openConnection(url, headers, method = "HEAD")
-        return try {
-            conn.connect()
-            conn.contentLengthLong.takeIf { it > 0 }
-        } finally {
-            conn.disconnect()
+        val request = buildRequest(url = url, headers = headers, method = "HEAD")
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return null
+            response.header("Content-Length")
+                ?.toLongOrNull()
+                ?.takeIf { it > 0 }
+                ?: response.body?.contentLength()?.takeIf { it > 0 }
         }
     }
 
     private fun readChunkSum(url: String, headers: Map<String, String>, offset: Long, length: Long): Long {
-        val conn = openConnection(url, headers, method = "GET")
-        conn.setRequestProperty("Range", "bytes=$offset-${offset + length - 1}")
+        val request = buildRequest(
+            url = url,
+            headers = headers,
+            method = "GET",
+            range = "bytes=$offset-${offset + length - 1}"
+        )
         var sum = 0L
-        try {
-            conn.connect()
-            val stream: InputStream = conn.inputStream
-            val buf = ByteArray(LONG_SIZE)
-            var remaining = length
-            while (remaining >= LONG_SIZE) {
-                var read = 0
-                while (read < LONG_SIZE) {
-                    val n = stream.read(buf, read, LONG_SIZE - read)
-                    if (n < 0) break
-                    read += n
-                }
-                if (read < LONG_SIZE) break
-                sum += buf.toLongLE()
-                remaining -= LONG_SIZE
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful && response.code != 206) {
+                throw IllegalStateException("Unexpected response code ${response.code} for $url")
             }
-            stream.close()
-        } finally {
-            conn.disconnect()
+            val stream: InputStream = response.body?.byteStream() ?: return 0L
+            stream.use {
+                val buf = ByteArray(LONG_SIZE)
+                var remaining = length
+                while (remaining >= LONG_SIZE) {
+                    var read = 0
+                    while (read < LONG_SIZE) {
+                        val n = it.read(buf, read, LONG_SIZE - read)
+                        if (n < 0) break
+                        read += n
+                    }
+                    if (read < LONG_SIZE) break
+                    sum += buf.toLongLE()
+                    remaining -= LONG_SIZE
+                }
+            }
         }
         return sum
     }
 
-    private fun openConnection(url: String, headers: Map<String, String>, method: String): HttpURLConnection {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.requestMethod = method
-        conn.connectTimeout = 8_000
-        conn.readTimeout = 8_000
-        headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
-        return conn
+    private fun buildRequest(
+        url: String,
+        headers: Map<String, String>,
+        method: String,
+        range: String? = null
+    ): Request {
+        val builder = Request.Builder().url(url)
+        headers.forEach { (k, v) ->
+            if (k.equals("Range", ignoreCase = true)) return@forEach
+            builder.header(k, v)
+        }
+        range?.let { builder.header("Range", it) }
+        return when (method) {
+            "HEAD" -> builder.head().build()
+            else -> builder.get().build()
+        }
     }
 
     private fun ByteArray.toLongLE(): Long {

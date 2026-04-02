@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Log
 import com.google.gson.Gson
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.network.buildWithAppDns
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -142,13 +143,12 @@ class InAppYouTubeExtractor @Inject constructor() {
     private val gson = Gson()
 
     private val httpClient = OkHttpClient.Builder()
-        .dns(com.nuvio.tv.core.network.IPv4FirstDns())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
-        .build()
+        .buildWithAppDns()
 
     suspend fun extractPlaybackSource(youtubeUrl: String): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         if (youtubeUrl.isBlank()) return@withContext null
@@ -637,12 +637,11 @@ class InAppYouTubeExtractor @Inject constructor() {
     }
 
     private val probeClient = OkHttpClient.Builder()
-        .dns(com.nuvio.tv.core.network.IPv4FirstDns())
         .connectTimeout(2, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
-        .build()
+        .buildWithAppDns()
 
     private fun isUrlReachable(url: String): Boolean {
         return runCatching {

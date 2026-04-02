@@ -29,7 +29,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
-import com.nuvio.tv.core.network.IPv4FirstDns
+import com.nuvio.tv.core.network.buildWithAppDns
 import java.io.File
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -68,7 +68,6 @@ object NetworkModule {
             init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
         }
         return OkHttpClient.Builder()
-            .dns(IPv4FirstDns())
             .sslSocketFactory(sslContext.socketFactory, trustAllManager)
             .hostnameVerifier { _, _ -> true }
             .cache(Cache(File(context.cacheDir, "http_cache"), 50L * 1024 * 1024)) // 50 MB disk cache
@@ -78,7 +77,7 @@ object NetworkModule {
                 level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
                         else HttpLoggingInterceptor.Level.NONE
             })
-            .build()
+            .buildWithAppDns()
     }
 
     @Provides

@@ -7,6 +7,7 @@ import com.dokar.quickjs.quickJs
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.network.buildWithAppDns
 import com.nuvio.tv.domain.model.LocalScraperResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,14 +51,13 @@ class PluginRuntime @Inject constructor() {
     private val gson: Gson = GsonBuilder().create()
 
     private val httpClient = OkHttpClient.Builder()
-        .dns(com.nuvio.tv.core.network.IPv4FirstDns())
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .proxy(java.net.Proxy.NO_PROXY)
-        .build()
+        .buildWithAppDns()
 
     // Pre-compiled regex for :contains() selector conversion
     private val containsRegex = Regex(""":contains\(["']([^"']+)["']\)""")

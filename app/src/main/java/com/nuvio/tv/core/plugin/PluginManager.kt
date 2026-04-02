@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.plugin
 
 import android.util.Log
+import com.nuvio.tv.core.network.buildWithAppDns
 import com.nuvio.tv.data.local.PluginDataStore
 import com.nuvio.tv.domain.model.LocalScraperResult
 import com.nuvio.tv.domain.model.PluginManifest
@@ -52,10 +53,9 @@ class PluginManager @Inject constructor(
     private val manifestAdapter = moshi.adapter(PluginManifest::class.java)
     
     private val httpClient = OkHttpClient.Builder()
-        .dns(com.nuvio.tv.core.network.IPv4FirstDns())
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+        .buildWithAppDns()
 
     private fun sha256Hex(text: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
