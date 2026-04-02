@@ -52,14 +52,33 @@ data class AppDnsConfig(
     val dnsCacheEnabled: Boolean = true
 )
 
+private data class DnsLookupResult(
+    val addresses: List<InetAddress>,
+    val ttlMs: Long? = null,
+    val ttlSource: String = "default"
+)
+
 private data class CachedDnsEntry(
     val addresses: List<InetAddress>,
-    val cachedAtMs: Long
+    val cachedAtMs: Long,
+    val expiresAtMs: Long,
+    val ttlMs: Long,
+    val ttlSource: String
+)
+
+private data class PlainDnsProviderConfig(
+    val serverName: String,
+    val resolvers: List<SimpleResolver>
+)
+
+private data class DnsRecordResult(
+    val addresses: List<InetAddress>,
+    val ttlMs: Long?
 )
 
 object AppDnsManager : Dns {
     private const val TAG = "AppDnsManager"
-    private const val DNS_CACHE_TTL_MS = 3 * 60 * 60 * 1000L
+    private const val DEFAULT_DNS_CACHE_TTL_MS = 3 * 60 * 60 * 1000L
 
     private val systemDns: Dns = Dns.SYSTEM
     private val config = AtomicReference(AppDnsConfig())
@@ -114,28 +133,28 @@ object AppDnsManager : Dns {
     }
 
     private val cloudflarePlainDns by lazy {
-        buildPlainDnsResolver(
+        buildPlainDnsProvider(
             serverName = "cloudflare_dns",
             serverAddresses = listOf("1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001")
         )
     }
 
     private val googlePlainDns by lazy {
-        buildPlainDnsResolver(
+        buildPlainDnsProvider(
             serverName = "google_dns",
             serverAddresses = listOf("8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844")
         )
     }
 
     private val quad9PlainDns by lazy {
-        buildPlainDnsResolver(
+        buildPlainDnsProvider(
             serverName = "quad9_dns",
             serverAddresses = listOf("9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9")
         )
     }
 
     private val adGuardPlainDns by lazy {
-        buildPlainDnsResolver(
+        buildPlainDnsProvider(
             serverName = "adguard_dns",
             serverAddresses = listOf("94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff")
         )
@@ -171,29 +190,41 @@ object AppDnsManager : Dns {
         val activeConfig = config.get()
         val startedAtNanos = System.nanoTime()
 
-        getCachedAddresses(hostname = hostname, activeConfig = activeConfig)?.let { cachedAddresses ->
+        getCachedEntry(hostname = hostname, activeConfig = activeConfig)?.let { cachedEntry ->
             logLookupSuccess(
                 hostname = hostname,
                 activeConfig = activeConfig,
-                addresses = cachedAddresses,
+                addresses = cachedEntry.addresses,
                 elapsedMs = elapsedMs(startedAtNanos),
                 fallbackUsed = false,
-                cacheHit = true
+                cacheHit = true,
+                ttlMs = cachedEntry.ttlMs,
+                ttlSource = cachedEntry.ttlSource,
+                ttlRemainingMs = (cachedEntry.expiresAtMs - System.currentTimeMillis()).coerceAtLeast(0L)
             )
-            return cachedAddresses
+            return cachedEntry.addresses
         }
 
         return try {
-            val resolvedAddresses = resolveWithProvider(activeConfig.provider, hostname)
-            val orderedAddresses = reorderAddresses(resolvedAddresses, activeConfig.ipv4FirstEnabled)
-            cacheAddresses(hostname = hostname, activeConfig = activeConfig, addresses = orderedAddresses)
+            val resolvedResult = resolveWithProvider(activeConfig.provider, hostname)
+            val orderedAddresses = reorderAddresses(resolvedResult.addresses, activeConfig.ipv4FirstEnabled)
+            val cachedTtlMs = cacheAddresses(
+                hostname = hostname,
+                activeConfig = activeConfig,
+                addresses = orderedAddresses,
+                resolvedTtlMs = resolvedResult.ttlMs,
+                ttlSource = resolvedResult.ttlSource
+            )
             logLookupSuccess(
                 hostname = hostname,
                 activeConfig = activeConfig,
                 addresses = orderedAddresses,
                 elapsedMs = elapsedMs(startedAtNanos),
                 fallbackUsed = false,
-                cacheHit = false
+                cacheHit = false,
+                ttlMs = cachedTtlMs,
+                ttlSource = resolvedResult.ttlSource,
+                ttlRemainingMs = cachedTtlMs
             )
             orderedAddresses
         } catch (primaryError: Exception) {
@@ -206,14 +237,23 @@ object AppDnsManager : Dns {
                     addresses = systemDns.lookup(hostname),
                     ipv4FirstEnabled = activeConfig.ipv4FirstEnabled
                 )
-                cacheAddresses(hostname = hostname, activeConfig = activeConfig, addresses = fallbackAddresses)
+                val cachedTtlMs = cacheAddresses(
+                    hostname = hostname,
+                    activeConfig = activeConfig,
+                    addresses = fallbackAddresses,
+                    resolvedTtlMs = null,
+                    ttlSource = "default"
+                )
                 logLookupSuccess(
                     hostname = hostname,
                     activeConfig = activeConfig,
                     addresses = fallbackAddresses,
                     elapsedMs = elapsedMs(startedAtNanos),
                     fallbackUsed = true,
-                    cacheHit = false
+                    cacheHit = false,
+                    ttlMs = cachedTtlMs,
+                    ttlSource = "default",
+                    ttlRemainingMs = cachedTtlMs
                 )
                 fallbackAddresses
             } else {
@@ -278,18 +318,18 @@ object AppDnsManager : Dns {
         }
     }
 
-    private fun resolveWithProvider(provider: AppDnsProvider, hostname: String): List<InetAddress> {
+    private fun resolveWithProvider(provider: AppDnsProvider, hostname: String): DnsLookupResult {
         return when (provider) {
-            AppDnsProvider.SYSTEM -> systemDns.lookup(hostname)
-            AppDnsProvider.CLOUDFLARE -> cloudflarePlainDns.lookup(hostname)
-            AppDnsProvider.GOOGLE -> googlePlainDns.lookup(hostname)
-            AppDnsProvider.QUAD9 -> quad9PlainDns.lookup(hostname)
-            AppDnsProvider.ADGUARD -> adGuardPlainDns.lookup(hostname)
-            AppDnsProvider.CLOUDFLARE_DOH -> cloudflareDns.lookup(hostname)
-            AppDnsProvider.GOOGLE_DOH -> googleDns.lookup(hostname)
-            AppDnsProvider.QUAD9_DOH -> quad9DohDns.lookup(hostname)
-            AppDnsProvider.ADGUARD_DOH -> adGuardDohDns.lookup(hostname)
-            AppDnsProvider.MULLVAD_DOH -> mullvadDohDns.lookup(hostname)
+            AppDnsProvider.SYSTEM -> DnsLookupResult(addresses = systemDns.lookup(hostname))
+            AppDnsProvider.CLOUDFLARE -> resolveViaPlainDns(hostname = hostname, providerConfig = cloudflarePlainDns)
+            AppDnsProvider.GOOGLE -> resolveViaPlainDns(hostname = hostname, providerConfig = googlePlainDns)
+            AppDnsProvider.QUAD9 -> resolveViaPlainDns(hostname = hostname, providerConfig = quad9PlainDns)
+            AppDnsProvider.ADGUARD -> resolveViaPlainDns(hostname = hostname, providerConfig = adGuardPlainDns)
+            AppDnsProvider.CLOUDFLARE_DOH -> DnsLookupResult(addresses = cloudflareDns.lookup(hostname))
+            AppDnsProvider.GOOGLE_DOH -> DnsLookupResult(addresses = googleDns.lookup(hostname))
+            AppDnsProvider.QUAD9_DOH -> DnsLookupResult(addresses = quad9DohDns.lookup(hostname))
+            AppDnsProvider.ADGUARD_DOH -> DnsLookupResult(addresses = adGuardDohDns.lookup(hostname))
+            AppDnsProvider.MULLVAD_DOH -> DnsLookupResult(addresses = mullvadDohDns.lookup(hostname))
         }
     }
 
@@ -314,41 +354,38 @@ object AppDnsManager : Dns {
             .build()
     }
 
-    private fun buildPlainDnsResolver(serverName: String, serverAddresses: List<String>): Dns {
-        val resolvers = serverAddresses.map { address ->
-            SimpleResolver(InetAddress.getByName(address)).apply {
-                setTCP(false)
-                setIgnoreTruncation(false)
-                setTimeout(Duration.ofSeconds(4))
+    private fun buildPlainDnsProvider(serverName: String, serverAddresses: List<String>): PlainDnsProviderConfig {
+        return PlainDnsProviderConfig(
+            serverName = serverName,
+            resolvers = serverAddresses.map { address ->
+                SimpleResolver(InetAddress.getByName(address)).apply {
+                    setTCP(false)
+                    setIgnoreTruncation(false)
+                    setTimeout(Duration.ofSeconds(4))
+                }
             }
-        }
-        return object : Dns {
-            override fun lookup(hostname: String): List<InetAddress> {
-                return resolveViaPlainDns(
-                    hostname = hostname,
-                    serverName = serverName,
-                    resolvers = resolvers
-                )
-            }
-        }
+        )
     }
 
     private fun resolveViaPlainDns(
         hostname: String,
-        serverName: String,
-        resolvers: List<SimpleResolver>
-    ): List<InetAddress> {
+        providerConfig: PlainDnsProviderConfig
+    ): DnsLookupResult {
         var lastError: Exception? = null
-        for (resolver in resolvers) {
+        for (resolver in providerConfig.resolvers) {
             try {
-                val addresses = queryResolver(hostname, resolver)
-                if (addresses.isNotEmpty()) {
-                    return addresses
+                val result = queryResolver(hostname, resolver)
+                if (result.addresses.isNotEmpty()) {
+                    return DnsLookupResult(
+                        addresses = result.addresses,
+                        ttlMs = result.ttlMs,
+                        ttlSource = if (result.ttlMs != null) "dnsjava" else "default"
+                    )
                 }
             } catch (error: Exception) {
                 lastError = error
                 if (BuildConfig.IS_DEBUG_BUILD) {
-                    Log.d(TAG, "Plain DNS resolver $serverName failed for $hostname via ${resolver.address}: ${error.message}")
+                    Log.d(TAG, "Plain DNS resolver ${providerConfig.serverName} failed for $hostname via ${resolver.address}: ${error.message}")
                 }
             }
         }
@@ -357,7 +394,7 @@ object AppDnsManager : Dns {
                 append("No DNS answer for ")
                 append(hostname)
                 append(" via ")
-                append(serverName)
+                append(providerConfig.serverName)
                 lastError?.message?.let {
                     append(" (")
                     append(it)
@@ -367,34 +404,38 @@ object AppDnsManager : Dns {
         )
     }
 
-    private fun queryResolver(hostname: String, resolver: SimpleResolver): List<InetAddress> {
-        val ipv4Future = plainDnsQueryExecutor.submit<List<InetAddress>> {
+    private fun queryResolver(hostname: String, resolver: SimpleResolver): DnsRecordResult {
+        val ipv4Future = plainDnsQueryExecutor.submit<DnsRecordResult> {
             runLookup(hostname = hostname, resolver = resolver, type = Type.A)
         }
-        val ipv6Future = plainDnsQueryExecutor.submit<List<InetAddress>> {
+        val ipv6Future = plainDnsQueryExecutor.submit<DnsRecordResult> {
             runLookup(hostname = hostname, resolver = resolver, type = Type.AAAA)
         }
 
-        val ipv4Addresses = runCatching { ipv4Future.get() }.getOrElse { emptyList() }
-        val ipv6Addresses = runCatching { ipv6Future.get() }.getOrElse { emptyList() }
+        val ipv4Result = runCatching { ipv4Future.get() }.getOrElse { DnsRecordResult(emptyList(), null) }
+        val ipv6Result = runCatching { ipv6Future.get() }.getOrElse { DnsRecordResult(emptyList(), null) }
 
-        if (ipv4Addresses.isEmpty() && ipv6Addresses.isEmpty()) {
+        if (ipv4Result.addresses.isEmpty() && ipv6Result.addresses.isEmpty()) {
             throw UnknownHostException("No DNS records for $hostname via ${resolver.address}")
         }
 
-        return buildList {
-            addAll(ipv4Addresses)
-            addAll(ipv6Addresses)
-        }
+        val ttlMs = listOfNotNull(ipv4Result.ttlMs, ipv6Result.ttlMs).minOrNull()
+        return DnsRecordResult(
+            addresses = buildList {
+                addAll(ipv4Result.addresses)
+                addAll(ipv6Result.addresses)
+            },
+            ttlMs = ttlMs
+        )
     }
 
-    private fun runLookup(hostname: String, resolver: SimpleResolver, type: Int): List<InetAddress> {
+    private fun runLookup(hostname: String, resolver: SimpleResolver, type: Int): DnsRecordResult {
         val records = Lookup(hostname, type).apply {
             setResolver(resolver)
             setCache(null)
         }.run().orEmpty()
 
-        return buildList {
+        val addresses = buildList {
             records.forEach { record ->
                 when (record) {
                     is ARecord -> add(record.address)
@@ -402,29 +443,42 @@ object AppDnsManager : Dns {
                 }
             }
         }
+        val ttlMs = records
+            .map { it.ttl.coerceAtLeast(0L) }
+            .minOrNull()
+            ?.let { TimeUnit.SECONDS.toMillis(it) }
+        return DnsRecordResult(addresses = addresses, ttlMs = ttlMs)
     }
 
-    private fun getCachedAddresses(hostname: String, activeConfig: AppDnsConfig): List<InetAddress>? {
+    private fun getCachedEntry(hostname: String, activeConfig: AppDnsConfig): CachedDnsEntry? {
         if (!activeConfig.dnsCacheEnabled) return null
         val cachedEntry = dnsCache[hostname] ?: return null
-        val isExpired = System.currentTimeMillis() - cachedEntry.cachedAtMs > DNS_CACHE_TTL_MS
+        val isExpired = System.currentTimeMillis() >= cachedEntry.expiresAtMs
         if (isExpired) {
             dnsCache.remove(hostname)
             return null
         }
-        return cachedEntry.addresses
+        return cachedEntry
     }
 
     private fun cacheAddresses(
         hostname: String,
         activeConfig: AppDnsConfig,
-        addresses: List<InetAddress>
-    ) {
-        if (!activeConfig.dnsCacheEnabled || addresses.isEmpty()) return
+        addresses: List<InetAddress>,
+        resolvedTtlMs: Long?,
+        ttlSource: String
+    ): Long {
+        val effectiveTtlMs = resolvedTtlMs ?: DEFAULT_DNS_CACHE_TTL_MS
+        if (!activeConfig.dnsCacheEnabled || addresses.isEmpty()) return effectiveTtlMs
+        val now = System.currentTimeMillis()
         dnsCache[hostname] = CachedDnsEntry(
             addresses = addresses,
-            cachedAtMs = System.currentTimeMillis()
+            cachedAtMs = now,
+            expiresAtMs = now + effectiveTtlMs,
+            ttlMs = effectiveTtlMs,
+            ttlSource = ttlSource
         )
+        return effectiveTtlMs
     }
 
     private fun logLookupSuccess(
@@ -433,13 +487,16 @@ object AppDnsManager : Dns {
         addresses: List<InetAddress>,
         elapsedMs: Long,
         fallbackUsed: Boolean,
-        cacheHit: Boolean
+        cacheHit: Boolean,
+        ttlMs: Long,
+        ttlSource: String,
+        ttlRemainingMs: Long
     ) {
         if (!BuildConfig.IS_DEBUG_BUILD) return
         val addressSummary = addresses.joinToString { it.hostAddress ?: it.toString() }
         Log.d(
             TAG,
-            "DNS lookup host=$hostname provider=${activeConfig.provider.storageValue} ipv4First=${activeConfig.ipv4FirstEnabled} cache=${activeConfig.dnsCacheEnabled} cacheHit=$cacheHit fallback=$fallbackUsed elapsedMs=$elapsedMs addresses=[$addressSummary]"
+            "DNS lookup host=$hostname provider=${activeConfig.provider.storageValue} ipv4First=${activeConfig.ipv4FirstEnabled} cache=${activeConfig.dnsCacheEnabled} cacheHit=$cacheHit fallback=$fallbackUsed elapsedMs=$elapsedMs ttlMs=$ttlMs ttlRemainingMs=$ttlRemainingMs ttlSource=$ttlSource addresses=[$addressSummary]"
         )
     }
 

@@ -35,6 +35,14 @@
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
 
+# ── DNS / dnsjava ──────────────────────────────────────────────────────────────
+-dontwarn com.sun.jna.**
+-dontwarn javax.naming.**
+-dontwarn lombok.Generated
+-dontwarn sun.net.spi.nameservice.**
+-dontwarn org.xbill.DNS.spi.**
+-dontwarn org.xbill.DNS.config.**
+
 # ── Data classes (DTOs) ────────────────────────────────────────────────────────
 # Keep all DTO classes used with Moshi/Retrofit
 -keep class com.nuvio.tv.data.remote.dto.** { *; }
