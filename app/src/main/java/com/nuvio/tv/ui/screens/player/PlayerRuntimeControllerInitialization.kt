@@ -25,7 +25,9 @@ import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.text.SubtitleDecoderFactory
 import androidx.media3.exoplayer.text.TextOutput
+import androidx.media3.exoplayer.text.TextRenderer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -240,6 +242,9 @@ internal fun PlayerRuntimeController.initializePlayer(
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || forceDv7ToHevc)
 
+            val baseMediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
+                .experimentalParseSubtitlesDuringExtraction(false)
+
             if (showLoadingStatus) _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
             val buildDefaultPlayer = {
                 mediaSourceFactory.configureSubtitleParsing(
@@ -249,7 +254,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
                 ExoPlayer.Builder(context)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
+                    .setMediaSourceFactory(baseMediaSourceFactory)
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .setReleaseTimeoutMs(3000)
@@ -261,7 +266,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
+                    .setMediaSourceFactory(baseMediaSourceFactory)
                     .setReleaseTimeoutMs(3000)
                     .buildWithAssSupportCompat(
                         context = context,
@@ -771,7 +776,13 @@ private class SubtitleOffsetRenderersFactory(
             shouldNormalizeCuePositionProvider = shouldNormalizeCuePositionProvider
         )
         val startIndex = out.size
-        super.buildTextRenderers(context, normalizingOutput, outputLooper, extensionRendererMode, out)
+        
+        // Explicitly instantiate TextRenderer with legacy SubtitleDecoderFactory 
+        // because DefaultRenderersFactory disables it by default in Media3 
+        val textRenderer = TextRenderer(normalizingOutput, outputLooper, SubtitleDecoderFactory.DEFAULT)
+        textRenderer.experimentalSetLegacyDecodingEnabled(true)
+        out.add(textRenderer)
+        
         for (index in startIndex until out.size) {
             out[index] = SubtitleOffsetRenderer(out[index], subtitleDelayUsProvider)
         }

@@ -43,7 +43,7 @@ internal fun ExoPlayer.Builder.buildWithAssSupportCompat(
     val mediaSourceFactory = DefaultMediaSourceFactory(
         dataSourceFactory,
         assExtractorsFactory
-    )
+    ).experimentalParseSubtitlesDuringExtraction(false)
     mediaSourceFactory.setSubtitleParserFactory(assSubtitleParserFactory)
 
     val player = this
@@ -62,6 +62,8 @@ private class CompatAssSubtitleParserFactory(
     private val delegate = AssSubtitleParserFactory(assHandler)
 
     override fun supportsFormat(format: Format): Boolean {
+        val isSsa = format.sampleMimeType == MimeTypes.TEXT_SSA || format.codecs == MimeTypes.TEXT_SSA
+        if (!isSsa) return false
         return delegate.supportsFormat(normalizeSsaFormat(format))
     }
 
