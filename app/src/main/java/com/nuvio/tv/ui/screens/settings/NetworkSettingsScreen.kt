@@ -288,7 +288,7 @@ fun NetworkSettingsContent(
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -388,13 +388,16 @@ fun NetworkSettingsContent(
 
         AnimatedVisibility(
             visible = testState != NetworkTestState.Idle,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = true),
             enter = fadeIn(),
             exit = fadeOut()
         ) {
-            SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+            SettingsGroupCard(modifier = Modifier.fillMaxSize()) {
                 Column(
-                    modifier = Modifier.padding(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
                         text = stringResource(R.string.network_results_title),
@@ -403,7 +406,10 @@ fun NetworkSettingsContent(
                     )
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = true),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
                         NetworkMetricCard(
