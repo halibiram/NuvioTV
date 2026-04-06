@@ -23,11 +23,13 @@ class TrailerSettingsDataStore @Inject constructor(
 
     private val enabledKey = booleanPreferencesKey("trailer_enabled")
     private val delaySecondsKey = intPreferencesKey("trailer_delay_seconds")
+    private val useInternalYoutubeExtractorKey = booleanPreferencesKey("use_internal_youtube_extractor")
 
     val settings: Flow<TrailerSettings> = dataStore.data.map { prefs ->
         TrailerSettings(
             enabled = prefs[enabledKey] ?: false,
-            delaySeconds = prefs[delaySecondsKey] ?: 7
+            delaySeconds = prefs[delaySecondsKey] ?: 7,
+            useInternalYoutubeExtractor = prefs[useInternalYoutubeExtractorKey] ?: false
         )
     }
 
@@ -38,9 +40,14 @@ class TrailerSettingsDataStore @Inject constructor(
     suspend fun setDelaySeconds(seconds: Int) {
         dataStore.edit { it[delaySecondsKey] = seconds }
     }
+
+    suspend fun setUseInternalYoutubeExtractor(useInternal: Boolean) {
+        dataStore.edit { it[useInternalYoutubeExtractorKey] = useInternal }
+    }
 }
 
 data class TrailerSettings(
     val enabled: Boolean = false,
-    val delaySeconds: Int = 7
+    val delaySeconds: Int = 7,
+    val useInternalYoutubeExtractor: Boolean = false
 )
