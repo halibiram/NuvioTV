@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -390,60 +391,46 @@ fun ModernHomeContent(
             animationSpec = tween(durationMillis = 350),
             label = "modernHeroBackground"
         ) { imageUrl ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(localContext)
-                        .data(imageUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                    alignment = Alignment.TopEnd
-                )
-                // Left edge fade - rounded arc inward
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawBehind {
-                            // Strong solid cover at the left edge, then arc inward
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    0.0f to bgColor.copy(alpha = 0.96f),
-                                    0.10f to bgColor.copy(alpha = 0.72f),
-                                    0.30f to Color.Transparent
-                                ),
-                                size = size
-                            )
-                            drawRect(
-                                brush = Brush.radialGradient(
-                                    colorStops = arrayOf(
-                                        0.0f to bgColor.copy(alpha = 0.78f),
-                                        0.55f to bgColor.copy(alpha = 0.52f),
-                                        0.80f to bgColor.copy(alpha = 0.16f),
-                                        1.0f to Color.Transparent
-                                    ),
-                                    center = Offset(0f, size.height / 2f),
-                                    radius = size.height * 1.0f
-                                ),
-                                size = size
-                            )
-                        }
-                )
-                // Bottom edge fade
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.78f to Color.Transparent,
-                                0.90f to bgColor.copy(alpha = 0.72f),
-                                0.96f to bgColor.copy(alpha = 0.98f),
-                                1.0f to bgColor
-                            )
+            AsyncImage(
+                model = ImageRequest.Builder(localContext)
+                    .data(imageUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithCache {
+                        val horizontalBrush = Brush.horizontalGradient(
+                            0.0f to bgColor.copy(alpha = 0.96f),
+                            0.10f to bgColor.copy(alpha = 0.72f),
+                            0.30f to Color.Transparent
                         )
-                )
-            }
+                        val radialBrush = Brush.radialGradient(
+                            colorStops = arrayOf(
+                                0.0f to bgColor.copy(alpha = 0.78f),
+                                0.55f to bgColor.copy(alpha = 0.52f),
+                                0.80f to bgColor.copy(alpha = 0.16f),
+                                1.0f to Color.Transparent
+                            ),
+                            center = Offset(0f, size.height / 2f),
+                            radius = size.height * 1.0f
+                        )
+                        val verticalBrush = Brush.verticalGradient(
+                            0.78f to Color.Transparent,
+                            0.90f to bgColor.copy(alpha = 0.72f),
+                            0.96f to bgColor.copy(alpha = 0.98f),
+                            1.0f to bgColor
+                        )
+                        onDrawWithContent {
+                            drawContent()
+                            drawRect(brush = horizontalBrush, size = size)
+                            drawRect(brush = radialBrush, size = size)
+                            drawRect(brush = verticalBrush, size = size)
+                        }
+                    },
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopEnd
+            )
         }
         val leftGradient = remember(bgColor) {
             Brush.horizontalGradient(
@@ -476,17 +463,11 @@ fun ModernHomeContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(dimColor)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(leftGradient)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(bottomGradient)
+                .drawBehind {
+                    drawRect(color = dimColor)
+                    drawRect(brush = leftGradient)
+                    drawRect(brush = bottomGradient)
+                }
         )
 
         Column(
