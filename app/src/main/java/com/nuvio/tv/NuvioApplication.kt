@@ -1,18 +1,22 @@
 package com.nuvio.tv
 
 import android.app.Application
+import android.os.Build
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import com.nuvio.tv.core.network.buildWithAppDns
 import com.nuvio.tv.core.network.NetworkDnsInitializer
+import com.nuvio.tv.core.network.buildWithAppDns
 import com.nuvio.tv.core.sync.StartupSyncService
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import javax.inject.Inject
+
 @HiltAndroidApp
 class NuvioApplication : Application(), ImageLoaderFactory {
 
@@ -30,6 +34,13 @@ class NuvioApplication : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .okHttpClient {
                 okhttp3.OkHttpClient.Builder().buildWithAppDns()
+            }
+            .components {
+                if (Build.VERSION.SDK_INT >= 28) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
             }
             .memoryCache {
                 MemoryCache.Builder(this)
