@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
@@ -6,6 +6,7 @@
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.protobuf)
 }
 
 import java.util.Properties
@@ -217,6 +218,21 @@ baselineProfile {
     }
 }
 
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+    }
+    generateProtoTasks {
+        all().configureEach {
+            builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     val composeBom = platform("androidx.compose:compose-bom:2026.01.01")
@@ -264,7 +280,9 @@ dependencies {
     implementation(libs.navigation.compose)
 
     // DataStore
+    implementation(libs.datastore.core)
     implementation(libs.datastore.preferences)
+    implementation(libs.protobuf.javalite)
 
     // ViewModel
     implementation(libs.lifecycle.viewmodel.compose)

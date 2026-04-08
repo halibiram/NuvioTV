@@ -1,180 +1,174 @@
 package com.nuvio.tv.data.local
 
 import android.util.Log
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.nuvio.tv.core.profile.ProfileManager
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.proto.WatchProgressRecord
+import com.nuvio.tv.data.local.proto.WatchProgressShard
 import com.nuvio.tv.domain.model.WatchProgress
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class WatchProgressPreferences @Inject constructor(
-    private val factory: ProfileDataStoreFactory,
+    private val legacyFactory: ProfileDataStoreFactory,
+    private val shardFactory: WatchProgressShardStoreFactory,
     private val profileManager: ProfileManager
 ) {
     companion object {
         private const val TAG = "WatchProgressPrefs"
-        private const val FEATURE = "watch_progress_preferences"
+        private const val LEGACY_FEATURE = "watch_progress_preferences"
     }
 
-    private fun store(profileId: Int = profileManager.activeProfileId.value) =
-        factory.get(profileId, FEATURE)
-
     private val gson = Gson()
-    private val watchProgressKey = stringPreferencesKey("watch_progress_map")
+    private val legacyWatchProgressKey = stringPreferencesKey("watch_progress_map")
+    private val initializedProfiles = ConcurrentHashMap.newKeySet<Int>()
+    private val initializationMutex = Mutex()
+
+    private val allRawEntries: Flow<Map<String, WatchProgress>> = profileManager.activeProfileId.flatMapLatest { profileId ->
+        flow {
+            ensureProfileInitialized(profileId)
+            emitAll(observeRawEntries(profileId))
+        }
+    }
 
     /**
      * Get all watch progress items, sorted by last watched (most recent first)
      * For series, only returns the series-level entry (not individual episode entries)
      * to avoid duplicates in continue watching.
      */
-    val allProgress: Flow<List<WatchProgress>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        factory.get(pid, FEATURE).data.map { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val allItems = parseProgressMap(json)
+    val allProgress: Flow<List<WatchProgress>> = allRawEntries.map { allItems ->
+        // Group all entries by contentId and pick the most recently watched.
+        // When lastWatched is equal (e.g. batch mark-as-watched), prefer the highest season/episode.
+        allItems.values
+            .groupBy { it.contentId }
+            .mapValues { (_, items) ->
+                items.maxWithOrNull(
+                    compareBy<WatchProgress> { it.lastWatched }
+                        .thenBy { it.season ?: 0 }
+                        .thenBy { it.episode ?: 0 }
+                )
+            }
+            .values
+            .filterNotNull()
+            .sortedByDescending { it.lastWatched }
+    }.distinctUntilChanged()
 
-            // Group all entries by contentId and pick the most recently watched.
-            // When lastWatched is equal (e.g. batch mark-as-watched), prefer the highest season/episode.
-            val latestByContent = allItems.values
-                .groupBy { it.contentId }
-                .mapValues { (_, items) ->
-                    items.maxWithOrNull(
-                        compareBy<WatchProgress> { it.lastWatched }
-                            .thenBy { it.season ?: 0 }
-                            .thenBy { it.episode ?: 0 }
-                    )
-                }
-                .values
-                .filterNotNull()
-
-            val result = latestByContent.sortedByDescending { it.lastWatched }
-            result
-        }
-    }
-
-    val allRawProgress: Flow<List<WatchProgress>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        factory.get(pid, FEATURE).data.map { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            parseProgressMap(json)
-                .values
-                .sortedByDescending { it.lastWatched }
-        }
-    }
+    val allRawProgress: Flow<List<WatchProgress>> = allRawEntries.map { entries ->
+        entries.values.sortedByDescending { it.lastWatched }
+    }.distinctUntilChanged()
 
     /**
      * Get items that are in progress (not completed)
      */
     val continueWatching: Flow<List<WatchProgress>> = allProgress.map { list ->
         list.filter { it.isInProgress() }
-    }
+    }.distinctUntilChanged()
 
     /**
      * Get watch progress for a specific content item
      */
     fun getProgress(contentId: String): Flow<WatchProgress?> {
-        return store().data.map { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json)
+        return allRawEntries.map { entries ->
             // Try direct key first (movies), then find latest episode entry (series).
-            map[contentId] ?: map.values
+            entries[contentId] ?: entries.values
                 .filter { it.contentId == contentId }
                 .maxByOrNull { it.lastWatched }
-        }
+        }.distinctUntilChanged()
     }
 
     /**
      * Get watch progress for a specific episode
      */
     fun getEpisodeProgress(contentId: String, season: Int, episode: Int): Flow<WatchProgress?> {
-        return store().data.map { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json)
-            map.values.find { 
-                it.contentId == contentId && it.season == season && it.episode == episode 
+        val key = episodeKey(contentId, season, episode)
+        return allRawEntries.map { entries ->
+            entries[key] ?: entries.values.firstOrNull {
+                it.contentId == contentId && it.season == season && it.episode == episode
             }
-        }
+        }.distinctUntilChanged()
     }
 
     /**
      * Get all episode progress for a series
      */
     fun getAllEpisodeProgress(contentId: String): Flow<Map<Pair<Int, Int>, WatchProgress>> {
-        return store().data.map { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json)
-            map.values
+        return allRawEntries.map { entries ->
+            entries.values
                 .filter { it.contentId == contentId && it.season != null && it.episode != null }
                 .associateBy { (it.season!! to it.episode!!) }
-        }
+        }.distinctUntilChanged()
     }
 
     /**
      * Save or update watch progress
      */
     suspend fun saveProgress(progress: WatchProgress) {
-        store().edit { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json).toMutableMap()
-            upsertProgressEntries(map, listOf(progress))
-
-            val pruned = pruneOldItems(map)
-            preferences[watchProgressKey] = gson.toJson(pruned)
-        }
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+        upsertEntries(profileId, listOf(progress))
     }
 
     suspend fun saveProgressBatch(progressList: List<WatchProgress>) {
         if (progressList.isEmpty()) return
-        store().edit { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json).toMutableMap()
-            upsertProgressEntries(map, progressList)
-            val pruned = pruneOldItems(map)
-            preferences[watchProgressKey] = gson.toJson(pruned)
-        }
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+        upsertEntries(profileId, progressList)
     }
 
     /**
      * Remove watch progress for a specific item
      */
-    suspend fun removeProgress(contentId: String, season: Int? = null, episode: Int? = null) {
-        store().edit { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json).toMutableMap()
+    suspend fun removeProgress(contentId: String, season: Int?, episode: Int?) {
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
 
-            val beforeSize = map.size
-            Log.d(
-                TAG,
-                "removeProgress start contentId=$contentId season=$season episode=$episode entriesBefore=$beforeSize"
-            )
+        val currentEntries = getAllRawEntries(profileId)
+        val beforeSize = currentEntries.size
+        Log.d(
+            TAG,
+            "removeProgress start contentId=$contentId season=$season episode=$episode entriesBefore=$beforeSize"
+        )
 
-            if (season != null && episode != null) {
-                // Remove specific episode progress + the series-level entry
-                // so the item disappears from continue watching
-                val key = "${contentId}_s${season}e${episode}"
-                map.remove(key)
-                map.remove(contentId)
-                Log.d(TAG, "removeProgress episodeKey=$key existsAfter=${map.containsKey(key)}")
-            } else {
-                // Remove all progress for this content
-                val keysToRemove = map.keys.filter { key ->
-                    key == contentId || key.startsWith("${contentId}_s")
-                }
-                Log.d(TAG, "removeProgress removingKeys=${keysToRemove.joinToString()}")
-                keysToRemove.forEach { map.remove(it) }
+        val keysToRemove = if (season != null && episode != null) {
+            // Remove specific episode progress + the series-level entry
+            // so the item disappears from continue watching
+            setOf(episodeKey(contentId, season, episode), contentId)
+        } else {
+            // Remove all progress for this content
+            getAllRawEntries(profileId).keys.filterTo(linkedSetOf()) { key ->
+                key == contentId || key.startsWith("${contentId}_s")
             }
-
-            Log.d(TAG, "removeProgress complete contentId=$contentId entriesAfter=${map.size}")
-            preferences[watchProgressKey] = gson.toJson(map)
         }
+
+        if (keysToRemove.isEmpty()) return
+        if (season != null && episode != null) {
+            val key = episodeKey(contentId, season, episode)
+            removeKeys(profileId, keysToRemove)
+            val existsAfter = getAllRawEntries(profileId).containsKey(key)
+            Log.d(TAG, "removeProgress episodeKey=$key existsAfter=$existsAfter")
+        } else {
+            Log.d(TAG, "removeProgress removingKeys=${keysToRemove.joinToString()}")
+            removeKeys(profileId, keysToRemove)
+        }
+        Log.d(TAG, "removeProgress complete contentId=$contentId entriesAfter=${getAllRawEntries(profileId).size}")
     }
 
     /**
@@ -182,39 +176,42 @@ class WatchProgressPreferences @Inject constructor(
      */
     suspend fun removeProgressBatch(contentId: String, episodes: List<Pair<Int, Int>>) {
         if (episodes.isEmpty()) return
-        store().edit { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val map = parseProgressMap(json).toMutableMap()
-            for ((season, episode) in episodes) {
-                map.remove("${contentId}_s${season}e${episode}")
-            }
-            map.remove(contentId)
-            Log.d(TAG, "removeProgressBatch contentId=$contentId removed=${episodes.size} episodes entriesAfter=${map.size}")
-            preferences[watchProgressKey] = gson.toJson(map)
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+
+        val keysToRemove = linkedSetOf<String>()
+        episodes.forEach { (season, episode) ->
+            keysToRemove += episodeKey(contentId, season, episode)
         }
+        keysToRemove += contentId
+        removeKeys(profileId, keysToRemove)
+        Log.d(TAG, "removeProgressBatch contentId=$contentId removed=${episodes.size} episodes entriesAfter=${getAllRawEntries(profileId).size}")
     }
 
     /**
      * Mark content as completed
      */
     suspend fun markAsCompleted(progress: WatchProgress) {
-        // If the incoming duration is a dummy sentinel (≤ 1ms), check for an
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+        val rawEntries = getAllRawEntries(profileId)
+
+        // If the incoming duration is a dummy sentinel (<= 1ms), check for an
         // existing local entry with a real duration from prior playback.
         // This creates a proper completed entry that syncs correctly cross-device.
         val effectiveDuration = if (progress.duration <= 1L) {
-            val key = createKey(progress)
-            val existing = getAllRawEntries()[key]
-            existing?.duration?.takeIf { it > 1L } ?: progress.duration
+            rawEntries[createKey(progress)]?.duration?.takeIf { it > 1L } ?: progress.duration
         } else {
             progress.duration
         }
 
-        val completedProgress = progress.copy(
-            position = effectiveDuration,
-            duration = effectiveDuration,
-            lastWatched = System.currentTimeMillis()
+        saveProgress(
+            progress.copy(
+                position = effectiveDuration,
+                duration = effectiveDuration,
+                lastWatched = System.currentTimeMillis()
+            )
         )
-        saveProgress(completedProgress)
     }
 
     /**
@@ -222,12 +219,13 @@ class WatchProgressPreferences @Inject constructor(
      */
     suspend fun markAsCompletedBatch(progressList: List<WatchProgress>) {
         if (progressList.isEmpty()) return
-        val rawEntries = getAllRawEntries()
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+        val rawEntries = getAllRawEntries(profileId)
         val now = System.currentTimeMillis()
         val completed = progressList.map { progress ->
             val effectiveDuration = if (progress.duration <= 1L) {
-                val key = createKey(progress)
-                rawEntries[key]?.duration?.takeIf { it > 1L } ?: progress.duration
+                rawEntries[createKey(progress)]?.duration?.takeIf { it > 1L } ?: progress.duration
             } else {
                 progress.duration
             }
@@ -241,101 +239,214 @@ class WatchProgressPreferences @Inject constructor(
     }
 
     /**
-     * Returns the raw key→WatchProgress map from DataStore (for sync push).
+     * Returns the raw key->WatchProgress map from DataStore (for sync push).
      */
     suspend fun getAllRawEntries(): Map<String, WatchProgress> {
-        val preferences = store().data.first()
-        val json = preferences[watchProgressKey] ?: "{}"
-        return parseProgressMap(json)
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+        return getAllRawEntries(profileId)
     }
 
     /**
      * Merges remote entries into local storage. Newer lastWatched wins per key.
      */
     suspend fun mergeRemoteEntries(remoteEntries: Map<String, WatchProgress>) {
-        Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${remoteEntries.size} remote entries")
-        store().edit { preferences ->
-            val json = preferences[watchProgressKey] ?: "{}"
-            val local = parseProgressMap(json).toMutableMap()
-            Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${local.size} existing local entries")
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
 
+        Log.d(TAG, "mergeRemoteEntries: ${remoteEntries.size} remote entries")
+
+        val local = getAllRawEntries(profileId).toMutableMap()
+        Log.d(TAG, "mergeRemoteEntries: ${local.size} existing local entries")
+        if (remoteEntries.isNotEmpty()) {
             // Remove local entries that no longer exist on remote
-            if (remoteEntries.isNotEmpty()) {
-                val removedKeys = local.keys - remoteEntries.keys
-                removedKeys.forEach { key ->
-                    local.remove(key)
-                    Log.d("WatchProgressPrefs", "  removed key=$key (not in remote)")
-                }
+            val removedKeys = local.keys - remoteEntries.keys
+            removedKeys.forEach { key ->
+                local.remove(key)
+                Log.d(TAG, "  removed key=$key (not in remote)")
             }
-
-            for ((key, remote) in remoteEntries) {
-                val existing = local[key]
-                if (existing == null || remote.lastWatched > existing.lastWatched) {
-                    local[key] = mergeDisplayMetadata(remote, existing)
-                    Log.d("WatchProgressPrefs", "  merged key=$key (existing=${existing != null})")
-                } else {
-                    Log.d("WatchProgressPrefs", "  skipped key=$key (local is newer)")
-                }
-            }
-
-            val pruned = pruneOldItems(local)
-            Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
-            preferences[watchProgressKey] = gson.toJson(pruned)
         }
+
+        remoteEntries.forEach { (key, remote) ->
+            val existing = local[key]
+            if (existing == null || remote.lastWatched > existing.lastWatched) {
+                local[key] = mergeDisplayMetadata(remote, existing)
+                Log.d(TAG, "  merged key=$key (existing=${existing != null})")
+            } else {
+                Log.d(TAG, "  skipped key=$key (local is newer)")
+            }
+        }
+
+        val pruned = pruneOldItems(local)
+        Log.d(TAG, "mergeRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
+        writeExactEntries(profileId, pruned)
     }
 
     suspend fun replaceWithRemoteEntries(remoteEntries: Map<String, WatchProgress>) {
-        Log.d("WatchProgressPrefs", "replaceWithRemoteEntries: ${remoteEntries.size} remote entries")
-        store().edit { preferences ->
-            val currentJson = preferences[watchProgressKey] ?: "{}"
-            val current = parseProgressMap(currentJson)
-            if (remoteEntries.isEmpty() && current.isNotEmpty()) {
-                Log.w(TAG, "replaceWithRemoteEntries: remote empty while local has ${current.size} entries; preserving local watch progress")
-                return@edit
-            }
-            val merged = remoteEntries.mapValues { (key, remote) ->
-                mergeDisplayMetadata(remote, current[key])
-            }.toMutableMap()
-            val pruned = pruneOldItems(merged)
-            Log.d("WatchProgressPrefs", "replaceWithRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
-            preferences[watchProgressKey] = gson.toJson(pruned)
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+
+        Log.d(TAG, "replaceWithRemoteEntries: ${remoteEntries.size} remote entries")
+
+        val current = getAllRawEntries(profileId)
+        if (remoteEntries.isEmpty() && current.isNotEmpty()) {
+            Log.w(TAG, "replaceWithRemoteEntries: remote empty while local has ${current.size} entries; preserving local watch progress")
+            return
         }
+
+        val merged = remoteEntries.mapValues { (key, remote) ->
+            mergeDisplayMetadata(remote, current[key])
+        }.toMutableMap()
+        val pruned = pruneOldItems(merged)
+        Log.d(TAG, "replaceWithRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
+        writeExactEntries(profileId, pruned)
     }
 
     /**
      * Clear all watch progress
      */
     suspend fun clearAll() {
-        store().edit { preferences ->
-            preferences.remove(watchProgressKey)
+        val profileId = profileManager.activeProfileId.value
+        ensureProfileInitialized(profileId)
+        repeat(WatchProgressShardStoreFactory.SHARD_COUNT) { shardId ->
+            shardStore(profileId, shardId).updateData {
+                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
+                WatchProgressShard.getDefaultInstance()
+            }
         }
+        clearLegacyStore(profileId)
+    }
+
+    private suspend fun ensureProfileInitialized(profileId: Int) {
+        if (initializedProfiles.contains(profileId)) return
+        initializationMutex.withLock {
+            if (initializedProfiles.contains(profileId)) return
+
+            val existingEntries = getAllRawEntries(profileId, ensureInitialized = false)
+            if (existingEntries.isEmpty()) {
+                migrateLegacyStore(profileId)
+            }
+            initializedProfiles.add(profileId)
+        }
+    }
+
+    private fun observeRawEntries(profileId: Int): Flow<Map<String, WatchProgress>> {
+        val shardFlows = List(WatchProgressShardStoreFactory.SHARD_COUNT) { shardId ->
+            shardStore(profileId, shardId).data
+        }
+        return combine(shardFlows) { shards ->
+            val merged = LinkedHashMap<String, WatchProgress>()
+            shards.forEach { shard ->
+                shard.entriesList.forEach { record ->
+                    merged[record.key] = record.toDomain()
+                }
+            }
+            merged.toMap()
+        }.distinctUntilChanged()
+    }
+
+    private suspend fun getAllRawEntries(
+        profileId: Int,
+        ensureInitialized: Boolean = true
+    ): Map<String, WatchProgress> {
+        if (ensureInitialized) {
+            ensureProfileInitialized(profileId)
+        }
+
+        val merged = LinkedHashMap<String, WatchProgress>()
+        repeat(WatchProgressShardStoreFactory.SHARD_COUNT) { shardId ->
+            val shard = shardStore(profileId, shardId).data.first()
+            shard.entriesList.forEach { record ->
+                merged[record.key] = record.toDomain()
+            }
+        }
+        return merged
+    }
+
+    private suspend fun migrateLegacyStore(profileId: Int) {
+        val preferences = legacyFactory.get(profileId, LEGACY_FEATURE).data.first()
+        val json = preferences[legacyWatchProgressKey]
+        if (json.isNullOrBlank()) return
+
+        val legacyEntries = parseProgressMap(json)
+        if (legacyEntries.isEmpty()) {
+            clearLegacyStore(profileId)
+            return
+        }
+
+        Log.d(TAG, "Migrating ${legacyEntries.size} legacy watch progress entries for profile $profileId")
+        writeExactEntries(profileId, legacyEntries)
+        clearLegacyStore(profileId)
+    }
+
+    private suspend fun clearLegacyStore(profileId: Int) {
+        legacyFactory.get(profileId, LEGACY_FEATURE).edit { preferences ->
+            preferences.remove(legacyWatchProgressKey)
+        }
+    }
+
+    private suspend fun upsertEntries(profileId: Int, progressList: List<WatchProgress>) {
+        val grouped = progressList.groupBy { shardIdForKey(createKey(it)) }
+        grouped.forEach { (shardId, shardEntries) ->
+            shardStore(profileId, shardId).updateData { current ->
+                val byKey = current.entriesList.associateByTo(linkedMapOf()) { it.key }
+                shardEntries.forEach { progress ->
+                    byKey[createKey(progress)] = progress.toProto(createKey(progress))
+                }
+                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
+                shardFromEntries(byKey.values)
+            }
+        }
+    }
+
+    private suspend fun removeKeys(profileId: Int, keys: Collection<String>) {
+        val groupedKeys = keys.groupBy(::shardIdForKey)
+        groupedKeys.forEach { (shardId, shardKeys) ->
+            shardStore(profileId, shardId).updateData { current ->
+                val remaining = current.entriesList.filterNot { it.key in shardKeys.toSet() }
+                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
+                shardFromEntries(remaining)
+            }
+        }
+    }
+
+    private suspend fun writeExactEntries(profileId: Int, entries: Map<String, WatchProgress>) {
+        val grouped = entries.entries.groupBy { shardIdForKey(it.key) }
+        repeat(WatchProgressShardStoreFactory.SHARD_COUNT) { shardId ->
+            val shardEntries = grouped[shardId].orEmpty().map { (key, progress) ->
+                progress.toProto(key)
+            }
+            shardStore(profileId, shardId).updateData {
+                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
+                shardFromEntries(shardEntries)
+            }
+        }
+    }
+
+    private fun shardFromEntries(entries: Collection<WatchProgressRecord>): WatchProgressShard {
+        return WatchProgressShard.newBuilder()
+            .addAllEntries(entries.sortedBy { it.key })
+            .build()
+    }
+
+    private fun shardStore(profileId: Int, shardId: Int): DataStore<WatchProgressShard> {
+        return shardFactory.get(profileId, shardId)
+    }
+
+    private fun shardIdForKey(key: String): Int {
+        return (key.hashCode() and Int.MAX_VALUE) % WatchProgressShardStoreFactory.SHARD_COUNT
     }
 
     private fun createKey(progress: WatchProgress): String {
         return if (progress.season != null && progress.episode != null) {
-            "${progress.contentId}_s${progress.season}e${progress.episode}"
+            episodeKey(progress.contentId, progress.season, progress.episode)
         } else {
             progress.contentId
         }
     }
 
-    private fun upsertProgressEntries(
-        map: MutableMap<String, WatchProgress>,
-        progressList: List<WatchProgress>
-    ) {
-        progressList.forEach { progress ->
-            val key = createKey(progress)
-            map[key] = progress
-
-            // Remove legacy series-level mirror key if this is an episode entry.
-            // Mirror keys caused race conditions with stale progress data.
-            if (progress.season != null && progress.episode != null) {
-                val seriesKey = progress.contentId
-                if (seriesKey != key && map.containsKey(seriesKey)) {
-                    map.remove(seriesKey)
-                }
-            }
-        }
+    private fun episodeKey(contentId: String, season: Int, episode: Int): String {
+        return "${contentId}_s${season}e${episode}"
     }
 
     private fun mergeDisplayMetadata(remote: WatchProgress, existing: WatchProgress?): WatchProgress {
@@ -347,6 +458,59 @@ class WatchProgressPreferences @Inject constructor(
             logo = existing.logo ?: remote.logo,
             episodeTitle = existing.episodeTitle ?: remote.episodeTitle,
             addonBaseUrl = remote.addonBaseUrl ?: existing.addonBaseUrl
+        )
+    }
+
+    private fun WatchProgress.toProto(key: String): WatchProgressRecord {
+        return WatchProgressRecord.newBuilder()
+            .setKey(key)
+            .setContentId(contentId)
+            .setContentType(contentType)
+            .setName(name)
+            .setPoster(poster.orEmpty())
+            .setBackdrop(backdrop.orEmpty())
+            .setLogo(logo.orEmpty())
+            .setVideoId(videoId)
+            .apply {
+                season?.let(::setSeason)
+                episode?.let(::setEpisode)
+                episodeTitle?.let(::setEpisodeTitle)
+                setPosition(position)
+                setDuration(duration)
+                setLastWatched(lastWatched)
+                addonBaseUrl?.let(::setAddonBaseUrl)
+                progressPercent?.let(::setProgressPercent)
+                setSource(source)
+                traktPlaybackId?.let(::setTraktPlaybackId)
+                traktMovieId?.let(::setTraktMovieId)
+                traktShowId?.let(::setTraktShowId)
+                traktEpisodeId?.let(::setTraktEpisodeId)
+            }
+            .build()
+    }
+
+    private fun WatchProgressRecord.toDomain(): WatchProgress {
+        return WatchProgress(
+            contentId = contentId,
+            contentType = contentType,
+            name = name,
+            poster = poster.takeIf { it.isNotBlank() },
+            backdrop = backdrop.takeIf { it.isNotBlank() },
+            logo = logo.takeIf { it.isNotBlank() },
+            videoId = videoId.ifBlank { contentId },
+            season = if (hasSeason()) season else null,
+            episode = if (hasEpisode()) episode else null,
+            episodeTitle = episodeTitle.takeIf { it.isNotBlank() },
+            position = position,
+            duration = duration,
+            lastWatched = lastWatched,
+            addonBaseUrl = addonBaseUrl.takeIf { it.isNotBlank() },
+            progressPercent = if (hasProgressPercent()) progressPercent else null,
+            source = source.ifBlank { WatchProgress.SOURCE_LOCAL },
+            traktPlaybackId = if (hasTraktPlaybackId()) traktPlaybackId else null,
+            traktMovieId = if (hasTraktMovieId()) traktMovieId else null,
+            traktShowId = if (hasTraktShowId()) traktShowId else null,
+            traktEpisodeId = if (hasTraktEpisodeId()) traktEpisodeId else null
         )
     }
 
@@ -365,8 +529,8 @@ class WatchProgressPreferences @Inject constructor(
                 }
             }
             parsed
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse progress data", e)
+        } catch (exception: Exception) {
+            Log.e(TAG, "Failed to parse progress data", exception)
             // Backward compatibility with previously stored direct WatchProgress payloads.
             runCatching {
                 val fallbackType = object : TypeToken<Map<String, WatchProgress>>() {}.type
@@ -383,6 +547,7 @@ class WatchProgressPreferences @Inject constructor(
             }
             else -> null
         } ?: return null
+
         val contentId = obj.getString("contentId", "content_id")?.takeIf { it.isNotBlank() } ?: return null
         val contentType = obj.getString("contentType", "content_type")?.takeIf { it.isNotBlank() } ?: return null
         val videoId = obj.getString("videoId", "video_id")?.takeIf { it.isNotBlank() } ?: contentId

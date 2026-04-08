@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.nuvio.tv.data.local.proto";
+option java_outer_classname = "WatchProgressProto";
+
+message WatchProgressRecord {
+  string key = 1;
+  string content_id = 2;
+  string content_type = 3;
+  string name = 4;
+  string poster = 5;
+  string backdrop = 6;
+  string logo = 7;
+  string video_id = 8;
+  optional int32 season = 9;
+  optional int32 episode = 10;
+  string episode_title = 11;
+  int64 position = 12;
+  int64 duration = 13;
+  int64 last_watched = 14;
+  string addon_base_url = 15;
+  optional float progress_percent = 16;
+  string source = 17;
+  optional int64 trakt_playback_id = 18;
+  optional int32 trakt_movie_id = 19;
+  optional int32 trakt_show_id = 20;
+  optional int32 trakt_episode_id = 21;
+}
+
+message WatchProgressShard {
+  repeated WatchProgressRecord entries = 1;
+}

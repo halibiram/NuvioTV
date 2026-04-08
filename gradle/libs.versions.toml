@@ -20,6 +20,8 @@ coroutines = "1.8.1"
 coil = "2.7.0"
 navigationCompose = "2.8.8"
 datastore = "1.1.1"
+protobuf = "4.31.1"
+protobufPlugin = "0.9.5"
 lifecycleViewModelCompose = "2.8.7"
 ksp = "2.3.0"
 media3 = "1.10.0-rc01"
@@ -85,6 +87,8 @@ navigation-compose = { group = "androidx.navigation", name = "navigation-compose
 
 # DataStore
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+datastore-core = { group = "androidx.datastore", name = "datastore", version.ref = "datastore" }
+protobuf-javalite = { group = "com.google.protobuf", name = "protobuf-javalite", version.ref = "protobuf" }
 
 # ViewModel
 lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewModelCompose" }
@@ -141,3 +145,4 @@ hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineProfilePlugin" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }

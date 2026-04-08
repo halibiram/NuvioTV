@@ -3,6 +3,7 @@ package com.nuvio.tv.core.profile
 import android.content.Context
 import com.nuvio.tv.data.local.ProfileDataStore
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
+import com.nuvio.tv.data.local.WatchProgressShardStoreFactory
 import com.nuvio.tv.domain.model.UserProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +20,7 @@ import javax.inject.Singleton
 class ProfileManager @Inject constructor(
     private val profileDataStore: ProfileDataStore,
     private val factory: ProfileDataStoreFactory,
+    private val watchProgressShardStoreFactory: WatchProgressShardStoreFactory,
     @ApplicationContext private val context: Context
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -88,12 +90,17 @@ class ProfileManager @Inject constructor(
         if (profileId == 1) return
 
         factory.clearProfile(profileId)
+        watchProgressShardStoreFactory.clearProfile(profileId)
 
         val suffixWithExtension = "_p${profileId}.preferences_pb"
+        val shardSuffixWithExtension = "_p${profileId}.pb"
         val dataStoreDir = File(context.filesDir, "datastore")
         if (dataStoreDir.exists()) {
             dataStoreDir.listFiles()?.forEach { file ->
                 if (file.name.endsWith(suffixWithExtension)) {
+                    file.delete()
+                }
+                if (file.name.endsWith(shardSuffixWithExtension)) {
                     file.delete()
                 }
             }
