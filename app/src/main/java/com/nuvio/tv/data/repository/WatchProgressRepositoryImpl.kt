@@ -93,8 +93,47 @@ class WatchProgressRepositoryImpl @Inject constructor(
         if (!authManager.isAuthenticated) return
         syncJob?.cancel()
         syncJob = syncScope.launch {
+            if (watchProgressPreferences.hasCorruptedShards()) {
+                Log.w(TAG, "triggerRemoteSync: local watch progress has corrupted shards, requesting remote recovery instead of push")
+                recoverCorruptedWatchProgressFromRemote()
+                return@launch
+            }
             delay(2000)
+            if (watchProgressPreferences.hasCorruptedShards()) {
+                Log.w(TAG, "triggerRemoteSync: corrupted shards detected after debounce, requesting remote recovery instead of push")
+                recoverCorruptedWatchProgressFromRemote()
+                return@launch
+            }
             watchProgressSyncService.pushToRemote()
+        }
+    }
+
+    private suspend fun recoverCorruptedWatchProgressFromRemote() {
+        if (isSyncingFromRemote) return
+        if (!authManager.isAuthenticated) return
+
+        val shouldUseSupabaseSync = runCatching {
+            watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
+        }.getOrElse { error ->
+            Log.w(TAG, "recoverCorruptedWatchProgressFromRemote: failed to determine active sync source", error)
+            return
+        }
+
+        if (!shouldUseSupabaseSync) {
+            Log.d(TAG, "recoverCorruptedWatchProgressFromRemote: Trakt is primary, skipping Supabase recovery pull")
+            return
+        }
+
+        isSyncingFromRemote = true
+        try {
+            val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
+            watchProgressPreferences.mergeRemoteEntries(remoteEntries.toMap())
+            hasCompletedInitialPull = true
+            Log.d(TAG, "Recovered corrupted watch progress shards from remote (${remoteEntries.size} entries)")
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to recover corrupted watch progress shards from remote", error)
+        } finally {
+            isSyncingFromRemote = false
         }
     }
 
@@ -536,6 +575,11 @@ class WatchProgressRepositoryImpl @Inject constructor(
 
         if (syncRemote && authManager.isAuthenticated) {
             syncScope.launch {
+                if (watchProgressPreferences.hasCorruptedShards()) {
+                    Log.w(TAG, "saveProgress: skipping immediate remote push because local watch progress needs recovery")
+                    recoverCorruptedWatchProgressFromRemote()
+                    return@launch
+                }
                 watchProgressSyncService.pushSingleToRemote(progressKey(progress), progress)
                     .onFailure { error ->
                         Log.w(TAG, "Failed single progress push; falling back to full sync next cycle", error)

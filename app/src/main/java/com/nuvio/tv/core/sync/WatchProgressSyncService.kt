@@ -90,6 +90,11 @@ class WatchProgressSyncService @Inject constructor(
                 return@withContext Result.success(Unit)
             }
 
+            if (watchProgressPreferences.hasCorruptedShards()) {
+                Log.w(TAG, "Skipping watch progress push because local corrupted shards still need remote recovery")
+                return@withContext Result.success(Unit)
+            }
+
             val rawEntries = watchProgressPreferences.getAllRawEntries()
             val entries = canonicalizeForRemote(rawEntries).filterValues { progress ->
                 !(progress.position <= 1L && progress.duration <= 1L && progress.duration > 0L)
@@ -138,7 +143,12 @@ class WatchProgressSyncService @Inject constructor(
                 return@withContext Result.success(Unit)
             }
 
-           
+            if (watchProgressPreferences.hasCorruptedShards()) {
+                Log.w(TAG, "Skipping single watch progress push because local corrupted shards still need remote recovery")
+                return@withContext Result.success(Unit)
+            }
+
+            
             val profileId = profileManager.activeProfileId.value
             val params = buildJsonObject {
                 put("p_entries", buildJsonArray {

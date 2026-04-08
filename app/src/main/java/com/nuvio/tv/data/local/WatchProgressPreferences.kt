@@ -12,6 +12,7 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.proto.WatchProgressRecord
 import com.nuvio.tv.data.local.proto.WatchProgressShard
 import com.nuvio.tv.domain.model.WatchProgress
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -27,6 +28,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class WatchProgressPreferences @Inject constructor(
     private val legacyFactory: ProfileDataStoreFactory,
     private val shardFactory: WatchProgressShardStoreFactory,
@@ -280,6 +282,7 @@ class WatchProgressPreferences @Inject constructor(
         val pruned = pruneOldItems(local)
         Log.d(TAG, "mergeRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
         writeExactEntries(profileId, pruned)
+        clearCorruptionMarkers(profileId)
     }
 
     suspend fun replaceWithRemoteEntries(remoteEntries: Map<String, WatchProgress>) {
@@ -300,6 +303,7 @@ class WatchProgressPreferences @Inject constructor(
         val pruned = pruneOldItems(merged)
         Log.d(TAG, "replaceWithRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
         writeExactEntries(profileId, pruned)
+        clearCorruptionMarkers(profileId)
     }
 
     /**
@@ -315,6 +319,12 @@ class WatchProgressPreferences @Inject constructor(
             }
         }
         clearLegacyStore(profileId)
+    }
+
+    fun hasCorruptedShards(profileId: Int = profileManager.activeProfileId.value): Boolean {
+        return (0 until WatchProgressShardStoreFactory.SHARD_COUNT).any { shardId ->
+            WatchProgressCorruptionTracker.contains(shardFactory.storeName(profileId, shardId))
+        }
     }
 
     private suspend fun ensureProfileInitialized(profileId: Int) {
@@ -393,7 +403,6 @@ class WatchProgressPreferences @Inject constructor(
                 shardEntries.forEach { progress ->
                     byKey[createKey(progress)] = progress.toProto(createKey(progress))
                 }
-                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
                 shardFromEntries(byKey.values)
             }
         }
@@ -404,7 +413,6 @@ class WatchProgressPreferences @Inject constructor(
         groupedKeys.forEach { (shardId, shardKeys) ->
             shardStore(profileId, shardId).updateData { current ->
                 val remaining = current.entriesList.filterNot { it.key in shardKeys.toSet() }
-                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
                 shardFromEntries(remaining)
             }
         }
@@ -417,9 +425,14 @@ class WatchProgressPreferences @Inject constructor(
                 progress.toProto(key)
             }
             shardStore(profileId, shardId).updateData {
-                WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
                 shardFromEntries(shardEntries)
             }
+        }
+    }
+
+    private fun clearCorruptionMarkers(profileId: Int) {
+        repeat(WatchProgressShardStoreFactory.SHARD_COUNT) { shardId ->
+            WatchProgressCorruptionTracker.clear(shardFactory.storeName(profileId, shardId))
         }
     }
 
@@ -462,29 +475,30 @@ class WatchProgressPreferences @Inject constructor(
     }
 
     private fun WatchProgress.toProto(key: String): WatchProgressRecord {
+        val progress = this
         return WatchProgressRecord.newBuilder()
             .setKey(key)
-            .setContentId(contentId)
-            .setContentType(contentType)
-            .setName(name)
-            .setPoster(poster.orEmpty())
-            .setBackdrop(backdrop.orEmpty())
-            .setLogo(logo.orEmpty())
-            .setVideoId(videoId)
+            .setContentId(progress.contentId)
+            .setContentType(progress.contentType)
+            .setName(progress.name)
+            .setPoster(progress.poster.orEmpty())
+            .setBackdrop(progress.backdrop.orEmpty())
+            .setLogo(progress.logo.orEmpty())
+            .setVideoId(progress.videoId)
             .apply {
-                season?.let(::setSeason)
-                episode?.let(::setEpisode)
-                episodeTitle?.let(::setEpisodeTitle)
-                setPosition(position)
-                setDuration(duration)
-                setLastWatched(lastWatched)
-                addonBaseUrl?.let(::setAddonBaseUrl)
-                progressPercent?.let(::setProgressPercent)
-                setSource(source)
-                traktPlaybackId?.let(::setTraktPlaybackId)
-                traktMovieId?.let(::setTraktMovieId)
-                traktShowId?.let(::setTraktShowId)
-                traktEpisodeId?.let(::setTraktEpisodeId)
+                progress.season?.let(::setSeason)
+                progress.episode?.let(::setEpisode)
+                progress.episodeTitle?.let(::setEpisodeTitle)
+                setPosition(progress.position)
+                setDuration(progress.duration)
+                setLastWatched(progress.lastWatched)
+                progress.addonBaseUrl?.let(::setAddonBaseUrl)
+                progress.progressPercent?.let(::setProgressPercent)
+                setSource(progress.source)
+                progress.traktPlaybackId?.let(::setTraktPlaybackId)
+                progress.traktMovieId?.let(::setTraktMovieId)
+                progress.traktShowId?.let(::setTraktShowId)
+                progress.traktEpisodeId?.let(::setTraktEpisodeId)
             }
             .build()
     }
