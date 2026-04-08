@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -445,48 +446,44 @@ fun ModernHomeContent(
                 )
             }
         }
-        val leftGradient = remember(bgColor) {
-            Brush.horizontalGradient(
-                colorStops = arrayOf(
-                    0.0f to bgColor.copy(alpha = 0.96f),
-                    0.20f to bgColor.copy(alpha = 0.86f),
-                    0.35f to bgColor.copy(alpha = 0.70f),
-                    0.45f to bgColor.copy(alpha = 0.55f),
-                    0.55f to bgColor.copy(alpha = 0.38f),
-                    0.65f to bgColor.copy(alpha = 0.22f),
-                    0.75f to Color.Transparent,
-                    1.0f to Color.Transparent
-                )
-            )
-        }
-        val bottomGradient = remember(bgColor) {
-            Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0.0f to Color.Transparent,
-                    0.38f to Color.Transparent,
-                    0.56f to bgColor.copy(alpha = 0.38f),
-                    0.72f to bgColor.copy(alpha = 0.74f),
-                    0.86f to bgColor.copy(alpha = 0.94f),
-                    1.0f to bgColor.copy(alpha = 1.0f)
-                )
-            )
-        }
-        val dimColor = remember(bgColor) { bgColor.copy(alpha = 0.08f) }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // ⚡ Bolt Optimization: Compose node reduction.
+                // 💡 What: Replaced 3 overlapping Box elements (each with a background modifier) with a single drawWithCache modifier.
+                // 🎯 Why: Reduces the depth/width of the Composition tree and avoids unnecessary modifier chaining overhead on Android TV.
+                // 📊 Impact: Eliminates 2 redundant Layout nodes from the hierarchy for every render, slightly speeding up measure/layout phases.
+                .drawWithCache {
+                    val dimColor = bgColor.copy(alpha = 0.08f)
+                    val leftGradient = Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.0f to bgColor.copy(alpha = 0.96f),
+                            0.20f to bgColor.copy(alpha = 0.86f),
+                            0.35f to bgColor.copy(alpha = 0.70f),
+                            0.45f to bgColor.copy(alpha = 0.55f),
+                            0.55f to bgColor.copy(alpha = 0.38f),
+                            0.65f to bgColor.copy(alpha = 0.22f),
+                            0.75f to Color.Transparent,
+                            1.0f to Color.Transparent
+                        )
+                    )
+                    val bottomGradient = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color.Transparent,
+                            0.38f to Color.Transparent,
+                            0.56f to bgColor.copy(alpha = 0.38f),
+                            0.72f to bgColor.copy(alpha = 0.74f),
+                            0.86f to bgColor.copy(alpha = 0.94f),
+                            1.0f to bgColor.copy(alpha = 1.0f)
+                        )
+                    )
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(dimColor)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(leftGradient)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(bottomGradient)
+                    onDrawBehind {
+                        drawRect(color = dimColor, size = size)
+                        drawRect(brush = leftGradient, size = size)
+                        drawRect(brush = bottomGradient, size = size)
+                    }
+                }
         )
 
         Column(
