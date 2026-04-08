@@ -16,7 +16,10 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.profileDataStore: DataStore<Preferences> by preferencesDataStore(name = "profile_settings")
+private val Context.profileDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "profile_settings",
+    corruptionHandler = preferencesCorruptionHandler("profile_settings")
+)
 
 @Singleton
 class ProfileDataStore @Inject constructor(

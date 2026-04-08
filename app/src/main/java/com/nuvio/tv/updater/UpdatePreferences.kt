@@ -7,13 +7,17 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.nuvio.tv.data.local.preferencesCorruptionHandler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.updateDataStore: DataStore<Preferences> by preferencesDataStore(name = "update_settings")
+private val Context.updateDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "update_settings",
+    corruptionHandler = preferencesCorruptionHandler("update_settings")
+)
 
 @Singleton
 class UpdatePreferences @Inject constructor(

@@ -12,7 +12,10 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.debugDataStore: DataStore<Preferences> by preferencesDataStore(name = "debug_settings")
+private val Context.debugDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "debug_settings",
+    corruptionHandler = preferencesCorruptionHandler("debug_settings")
+)
 
 @Singleton
 class DebugSettingsDataStore @Inject constructor(

@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.PreferencesCorruptionTracker
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
 import com.nuvio.tv.data.remote.supabase.SupabaseProfileSettingsBlob
 import io.github.jan.supabase.postgrest.Postgrest
@@ -133,6 +134,7 @@ class ProfileSettingsSyncService @Inject constructor(
                 val rows = response.decodeList<SupabaseProfileSettingsBlob>()
                 val blob = rows.firstOrNull()?.settingsJson
                 if (blob == null) {
+                    clearCorruptionMarkers(profileId)
                     Log.d(TAG, "No remote profile settings blob for profile $profileId; keeping local settings")
                     return@withLock Result.success(false)
                 }
@@ -141,11 +143,13 @@ class ProfileSettingsSyncService @Inject constructor(
                 val remoteSignature = buildSettingsSignature(featuresJson)
                 val localSignature = buildSettingsSignature(profileId)
                 if (remoteSignature == localSignature) {
+                    clearCorruptionMarkers(profileId)
                     Log.d(TAG, "Remote profile settings already match local for profile $profileId")
                     return@withLock Result.success(false)
                 }
 
                 importSettingsBlob(profileId, featuresJson)
+                clearCorruptionMarkers(profileId)
                 skipNextPushSignature = remoteSignature
                 Log.d(TAG, "Applied remote profile settings blob for profile $profileId")
                 Result.success(true)
@@ -159,12 +163,16 @@ class ProfileSettingsSyncService @Inject constructor(
     fun requestForegroundPull(force: Boolean = false) {
         if (!authManager.isAuthenticated) return
 
+        val activeProfileId = profileManager.activeProfileId.value
+        val shouldRecoverCorruption = hasCorruptedSyncedSettings(activeProfileId)
+        val effectiveForce = force || shouldRecoverCorruption
+
         val now = SystemClock.elapsedRealtime()
-        if (!force && foregroundPullJob?.isActive == true) return
-        if (!force && now - lastForegroundPullAtMs < FOREGROUND_PULL_MIN_INTERVAL_MS) return
+        if (!effectiveForce && foregroundPullJob?.isActive == true) return
+        if (!effectiveForce && now - lastForegroundPullAtMs < FOREGROUND_PULL_MIN_INTERVAL_MS) return
 
         foregroundPullJob = scope.launch {
-            if (!force) {
+            if (!effectiveForce) {
                 delay(FOREGROUND_PULL_DELAY_MS)
             }
             if (!authManager.isAuthenticated) return@launch
@@ -231,6 +239,11 @@ class ProfileSettingsSyncService @Inject constructor(
                 .collect { signature ->
                     if (!authManager.isAuthenticated) return@collect
                     if (applyingRemoteBlob) return@collect
+                    val profileId = profileManager.activeProfileId.value
+                    if (hasCorruptedSyncedSettings(profileId)) {
+                        requestForegroundPull(force = true)
+                        return@collect
+                    }
                     if (signature == skipNextPushSignature) {
                         skipNextPushSignature = null
                         return@collect
@@ -272,6 +285,22 @@ class ProfileSettingsSyncService @Inject constructor(
         return featureJson.entries
             .sortedBy { it.key }
             .joinToString(separator = "|") { (key, value) -> "$key=$value" }
+    }
+
+    private fun hasCorruptedSyncedSettings(profileId: Int): Boolean {
+        return syncedFeatures.any { feature ->
+            PreferencesCorruptionTracker.contains(storeNameFor(profileId, feature))
+        }
+    }
+
+    private fun clearCorruptionMarkers(profileId: Int) {
+        syncedFeatures.forEach { feature ->
+            PreferencesCorruptionTracker.clear(storeNameFor(profileId, feature))
+        }
+    }
+
+    private fun storeNameFor(profileId: Int, feature: String): String {
+        return if (profileId == 1) feature else "${feature}_p${profileId}"
     }
 
     private fun encodePreferenceValue(rawValue: Any?): JsonObject? {

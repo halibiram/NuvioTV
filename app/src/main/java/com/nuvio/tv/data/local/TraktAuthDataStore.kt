@@ -19,7 +19,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private val Context.traktAuthDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "trakt_auth_store"
+    name = "trakt_auth_store",
+    corruptionHandler = preferencesCorruptionHandler("trakt_auth_store")
 )
 
 private const val TRAKT_ACCESS_TOKEN_MAX_LIFETIME_SECONDS = 86_400

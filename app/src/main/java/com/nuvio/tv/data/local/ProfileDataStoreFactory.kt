@@ -22,13 +22,17 @@ class ProfileDataStoreFactory @Inject constructor(
         val fileName = if (profileId == 1) featureName else "${featureName}_p${profileId}"
         if (profileId != 1 && profileId in deletedProfileIds) {
             return cache.compute(fileName) { _, _ ->
-                PreferenceDataStoreFactory.create {
+                PreferenceDataStoreFactory.create(
+                    corruptionHandler = preferencesCorruptionHandler(fileName)
+                ) {
                     context.preferencesDataStoreFile(fileName)
                 }
             }!!
         }
         return cache.getOrPut(fileName) {
-            PreferenceDataStoreFactory.create {
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = preferencesCorruptionHandler(fileName)
+            ) {
                 context.preferencesDataStoreFile(fileName)
             }
         }
