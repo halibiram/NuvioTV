@@ -54,7 +54,37 @@ internal fun ModernHeroMediaLayer(
     requestHeightPx: Int
 ) {
     val localContext = LocalContext.current
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier.drawWithCache {
+            val horizontalGradient = Brush.horizontalGradient(
+                0.0f to bgColor.copy(alpha = 0.96f),
+                0.10f to bgColor.copy(alpha = 0.72f),
+                0.30f to Color.Transparent
+            )
+            val radialGradient = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.0f to bgColor.copy(alpha = 0.78f),
+                    0.55f to bgColor.copy(alpha = 0.52f),
+                    0.80f to bgColor.copy(alpha = 0.16f),
+                    1.0f to Color.Transparent
+                ),
+                center = Offset(0f, size.height / 2f),
+                radius = size.height
+            )
+            val verticalGradient = Brush.verticalGradient(
+                0.78f to Color.Transparent,
+                0.90f to bgColor.copy(alpha = 0.72f),
+                0.96f to bgColor.copy(alpha = 0.98f),
+                1.0f to bgColor
+            )
+            onDrawWithContent {
+                drawContent()
+                drawRect(brush = horizontalGradient, size = size)
+                drawRect(brush = radialGradient, size = size)
+                drawRect(brush = verticalGradient, size = size)
+            }
+        }
+    ) {
         Crossfade(
             targetState = heroBackdrop,
             modifier = Modifier
@@ -93,39 +123,6 @@ internal fun ModernHeroMediaLayer(
                     .graphicsLayer { alpha = heroTrailerAlpha }
             )
         }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    val horizontalGradient = Brush.horizontalGradient(
-                        0.0f to bgColor.copy(alpha = 0.96f),
-                        0.10f to bgColor.copy(alpha = 0.72f),
-                        0.30f to Color.Transparent
-                    )
-                    val radialGradient = Brush.radialGradient(
-                        colorStops = arrayOf(
-                            0.0f to bgColor.copy(alpha = 0.78f),
-                            0.55f to bgColor.copy(alpha = 0.52f),
-                            0.80f to bgColor.copy(alpha = 0.16f),
-                            1.0f to Color.Transparent
-                        ),
-                        center = Offset(0f, size.height / 2f),
-                        radius = size.height
-                    )
-                    val verticalGradient = Brush.verticalGradient(
-                        0.78f to Color.Transparent,
-                        0.90f to bgColor.copy(alpha = 0.72f),
-                        0.96f to bgColor.copy(alpha = 0.98f),
-                        1.0f to bgColor
-                    )
-                    onDrawBehind {
-                        drawRect(brush = horizontalGradient, size = size)
-                        drawRect(brush = radialGradient, size = size)
-                        drawRect(brush = verticalGradient, size = size)
-                    }
-                }
-        )
     }
 }
 
