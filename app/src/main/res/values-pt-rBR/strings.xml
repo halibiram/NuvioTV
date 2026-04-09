@@ -74,14 +74,14 @@
     <string name="error_state_possible_fix">Possível Correção: %1$s</string>
     <string name="error_state_fix_retry_soon">tente novamente em instantes.</string>
     <string name="error_state_issue_no_metadata_any_addon">Não foi possível carregar os detalhes porque nenhum addon retornou informações.</string>
-    <string name="error_state_fix_no_metadata_any_addon">tente outro addon, desative \"Preferir addon de meta externo\" nas configurações ou confirme se o addon suporta este ID.</string>
+    <string name="error_state_fix_no_metadata_any_addon">tente outro addon, desative &quot;Preferir addon de meta externo&quot; nas configurações ou confirme se o addon suporta este ID.</string>
     <string name="error_state_prefix_no_supported_metadata">Nenhum addon instalado suporta informações para </string>
     <string name="error_state_prefix_no_addon_for_id">Nenhum addon instalado forneceu informações para o id=</string>
     <string name="error_state_fix_no_supported_metadata">instale ou atualize um addon que suporte este tipo de conteúdo e tente novamente.</string>
     <string name="error_state_prefix_tried_meta_addons">Addons consultados:</string>
     <string name="error_state_fix_tried_meta_addons">instale um addon que suporte este ID ou atualize as configurações e tente novamente.</string>
     <string name="error_state_issue_missing_metadata_for_id">não possui informações para este ID</string>
-    <string name="error_state_fix_missing_metadata_for_id">abra este título em outro addon, desative 'Preferir addon de meta externo' ou confirme se o addon suporta este ID.</string>
+    <string name="error_state_fix_missing_metadata_for_id">abra este título em outro addon, desative &quot;Preferir addon de meta externo&quot; ou confirme se o addon suporta este ID.</string>
     <string name="error_state_issue_addon_unreachable">está inacessível</string>
     <string name="error_state_fix_addon_unreachable">verifique sua conexão com a internet ou se a URL do addon ainda está ativa.</string>
     <string name="error_state_issue_addon_connection_failed">recusou a conexão</string>
