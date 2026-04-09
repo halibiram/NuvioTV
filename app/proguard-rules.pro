@@ -83,6 +83,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# ── Protobuf Lite ──────────────────────────────────────────────────────────────
+# Protobuf javalite uses reflection over generated message fields in release
+# builds, so keep generated message implementations intact.
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
+
 # ── External extension compatibility stubs (loaded via DexClassLoader) ────────
 -keep class com.lagradost.cloudstream3.** { *; }
 -keepclassmembers class com.lagradost.cloudstream3.** { *; }
