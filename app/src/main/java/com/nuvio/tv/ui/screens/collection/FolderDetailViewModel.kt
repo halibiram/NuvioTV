@@ -25,7 +25,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -85,7 +88,6 @@ class FolderDetailViewModel @Inject constructor(
     val uiState: StateFlow<FolderDetailUiState> = _uiState.asStateFlow()
 
     private var movieWatchedJob: Job? = null
-    private var seriesWatchedJob: Job? = null
     private var enrichFocusJob: Job? = null
     private val enrichedItemIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val _enrichingItemId = MutableStateFlow<String?>(null)
@@ -102,6 +104,36 @@ class FolderDetailViewModel @Inject constructor(
 
     init {
         loadFolder()
+        // Observe watched status immediately so badges are ready when catalogs load.
+        observeWatchedStatusCombined()
+    }
+
+    private fun observeWatchedStatusCombined() {
+        movieWatchedJob = viewModelScope.launch {
+            combine(
+                watchProgressRepository.observeWatchedMovieIds(),
+                watchedSeriesStateHolder.fullyWatchedSeriesIds,
+                _uiState.map { state -> state.tabs.flatMap { it.catalogRow?.items.orEmpty() } }
+                    .distinctUntilChanged()
+            ) { movieWatchedIds, seriesWatchedIds, allItems ->
+                Triple(movieWatchedIds, seriesWatchedIds, allItems)
+            }.collectLatest { (movieWatchedIds, seriesWatchedIds, allItems) ->
+                val newStatus = mutableMapOf<String, Boolean>()
+                allItems.forEach { item ->
+                    val key = com.nuvio.tv.ui.screens.home.homeItemStatusKey(item.id, item.apiType)
+                    val isWatched = when (item.apiType) {
+                        "movie" -> item.id in movieWatchedIds
+                        "series", "tv" -> item.id in seriesWatchedIds
+                        else -> false
+                    }
+                    newStatus[key] = isWatched
+                }
+                _uiState.update { s ->
+                    if (s.movieWatchedStatus == newStatus) s else s.copy(movieWatchedStatus = newStatus)
+                }
+                rebuildFollowLayoutState()
+            }
+        }
     }
 
     private val hasAllTab: Boolean
@@ -319,7 +351,6 @@ class FolderDetailViewModel @Inject constructor(
                         }
                         rebuildAllTab()
                         rebuildFollowLayoutState()
-                        observeWatchedStatus()
                     }
                     is NetworkResult.Error -> {
                         _uiState.update { state ->
@@ -412,52 +443,6 @@ class FolderDetailViewModel @Inject constructor(
         )
         if (_followLayoutFocusState.value != nextState) {
             _followLayoutFocusState.value = nextState
-        }
-    }
-
-    private fun observeWatchedStatus() {
-        val allItems = _uiState.value.tabs
-            .mapNotNull { it.catalogRow }
-            .flatMap { it.items }
-
-        val movieIds = mutableMapOf<String, String>()
-        val seriesIds = mutableMapOf<String, String>()
-        allItems.forEach { item ->
-            val key = homeItemStatusKey(item.id, item.apiType)
-            if (item.apiType.equals("movie", ignoreCase = true)) {
-                movieIds[key] = item.id
-            } else if (item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)) {
-                seriesIds[key] = item.id
-            }
-        }
-
-        movieWatchedJob?.cancel()
-        if (movieIds.isNotEmpty()) {
-            movieWatchedJob = viewModelScope.launch {
-                watchProgressRepository.observeWatchedMovieIds()
-                    .collectLatest { watchedIds ->
-                        val status = movieIds.mapValues { (_, contentId) -> contentId in watchedIds }
-                        _uiState.update { s ->
-                            val merged = s.movieWatchedStatus.filterKeys { it !in movieIds } + status
-                            if (s.movieWatchedStatus == merged) s else s.copy(movieWatchedStatus = merged)
-                        }
-                        rebuildFollowLayoutState()
-                    }
-            }
-        }
-
-        seriesWatchedJob?.cancel()
-        if (seriesIds.isNotEmpty()) {
-            seriesWatchedJob = viewModelScope.launch {
-                watchedSeriesStateHolder.fullyWatchedSeriesIds.collectLatest { fullyWatched ->
-                    val status = seriesIds.mapValues { (_, contentId) -> contentId in fullyWatched }
-                    _uiState.update { s ->
-                        val merged = s.movieWatchedStatus.filterKeys { it !in seriesIds } + status
-                        if (s.movieWatchedStatus == merged) s else s.copy(movieWatchedStatus = merged)
-                    }
-                    rebuildFollowLayoutState()
-                }
-            }
         }
     }
 
