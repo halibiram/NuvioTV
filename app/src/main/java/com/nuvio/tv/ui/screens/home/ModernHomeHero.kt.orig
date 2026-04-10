@@ -70,9 +70,6 @@ internal fun ModernHeroScene(
     val isFullScreen = state.fullScreenBackdrop
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
-    // PERFORMANCE OPTIMIZATION: Combine media and gradients into a single composable node
-    // using Modifier.drawWithCache and onDrawWithContent. This eliminates the need for a separate
-    // ModernHeroGradientLayer layout node, preventing severe overdraw and reducing tree depth.
     val mediaModifier = modifier.drawWithCache {
         val horizontalFadeEndX = size.width * if (isFullScreen) 0.65f else 0.45f
         val colorStops = if (isFullScreen) {
