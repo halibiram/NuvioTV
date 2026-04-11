@@ -1,0 +1,3 @@
+## 2024-05-18 - Optimize Compose Overdraw in ModernHomeHero
+**Learning:** Found a specific Compose anti-pattern in the codebase: multiple overlapping `Box` layers in `ModernHomeHero.kt`, one handling image drawing and another drawing gradient backgrounds. Given the knowledge that Android TV UI node depth and overdraw have high overhead, these redundant Boxes can be condensed.
+**Action:** Used `Modifier.drawWithCache` coupled with `onDrawWithContent` on a single Box to render backgrounds *around* the original content, preventing the need for a wrapper `Box`. When creating visual layers, apply `drawBehind` or `drawWithContent` on the target composable instead of introducing new hierarchical `Box` node levels.
