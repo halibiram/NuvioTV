@@ -151,7 +151,7 @@ internal fun ModernHeroMediaLayer(
                 )
             } else {
                 Brush.horizontalGradient(
-                    colorStops = colorStops,
+                    colorStops = *colorStops,
                     startX = 0f,
                     endX = horizontalFadeEndX
                 )
