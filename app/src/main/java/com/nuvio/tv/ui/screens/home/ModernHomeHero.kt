@@ -132,7 +132,7 @@ internal fun ModernHeroMediaLayer(
                     0.22f to bgColor.copy(alpha = 0.90f),
                     0.46f to bgColor.copy(alpha = 0.80f),
                     0.76f to bgColor.copy(alpha = 0.42f),
-                    1.0f to bgColor.copy(alpha = 0f)
+                    1.0f to Color.Transparent
                 )
             } else {
                 arrayOf(
@@ -145,13 +145,13 @@ internal fun ModernHeroMediaLayer(
             }
             val horizontalGradient = if (isRtl) {
                 Brush.horizontalGradient(
-                    colorStops = *colorStops,
+                    colorStops = colorStops,
                     startX = size.width,
                     endX = size.width - horizontalFadeEndX
                 )
             } else {
                 Brush.horizontalGradient(
-                    colorStops = *colorStops,
+                    colorStops = colorStops,
                     startX = 0f,
                     endX = horizontalFadeEndX
                 )
@@ -159,7 +159,7 @@ internal fun ModernHeroMediaLayer(
 
             val bottomStripStartY = size.height * if (isFullScreen) 0.64f else 0.82f
             val verticalGradient = Brush.verticalGradient(
-                colorStops = *if (isFullScreen) {
+                colorStops = if (isFullScreen) {
                     arrayOf(
                         0.0f to Color.Transparent,
                         0.30f to bgColor.copy(alpha = 0.35f),
