@@ -132,7 +132,7 @@ internal fun ModernHeroMediaLayer(
                     0.22f to bgColor.copy(alpha = 0.90f),
                     0.46f to bgColor.copy(alpha = 0.80f),
                     0.76f to bgColor.copy(alpha = 0.42f),
-                    1.0f to Color.Transparent
+                    1.0f to bgColor.copy(alpha = 0f)
                 )
             } else {
                 arrayOf(
