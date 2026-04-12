@@ -159,7 +159,7 @@ internal fun ModernHeroMediaLayer(
 
             val bottomStripStartY = size.height * if (isFullScreen) 0.64f else 0.82f
             val verticalGradient = Brush.verticalGradient(
-                colorStops = if (isFullScreen) {
+                colorStops = *if (isFullScreen) {
                     arrayOf(
                         0.0f to Color.Transparent,
                         0.30f to bgColor.copy(alpha = 0.35f),
