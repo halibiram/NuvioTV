@@ -145,7 +145,7 @@ internal fun ModernHeroMediaLayer(
             }
             val horizontalGradient = if (isRtl) {
                 Brush.horizontalGradient(
-                    colorStops = colorStops,
+                    colorStops = *colorStops,
                     startX = size.width,
                     endX = size.width - horizontalFadeEndX
                 )
