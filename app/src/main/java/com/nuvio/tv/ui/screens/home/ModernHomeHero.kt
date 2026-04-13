@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -67,44 +68,8 @@ internal fun ModernHeroScene(
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit
 ) {
-    ModernHeroMediaLayer(
-        heroBackdrop = state.heroBackdrop,
-        enrichmentActive = state.enrichmentActive,
-        shouldPlayHeroTrailer = state.shouldPlayTrailer,
-        heroTrailerFirstFrameRendered = state.trailerFirstFrameRendered,
-        heroTrailerUrl = state.trailerUrl,
-        heroTrailerAudioUrl = state.trailerAudioUrl,
-        muted = state.trailerMuted,
-        onTrailerEnded = onTrailerEnded,
-        onFirstFrameRendered = onFirstFrameRendered,
-        modifier = modifier,
-        requestWidthPx = requestWidthPx,
-        requestHeightPx = requestHeightPx
-    )
-    ModernHeroGradientLayer(
-        bgColor = bgColor,
-        isFullScreen = state.fullScreenBackdrop,
-        modifier = modifier
-    )
-}
-
-@Composable
-internal fun ModernHeroMediaLayer(
-    heroBackdrop: String?,
-    enrichmentActive: Boolean,
-    shouldPlayHeroTrailer: Boolean,
-    heroTrailerFirstFrameRendered: Boolean,
-    heroTrailerUrl: String?,
-    heroTrailerAudioUrl: String?,
-    muted: Boolean,
-    onTrailerEnded: () -> Unit,
-    onFirstFrameRendered: () -> Unit,
-    modifier: Modifier,
-    requestWidthPx: Int,
-    requestHeightPx: Int
-) {
     val transitionProgressState = animateFloatAsState(
-        targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
+        targetValue = if (state.shouldPlayTrailer && state.trailerFirstFrameRendered) 1f else 0f,
         animationSpec = tween(durationMillis = 480),
         label = "heroBackdropTrailerCrossfadeProgress"
     )
@@ -112,8 +77,8 @@ internal fun ModernHeroMediaLayer(
 
     // Freeze the backdrop URL while enrichment is active — only update when enrichment ends
     // so Coil crossfade starts with the final URL, not an intermediate one.
-    var stableBackdrop by remember { mutableStateOf(heroBackdrop) }
-    if (!enrichmentActive) stableBackdrop = heroBackdrop
+    var stableBackdrop by remember { mutableStateOf(state.heroBackdrop) }
+    if (!state.enrichmentActive) stableBackdrop = state.heroBackdrop
 
     val imageModel = remember(localContext, stableBackdrop, requestWidthPx, requestHeightPx) {
         ImageRequest.Builder(localContext)
@@ -123,52 +88,9 @@ internal fun ModernHeroMediaLayer(
             .build()
     }
 
-    Box(modifier = modifier) {
-        AsyncImage(
-            model = imageModel,
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (transitionProgressState.value > 0f) {
-                        Modifier.graphicsLayer {
-                            alpha = 1f - transitionProgressState.value
-                        }
-                    } else {
-                        Modifier
-                    }
-                ),
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopEnd
-        )
-
-        if (shouldPlayHeroTrailer) {
-            TrailerPlayer(
-                trailerUrl = heroTrailerUrl,
-                trailerAudioUrl = heroTrailerAudioUrl,
-                isPlaying = true,
-                onEnded = onTrailerEnded,
-                onFirstFrameRendered = onFirstFrameRendered,
-                muted = muted,
-                cropToFill = true,
-                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = transitionProgressState.value
-                    }
-            )
-        }
-    }
-}
-
-@Composable
-internal fun ModernHeroGradientLayer(
-    bgColor: Color,
-    isFullScreen: Boolean = false,
-    modifier: Modifier
-) {
+    val isFullScreen = state.fullScreenBackdrop
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+
     Box(
         modifier = modifier
             .drawWithCache {
@@ -225,7 +147,9 @@ internal fun ModernHeroGradientLayer(
                     endY = size.height
                 )
 
-                onDrawBehind {
+                onDrawWithContent {
+                    drawContent()
+
                     // 1. Horizontal fade (reversed in RTL)
                     val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
                     drawRect(
@@ -242,7 +166,43 @@ internal fun ModernHeroGradientLayer(
                     )
                 }
             }
-    )
+    ) {
+        AsyncImage(
+            model = imageModel,
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (transitionProgressState.value > 0f) {
+                        Modifier.graphicsLayer {
+                            alpha = 1f - transitionProgressState.value
+                        }
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopEnd
+        )
+
+        if (state.shouldPlayTrailer) {
+            TrailerPlayer(
+                trailerUrl = state.trailerUrl,
+                trailerAudioUrl = state.trailerAudioUrl,
+                isPlaying = true,
+                onEnded = onTrailerEnded,
+                onFirstFrameRendered = onFirstFrameRendered,
+                muted = state.trailerMuted,
+                cropToFill = true,
+                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = transitionProgressState.value
+                    }
+            )
+        }
+    }
 }
 
 @Composable
