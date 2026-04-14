@@ -67,6 +67,7 @@ internal fun ModernHeroScene(
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit
 ) {
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     ModernHeroMediaLayer(
         heroBackdrop = state.heroBackdrop,
         enrichmentActive = state.enrichmentActive,
@@ -77,14 +78,13 @@ internal fun ModernHeroScene(
         muted = state.trailerMuted,
         onTrailerEnded = onTrailerEnded,
         onFirstFrameRendered = onFirstFrameRendered,
-        modifier = modifier,
+        modifier = modifier.modernHeroGradient(
+            bgColor = bgColor,
+            isFullScreen = state.fullScreenBackdrop,
+            isRtl = isRtl
+        ),
         requestWidthPx = requestWidthPx,
         requestHeightPx = requestHeightPx
-    )
-    ModernHeroGradientLayer(
-        bgColor = bgColor,
-        isFullScreen = state.fullScreenBackdrop,
-        modifier = modifier
     )
 }
 
@@ -162,17 +162,12 @@ internal fun ModernHeroMediaLayer(
     }
 }
 
-@Composable
-internal fun ModernHeroGradientLayer(
+internal fun Modifier.modernHeroGradient(
     bgColor: Color,
     isFullScreen: Boolean = false,
-    modifier: Modifier
-) {
-    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    Box(
-        modifier = modifier
-            .drawWithCache {
-                val horizontalFadeEndX = size.width * if (isFullScreen) 0.65f else 0.45f
+    isRtl: Boolean
+): Modifier = this.drawWithCache {
+    val horizontalFadeEndX = size.width * if (isFullScreen) 0.65f else 0.45f
                 val colorStops = if (isFullScreen) {
                     arrayOf(
                         0.0f to bgColor,
@@ -225,24 +220,24 @@ internal fun ModernHeroGradientLayer(
                     endY = size.height
                 )
 
-                onDrawBehind {
-                    // 1. Horizontal fade (reversed in RTL)
-                    val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
-                    drawRect(
-                        brush = horizontalGradient,
-                        topLeft = Offset(rectLeft, 0f),
-                        size = Size(horizontalFadeEndX, size.height)
-                    )
-                    
-                    // 2. Bottom vertical strip
-                    drawRect(
-                        brush = verticalGradient,
-                        topLeft = Offset(0f, bottomStripStartY),
-                        size = Size(size.width, size.height - bottomStripStartY)
-                    )
-                }
-            }
-    )
+    onDrawWithContent {
+        drawContent()
+
+        // 1. Horizontal fade (reversed in RTL)
+        val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
+        drawRect(
+            brush = horizontalGradient,
+            topLeft = Offset(rectLeft, 0f),
+            size = Size(horizontalFadeEndX, size.height)
+        )
+
+        // 2. Bottom vertical strip
+        drawRect(
+            brush = verticalGradient,
+            topLeft = Offset(0f, bottomStripStartY),
+            size = Size(size.width, size.height - bottomStripStartY)
+        )
+    }
 }
 
 @Composable
