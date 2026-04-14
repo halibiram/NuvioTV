@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -431,9 +432,11 @@ fun ModernHomeContent(
     val activeRowKeys = carouselLookups.activeRowKeys
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
+    val verticalPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
     val verticalRowListState = rememberLazyListState(
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
-        initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
+        initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset,
+        prefetchStrategy = verticalPrefetchStrategy
     )
     val isVerticalRowsScrolling by remember(verticalRowListState) {
         derivedStateOf { verticalRowListState.isScrollInProgress }
@@ -953,7 +956,10 @@ fun ModernHomeContent(
                 .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
         )
 
-        CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {
+        CompositionLocalProvider(
+            LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
+            LocalVerticalRowsScrolling provides isVerticalRowsScrolling
+        ) {
             LazyColumn(
                 state = verticalRowListState,
                 modifier = Modifier

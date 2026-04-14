@@ -7,6 +7,7 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -36,12 +37,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -75,6 +79,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import coil.imageLoader
 import coil.memory.MemoryCache
 import coil.request.ImageRequest
@@ -82,7 +88,6 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
-import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.components.rememberArtworkBackedCardGlow
 import com.nuvio.tv.LocalSidebarExpanded
@@ -831,9 +836,23 @@ private fun ModernCarouselCard(
     val isImageCached = remember(imageModel) {
         context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
     }
-
-    val safeImageModel = if (isVerticalRowsScrolling && !isImageCached) null else imageModel
-    val hasImage = !imageUrl.isNullOrBlank() && safeImageModel != null
+    var lastSuccessfulImageUrl by rememberSaveable(item.key) { mutableStateOf<String?>(null) }
+    var lastSuccessfulPainter by remember(item.key) { mutableStateOf<Painter?>(null) }
+    val deferCurrentImageRequest =
+        isVerticalRowsScrolling && !isImageCached && lastSuccessfulImageUrl != imageUrl
+    val safeImageModel = if (deferCurrentImageRequest) null else imageModel
+    val imagePainter = rememberAsyncImagePainter(
+        model = safeImageModel,
+        onSuccess = {
+            lastSuccessfulPainter = it.painter
+            lastSuccessfulImageUrl = imageUrl
+        }
+    )
+    val shouldShowRetainedPainter =
+        lastSuccessfulPainter != null &&
+            (deferCurrentImageRequest ||
+                (safeImageModel != null && imagePainter.state !is AsyncImagePainter.State.Success))
+    val hasImage = !imageUrl.isNullOrBlank() && (safeImageModel != null || shouldShowRetainedPainter)
     val hasLandscapeLogo =
         (useLandscapeOverlayTreatment || isBackdropExpanded) &&
             !effectiveLogoUrl.isNullOrBlank() &&
@@ -842,7 +861,7 @@ private fun ModernCarouselCard(
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
-    val backgroundPainter = remember(backgroundCardColor) { androidx.compose.ui.graphics.painter.ColorPainter(backgroundCardColor) }
+    val backgroundPainter = remember(backgroundCardColor) { ColorPainter(backgroundCardColor) }
     val focusedBorder = remember(cardShape, focusRingColor) {
         Border(
             border = BorderStroke(2.dp, focusRingColor),
@@ -938,17 +957,29 @@ private fun ModernCarouselCard(
 
                 Box(modifier = mediaLayerModifier) {
                     if (hasImage) {
-                        AsyncImage(
-                            model = safeImageModel,
-                            contentDescription = item.title,
-                            modifier = Modifier.fillMaxSize(),
-                            placeholder = backgroundPainter,
-                            error = backgroundPainter,
-                            fallback = backgroundPainter,
-                            contentScale = imageContentScale
-                        )
+                        if (shouldShowRetainedPainter) {
+                            Image(
+                                painter = lastSuccessfulPainter!!,
+                                contentDescription = item.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = imageContentScale
+                            )
+                        }
+                        if (safeImageModel != null) {
+                            Image(
+                                painter = imagePainter,
+                                contentDescription = item.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = imageContentScale
+                            )
+                        }
                     } else {
-                        MonochromePosterPlaceholder()
+                        Image(
+                            painter = backgroundPainter,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
                     }
 
                     if (shouldPlayTrailerInCard) {
