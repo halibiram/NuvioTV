@@ -94,6 +94,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.imageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
 import androidx.compose.ui.platform.LocalConfiguration
@@ -124,6 +125,7 @@ private fun buildPrefetchRequest(
     heightPx: Int
 ): ImageRequest = ImageRequest.Builder(context)
     .data(url)
+    .memoryCachePolicy(CachePolicy.DISABLED)
     .size(width = widthPx, height = heightPx)
     .build()
 
@@ -304,7 +306,10 @@ fun ModernHomeContent(
                                             occurrence = occurrence,
                                             strTypeMovie = strTypeMovie,
                                             strTypeSeries = strTypeSeries,
-                                            showFullReleaseDate = showFullReleaseDate
+                                            showFullReleaseDate = showFullReleaseDate,
+                                            previousCachedItem = cachedItem
+                                                ?.takeIf { it.useLandscapePosters == useLandscapePosters }
+                                                ?.carouselItem
                                         )
                                         rowItemCache[cacheKey] = CachedCarouselItem(
                                             source = item,

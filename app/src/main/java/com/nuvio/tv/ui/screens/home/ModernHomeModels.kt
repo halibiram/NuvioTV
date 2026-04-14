@@ -6,6 +6,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
@@ -50,6 +51,8 @@ data class HeroPreview(
     val poster: String?,
     val backdrop: String?,
     val imageUrl: String?,
+    /** Snapshot of the primary card art (poster/backdrop) captured before refresh churn. */
+    val frozenImageUrl: String? = null,
     /** Snapshot of the backdrop URL captured before TMDB enrichment.
      *  Survives cache rebuilds so landscape cards keep their original art
      *  even after navigation away and back. */
@@ -168,6 +171,8 @@ internal class ModernHomeUiCaches {
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
     private val loadedImageCacheKeys = linkedSetOf<String>()
     private val loadedImageCacheKeyLimit = 512
+    private val retainedImagePainters = linkedMapOf<String, Painter>()
+    private val retainedImagePainterLimit = 24
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
@@ -184,6 +189,19 @@ internal class ModernHomeUiCaches {
         while (loadedImageCacheKeys.size > loadedImageCacheKeyLimit) {
             val eldestKey = loadedImageCacheKeys.firstOrNull() ?: break
             loadedImageCacheKeys.remove(eldestKey)
+        }
+    }
+
+    fun retainedPainterFor(imageCacheKey: String?): Painter? {
+        return imageCacheKey?.let(retainedImagePainters::get)
+    }
+
+    fun rememberSuccessfulPainter(imageCacheKey: String, painter: Painter) {
+        retainedImagePainters.remove(imageCacheKey)
+        retainedImagePainters[imageCacheKey] = painter
+        while (retainedImagePainters.size > retainedImagePainterLimit) {
+            val eldestKey = retainedImagePainters.keys.firstOrNull() ?: break
+            retainedImagePainters.remove(eldestKey)
         }
     }
 }
@@ -387,7 +405,10 @@ internal fun buildContinueWatchingItem(
             }
         },
         imageUrl = imageUrl,
-        heroPreview = heroPreview.copy(imageUrl = imageUrl ?: heroPreview.imageUrl),
+        heroPreview = heroPreview.copy(
+            imageUrl = imageUrl ?: heroPreview.imageUrl,
+            frozenImageUrl = imageUrl ?: heroPreview.imageUrl
+        ),
         payload = ModernPayload.ContinueWatching(item)
     )
 }
@@ -405,13 +426,25 @@ internal fun buildCatalogItem(
     // Carry forward the frozen URLs from the previous cache entry so that
     // TMDB enrichment never changes the image shown on landscape cards,
     // even after the composable remember-state is lost (e.g. navigation).
+    val carriedImage = previousCachedItem?.heroPreview?.frozenImageUrl
+        ?.takeIf { it.isNotBlank() }
+        ?: previousCachedItem?.imageUrl?.takeIf { it.isNotBlank() }
+    val carriedPoster = previousCachedItem?.heroPreview?.poster?.takeIf { it.isNotBlank() }
     val carriedBackdrop = previousCachedItem?.heroPreview?.frozenBackdropUrl
     val carriedLogo = previousCachedItem?.heroPreview?.frozenLogoUrl
 
+    val currentPoster = item.poster
     val currentBackdrop = item.backdropUrl
     val currentLogo = item.logo
+    val currentImage = if (useLandscapePosters) {
+        firstNonBlank(currentBackdrop, currentPoster)
+    } else {
+        firstNonBlank(currentPoster, currentBackdrop)
+    }
 
     // First non-blank value wins and is never replaced.
+    val frozenImage = carriedImage ?: currentImage
+    val frozenPoster = carriedPoster ?: firstNonBlank(currentPoster, frozenImage, currentBackdrop)
     val frozenBackdrop = carriedBackdrop?.takeIf { it.isNotBlank() }
         ?: currentBackdrop
     val frozenLogo = carriedLogo?.takeIf { it.isNotBlank() }
@@ -419,7 +452,7 @@ internal fun buildCatalogItem(
 
     val heroPreview = HeroPreview(
         title = item.name,
-        logo = item.logo,
+        logo = frozenLogo,
         description = item.description,
         contentTypeText = when (item.apiType.lowercase()) {
             "movie" -> strTypeMovie.ifBlank { item.apiType.replaceFirstChar { ch -> ch.uppercase() } }
@@ -435,13 +468,10 @@ internal fun buildCatalogItem(
         countryText = item.country,
         languageText = item.language?.uppercase(),
         genres = item.genres.take(3),
-        poster = item.poster,
-        backdrop = item.backdropUrl,
-        imageUrl = if (useLandscapePosters) {
-            item.backdropUrl ?: item.poster
-        } else {
-            item.poster ?: item.backdropUrl
-        },
+        poster = frozenPoster,
+        backdrop = frozenBackdrop ?: currentBackdrop,
+        imageUrl = frozenImage,
+        frozenImageUrl = frozenImage,
         frozenBackdropUrl = frozenBackdrop,
         frozenLogoUrl = frozenLogo
     )
@@ -450,11 +480,7 @@ internal fun buildCatalogItem(
         key = "catalog_${row.key()}_${item.id}_${occurrence}",
         title = item.name,
         subtitle = item.releaseInfo,
-        imageUrl = if (useLandscapePosters) {
-            item.backdropUrl ?: item.poster
-        } else {
-            item.poster ?: item.backdropUrl
-        },
+        imageUrl = frozenImage,
         heroPreview = heroPreview,
         payload = ModernPayload.Catalog(
             focusKey = "${row.key()}::${item.id}",
@@ -502,7 +528,8 @@ internal fun buildCollectionFolderItem(
             genres = emptyList(),
             poster = imageUrl,
             backdrop = firstNonBlank(folder.coverImageUrl, collection.backdropImageUrl),
-            imageUrl = heroImageUrl
+            imageUrl = heroImageUrl,
+            frozenImageUrl = heroImageUrl
         ),
         payload = ModernPayload.CollectionFolder(
             focusKey = "collection_${collection.id}::${folder.id}",

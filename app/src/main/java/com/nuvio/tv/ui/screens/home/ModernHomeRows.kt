@@ -82,6 +82,7 @@ import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.imageLoader
 import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
@@ -168,7 +169,9 @@ private fun ModernCatalogRowItem(
     expandedTrailerPreviewAudioUrl: String?,
     isWatched: Boolean,
     hasLoadedImageCacheKey: (String?) -> Boolean,
+    retainedPainterFor: (String?) -> Painter?,
     onImageLoaded: (String) -> Unit,
+    onImagePainterLoaded: (String, Painter) -> Unit,
     onFocused: () -> Unit,
     onItemFocus: (MetaPreview) -> Unit,
     onPreloadAdjacentItem: () -> Unit,
@@ -264,7 +267,9 @@ private fun ModernCatalogRowItem(
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
         isWatched = isWatched,
         hasLoadedImageCacheKey = hasLoadedImageCacheKey,
+        retainedPainterFor = retainedPainterFor,
         onImageLoaded = onImageLoaded,
+        onImagePainterLoaded = onImagePainterLoaded,
         focusRequester = requester,
         onFocused = {
             focusEventId += 1
@@ -344,7 +349,9 @@ internal fun ModernRowSection(
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
     val hasLoadedImageCacheKey = remember(uiCaches) { uiCaches::hasLoadedImageCacheKey }
+    val retainedPainterFor = remember(uiCaches) { uiCaches::retainedPainterFor }
     val onImageLoaded = remember(uiCaches) { uiCaches::markImageLoaded }
+    val onImagePainterLoaded = remember(uiCaches) { uiCaches::rememberSuccessfulPainter }
 
     val rowKey = row.key
     Column {
@@ -513,6 +520,7 @@ internal fun ModernRowSection(
             }
             fun enqueueIfNeeded(item: ModernCarouselItem, widthPx: Int, heightPx: Int) {
                 val (url, cacheKey) = imageUrlAndKey(item) ?: return
+                if (hasLoadedImageCacheKey(cacheKey)) return
                 if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
                     onImageLoaded(cacheKey)
                     return
@@ -521,6 +529,7 @@ internal fun ModernRowSection(
                     ImageRequest.Builder(context)
                         .data(url)
                         .memoryCacheKey(cacheKey)
+                        .memoryCachePolicy(CachePolicy.DISABLED)
                         .listener(onSuccess = { _, _ -> onImageLoaded(cacheKey) })
                         .size(width = widthPx, height = heightPx)
                         .build()
@@ -698,7 +707,9 @@ internal fun ModernRowSection(
                                 expandedTrailerPreviewAudioUrl = expandedTrailerPreviewAudioUrl,
                                 isWatched = isWatched,
                                 hasLoadedImageCacheKey = hasLoadedImageCacheKey,
+                                retainedPainterFor = retainedPainterFor,
                                 onImageLoaded = onImageLoaded,
+                                onImagePainterLoaded = onImagePainterLoaded,
                                 onFocused = onFocused,
                                 onItemFocus = onItemFocus,
                                 onPreloadAdjacentItem = remember(nextCatalogItem, onPreloadAdjacentItem) {
@@ -737,7 +748,9 @@ private fun ModernCarouselCard(
     trailerPreviewAudioUrl: String?,
     isWatched: Boolean,
     hasLoadedImageCacheKey: (String?) -> Boolean,
+    retainedPainterFor: (String?) -> Painter?,
     onImageLoaded: (String) -> Unit,
+    onImagePainterLoaded: (String, Painter) -> Unit,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
     onFocusStateChanged: (Boolean) -> Unit = {},
@@ -775,6 +788,15 @@ private fun ModernCarouselCard(
         frozenLogoUrl.value = item.heroPreview.logo
     }
     val effectiveLogoUrl = frozenLogoUrl.value
+    val dataFrozenPrimaryImage = item.heroPreview.frozenImageUrl
+    val frozenPrimaryImageUrl = remember(item.key) {
+        mutableStateOf(dataFrozenPrimaryImage ?: item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop)
+    }
+    val latestPrimaryImageUrl = item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+    if (frozenPrimaryImageUrl.value.isNullOrBlank() && !latestPrimaryImageUrl.isNullOrBlank()) {
+        frozenPrimaryImageUrl.value = latestPrimaryImageUrl
+    }
+    val effectivePrimaryImageUrl = frozenPrimaryImageUrl.value
     // Freeze the backdrop URL for landscape cards - prevents image reload when enrichment updates backdrop.
     val dataFrozenBackdrop = item.heroPreview.frozenBackdropUrl
     val frozenBackdropUrl = remember(item.key) { mutableStateOf(dataFrozenBackdrop ?: item.heroPreview.backdrop) }
@@ -785,11 +807,11 @@ private fun ModernCarouselCard(
     var isFocused by remember { mutableStateOf(false) }
     val payload = item.payload as? ModernPayload.CollectionFolder
     val baseImageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
-        item.heroPreview.backdrop ?: item.imageUrl ?: item.heroPreview.poster
+        effectiveBackdropUrl ?: effectivePrimaryImageUrl ?: item.heroPreview.poster
     } else if (useLandscapeOverlayTreatment) {
-        effectiveBackdropUrl ?: item.heroPreview.poster
+        effectiveBackdropUrl ?: effectivePrimaryImageUrl ?: item.heroPreview.poster
     } else {
-        item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+        effectivePrimaryImageUrl ?: item.heroPreview.poster ?: effectiveBackdropUrl
     }
     val imageUrl = when {
         payload == null -> baseImageUrl
@@ -850,6 +872,7 @@ private fun ModernCarouselCard(
         imageCacheKey != null &&
             context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
     var lastSuccessfulPainter by remember(item.key) { mutableStateOf<Painter?>(null) }
+    val retainedPainter = retainedPainterFor(imageCacheKey) ?: lastSuccessfulPainter
     LaunchedEffect(imageCacheKey, isImageCached) {
         if (isImageCached && imageCacheKey != null) {
             onImageLoaded(imageCacheKey)
@@ -867,10 +890,11 @@ private fun ModernCarouselCard(
         onSuccess = {
             lastSuccessfulPainter = it.painter
             imageCacheKey?.let(onImageLoaded)
+            imageCacheKey?.let { key -> onImagePainterLoaded(key, it.painter) }
         }
     )
     val shouldShowRetainedPainter =
-        lastSuccessfulPainter != null &&
+        retainedPainter != null &&
             (deferCurrentImageRequest ||
                 (safeImageModel != null && imagePainter.state !is AsyncImagePainter.State.Success))
     val hasImage = !imageUrl.isNullOrBlank() && (safeImageModel != null || shouldShowRetainedPainter)
@@ -980,7 +1004,7 @@ private fun ModernCarouselCard(
                     if (hasImage) {
                         if (shouldShowRetainedPainter) {
                             Image(
-                                painter = lastSuccessfulPainter!!,
+                                painter = retainedPainter!!,
                                 contentDescription = item.title,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = imageContentScale
