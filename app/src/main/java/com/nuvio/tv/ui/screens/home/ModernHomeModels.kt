@@ -166,10 +166,25 @@ internal class ModernHomeUiCaches {
     val itemFocusRequesters = mutableMapOf<String, MutableMap<String, FocusRequester>>()
     val rowListStates = mutableMapOf<String, LazyListState>()
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
+    private val loadedImageCacheKeys = linkedSetOf<String>()
+    private val loadedImageCacheKeyLimit = 512
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
         return byIndex.getOrPut(itemKey) { FocusRequester() }
+    }
+
+    fun hasLoadedImageCacheKey(imageCacheKey: String?): Boolean {
+        return imageCacheKey != null && imageCacheKey in loadedImageCacheKeys
+    }
+
+    fun markImageLoaded(imageCacheKey: String) {
+        loadedImageCacheKeys.remove(imageCacheKey)
+        loadedImageCacheKeys += imageCacheKey
+        while (loadedImageCacheKeys.size > loadedImageCacheKeyLimit) {
+            val eldestKey = loadedImageCacheKeys.firstOrNull() ?: break
+            loadedImageCacheKeys.remove(eldestKey)
+        }
     }
 }
 

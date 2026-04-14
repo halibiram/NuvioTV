@@ -37,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -168,6 +167,8 @@ private fun ModernCatalogRowItem(
     expandedTrailerPreviewUrl: String?,
     expandedTrailerPreviewAudioUrl: String?,
     isWatched: Boolean,
+    hasLoadedImageCacheKey: (String?) -> Boolean,
+    onImageLoaded: (String) -> Unit,
     onFocused: () -> Unit,
     onItemFocus: (MetaPreview) -> Unit,
     onPreloadAdjacentItem: () -> Unit,
@@ -262,6 +263,8 @@ private fun ModernCatalogRowItem(
         trailerPreviewUrl = trailerPreviewUrl,
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
         isWatched = isWatched,
+        hasLoadedImageCacheKey = hasLoadedImageCacheKey,
+        onImageLoaded = onImageLoaded,
         focusRequester = requester,
         onFocused = {
             focusEventId += 1
@@ -340,6 +343,8 @@ internal fun ModernRowSection(
     val itemFocusRequesters = uiCaches.itemFocusRequesters
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
+    val hasLoadedImageCacheKey = remember(uiCaches) { uiCaches::hasLoadedImageCacheKey }
+    val onImageLoaded = remember(uiCaches) { uiCaches::markImageLoaded }
 
     val rowKey = row.key
     Column {
@@ -508,11 +513,15 @@ internal fun ModernRowSection(
             }
             fun enqueueIfNeeded(item: ModernCarouselItem, widthPx: Int, heightPx: Int) {
                 val (url, cacheKey) = imageUrlAndKey(item) ?: return
-                if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) return
+                if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
+                    onImageLoaded(cacheKey)
+                    return
+                }
                 imageLoader.enqueue(
                     ImageRequest.Builder(context)
                         .data(url)
                         .memoryCacheKey(cacheKey)
+                        .listener(onSuccess = { _, _ -> onImageLoaded(cacheKey) })
                         .size(width = widthPx, height = heightPx)
                         .build()
                 )
@@ -688,6 +697,8 @@ internal fun ModernRowSection(
                                 expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
                                 expandedTrailerPreviewAudioUrl = expandedTrailerPreviewAudioUrl,
                                 isWatched = isWatched,
+                                hasLoadedImageCacheKey = hasLoadedImageCacheKey,
+                                onImageLoaded = onImageLoaded,
                                 onFocused = onFocused,
                                 onItemFocus = onItemFocus,
                                 onPreloadAdjacentItem = remember(nextCatalogItem, onPreloadAdjacentItem) {
@@ -725,6 +736,8 @@ private fun ModernCarouselCard(
     trailerPreviewUrl: String?,
     trailerPreviewAudioUrl: String?,
     isWatched: Boolean,
+    hasLoadedImageCacheKey: (String?) -> Boolean,
+    onImageLoaded: (String) -> Unit,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
     onFocusStateChanged: (Boolean) -> Unit = {},
@@ -832,20 +845,28 @@ private fun ModernCarouselCard(
     var landscapeLogoLoadFailed by remember(effectiveLogoUrl) { mutableStateOf(false) }
     val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
     val isVerticalRowsScrolling = LocalVerticalRowsScrolling.current
-    val imageCacheKey = "${imageUrl}_${requestWidthPx}x${requestHeightPx}"
-    val isImageCached = remember(imageModel) {
-        context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
-    }
-    var lastSuccessfulImageUrl by rememberSaveable(item.key) { mutableStateOf<String?>(null) }
+    val imageCacheKey = imageUrl?.let { "${it}_${requestWidthPx}x${requestHeightPx}" }
+    val isImageCached =
+        imageCacheKey != null &&
+            context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
     var lastSuccessfulPainter by remember(item.key) { mutableStateOf<Painter?>(null) }
+    LaunchedEffect(imageCacheKey, isImageCached) {
+        if (isImageCached && imageCacheKey != null) {
+            onImageLoaded(imageCacheKey)
+        }
+    }
+    val hasLoadedCurrentImageBefore = hasLoadedImageCacheKey(imageCacheKey)
     val deferCurrentImageRequest =
-        isVerticalRowsScrolling && !isImageCached && lastSuccessfulImageUrl != imageUrl
+        isVerticalRowsScrolling &&
+            !isFocused &&
+            !isImageCached &&
+            !hasLoadedCurrentImageBefore
     val safeImageModel = if (deferCurrentImageRequest) null else imageModel
     val imagePainter = rememberAsyncImagePainter(
         model = safeImageModel,
         onSuccess = {
             lastSuccessfulPainter = it.painter
-            lastSuccessfulImageUrl = imageUrl
+            imageCacheKey?.let(onImageLoaded)
         }
     )
     val shouldShowRetainedPainter =
