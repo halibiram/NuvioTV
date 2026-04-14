@@ -1,7 +1,7 @@
 plugins {
-    kotlin("multiplatform") version "2.0.0"
-    id("org.jetbrains.compose") version "1.6.11"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0"
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.compose)
+    alias(libs.plugins.kotlin.compose)
 }
 
 kotlin {
@@ -10,7 +10,6 @@ kotlin {
             kotlinOptions.jvmTarget = "11"
         }
     }
-
     sourceSets {
         val commonMain by getting {
             dependencies {
@@ -19,9 +18,11 @@ kotlin {
                 implementation(compose.material3)
                 implementation(compose.ui)
                 implementation(compose.components.resources)
-                implementation(compose.components.uiToolingPreview)
-                // KMP equivalents of existing dependencies should go here later.
-                // For now, keeping the imports to preserve project logic without changing code files.
+
+                implementation(libs.koin.core)
+                implementation(libs.koin.compose)
+                implementation(libs.lifecycle.viewmodel.compose)
+                implementation(libs.navigation.compose)
             }
         }
         val desktopMain by getting {
@@ -35,10 +36,5 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "com.nuvio.tv.MainKt"
-        nativeDistributions {
-            targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb)
-            packageName = "com.nuvio.tv"
-            packageVersion = "1.0.0"
-        }
     }
 }
