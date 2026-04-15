@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -246,27 +247,21 @@ private fun HeroCarouselSlide(
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Background image
+        // Background image with consolidated gradients
         AsyncImage(
             model = backgroundModel,
             contentDescription = item.name,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithCache {
+                    onDrawWithContent {
+                        drawContent()
+                        drawRect(bottomGradient)
+                        drawRect(leftGradient)
+                    }
+                },
             contentScale = ContentScale.Crop,
             alignment = Alignment.TopCenter
-        )
-
-        // Bottom gradient for text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(bottomGradient)
-        )
-
-        // Left gradient for extra text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(leftGradient)
         )
 
         // Content overlay
