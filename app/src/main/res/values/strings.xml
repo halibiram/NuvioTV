@@ -545,6 +545,8 @@
     <string name="layout_blur_unwatched_sub">Blur episode thumbnails until watched to avoid spoilers.</string>
     <string name="layout_blur_cw_next_up">Blur Unwatched in Continue Watching</string>
     <string name="layout_blur_cw_next_up_sub">Blur next episode thumbnails in Continue Watching to avoid spoilers.</string>
+    <string name="layout_memory_only_scroll">Memory-Only Vertical Scroll</string>
+    <string name="layout_memory_only_scroll_sub">Skip loading new row images while scrolling vertically.</string>
     <string name="layout_trailer_button">Show Trailer Button</string>
     <string name="layout_trailer_button_sub">Show trailer button on detail page (only when trailer is available).</string>
     <string name="layout_prefer_external_meta">Prefer meta from external addon</string>

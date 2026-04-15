@@ -979,7 +979,7 @@ fun ModernHomeContent(
 
         CompositionLocalProvider(
             LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
-            LocalVerticalRowsScrolling provides isVerticalRowsScrolling
+            LocalVerticalRowsScrolling provides (uiState.memoryOnlyVerticalScroll && isVerticalRowsScrolling)
         ) {
             LazyColumn(
                 state = verticalRowListState,
