@@ -203,6 +203,7 @@ class HomeViewModel @Inject constructor(
         observeTmdbSettings()
         observeMdbListSettings()
         observeBlurUnwatchedEpisodes()
+        observeMemoryOnlyVerticalScroll()
         observeStartupAuthNotice()
         observeProgressSourceChanges()
         loadContinueWatching()
@@ -264,6 +265,16 @@ class HomeViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { enabled ->
                     _uiState.update { it.copy(blurUnwatchedEpisodes = enabled) }
+                }
+        }
+    }
+
+    private fun observeMemoryOnlyVerticalScroll() {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.memoryOnlyVerticalScroll
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    _uiState.update { it.copy(memoryOnlyVerticalScroll = enabled) }
                 }
         }
     }

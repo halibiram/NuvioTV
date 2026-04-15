@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.detail
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -114,6 +115,13 @@ fun SeasonTabs(
     val lazyListState = rememberLazyListState()
 
     var suppressFocusSwitch by remember { mutableStateOf(false) }
+    var pendingSeason by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pendingSeason) {
+        val target = pendingSeason ?: return@LaunchedEffect
+        delay(150)
+        onSeasonSelected(target)
+        pendingSeason = null
+    }
 
     LaunchedEffect(sortedSeasons, selectedSeason) {
         val selectedIndex = sortedSeasons.indexOf(selectedSeason)
@@ -162,7 +170,7 @@ fun SeasonTabs(
                     val nowFocused = it.isFocused
                     isFocused = nowFocused
                     if (nowFocused && !isSelected && !suppressFocusSwitch) {
-                        onSeasonSelected(season)
+                        pendingSeason = season
                     }
                 }
                     .onPreviewKeyEvent { event ->

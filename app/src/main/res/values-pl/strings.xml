@@ -400,6 +400,8 @@
     <string name="layout_preset_balanced">Zrównoważony</string>
     <string name="layout_preset_comfort">Komfortowy</string>
     <string name="layout_preset_large">Duży</string>
+    <string name="layout_memory_only_scroll">Scroll tylko z pamięci</string>
+    <string name="layout_memory_only_scroll_sub">Pomijaj ładowanie nowych obrazków podczas przewijania w pionie.</string>
     <string name="layout_preset_sharp">Ostry</string>
     <string name="layout_preset_subtle">Subtelny</string>
     <string name="layout_preset_classic">Klasyczny</string>
@@ -598,9 +600,11 @@
     <string name="addon_remove">Usuń</string>
     <string name="addon_manage_from_phone_title">Zarządzaj z telefonu</string>
     <string name="addon_manage_from_phone_subtitle">Zeskanuj kod QR, aby zarządzać dodatkami, katalogami i kolekcjami z telefonu</string>
+    <string name="addon_manage_collections_from_phone_subtitle">Zeskanuj kod QR, aby zarządzać kolekcjami z telefonu</string>
     <string name="addon_reorder_title">Zmień kolejność katalogów</string>
     <string name="addon_reorder_subtitle">Kontroluje kolejność wierszy katalogów i kolekcji na ekranie głównym</string>
     <string name="addon_qr_scan_instruction">Zeskanuj telefonem, aby zarządzać dodatkami, katalogami i kolekcjami</string>
+    <string name="addon_qr_collections_scan_instruction">Zeskanuj telefonem, aby zarządzać kolekcjami</string>
     <string name="addon_qr_close">Zamknij</string>
     <string name="addon_confirm_title">Potwierdź zmiany dodatków i katalogów</string>
     <string name="addon_confirm_subtitle">Następujące zmiany zostały wprowadzone z telefonu:</string>
@@ -1475,6 +1479,12 @@
     <string name="collections_editor_placeholder_backdrop">URL obrazu tła (opcjonalnie)</string>
     <string name="collections_editor_placeholder_folder">Nazwa folderu</string>
     <string name="collections_editor_placeholder_gif">URL animowanego GIF (odtwarzany przy zaznaczeniu)</string>
+    <string name="collections_editor_genre_filter">Filtr gatunku</string>
+    <string name="collections_editor_choose_genre">Wybierz</string>
+    <string name="collections_editor_select_genre">Wybierz gatunek</string>
+    <string name="collections_editor_all_genres">Wszystkie gatunki</string>
+    <string name="collections_editor_genre_required">Gatunek wymagany</string>
+    <string name="collections_editor_genre_optional">Filtr gatunku dostępny</string>
     <string name="collections_card_title">Kolekcje</string>
     <string name="collections_card_subtitle">Grupuj katalogi w folderach na ekranie głównym</string>
     <string name="collections_tab_all">Wszystko</string>
