@@ -172,7 +172,7 @@ internal class ModernHomeUiCaches {
     private val loadedImageCacheKeys = linkedSetOf<String>()
     private val loadedImageCacheKeyLimit = 512
     private val retainedImagePainters = linkedMapOf<String, Painter>()
-    private val retainedImagePainterLimit = 24
+    private val retainedImagePainterLimit = 96
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
@@ -192,13 +192,13 @@ internal class ModernHomeUiCaches {
         }
     }
 
-    fun retainedPainterFor(imageCacheKey: String?): Painter? {
-        return imageCacheKey?.let(retainedImagePainters::get)
+    fun retainedPainterForKey(key: String): Painter? {
+        return retainedImagePainters[key]
     }
 
-    fun rememberSuccessfulPainter(imageCacheKey: String, painter: Painter) {
-        retainedImagePainters.remove(imageCacheKey)
-        retainedImagePainters[imageCacheKey] = painter
+    fun rememberSuccessfulPainterForKey(key: String, painter: Painter) {
+        retainedImagePainters.remove(key)
+        retainedImagePainters[key] = painter
         while (retainedImagePainters.size > retainedImagePainterLimit) {
             val eldestKey = retainedImagePainters.keys.firstOrNull() ?: break
             retainedImagePainters.remove(eldestKey)

@@ -169,7 +169,7 @@ private fun ModernCatalogRowItem(
     expandedTrailerPreviewAudioUrl: String?,
     isWatched: Boolean,
     hasLoadedImageCacheKey: (String?) -> Boolean,
-    retainedPainterFor: (String?) -> Painter?,
+    retainedPainterFor: (String) -> Painter?,
     onImageLoaded: (String) -> Unit,
     onImagePainterLoaded: (String, Painter) -> Unit,
     onFocused: () -> Unit,
@@ -349,9 +349,9 @@ internal fun ModernRowSection(
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
     val hasLoadedImageCacheKey = remember(uiCaches) { uiCaches::hasLoadedImageCacheKey }
-    val retainedPainterFor = remember(uiCaches) { uiCaches::retainedPainterFor }
+    val retainedPainterFor = remember(uiCaches) { uiCaches::retainedPainterForKey }
     val onImageLoaded = remember(uiCaches) { uiCaches::markImageLoaded }
-    val onImagePainterLoaded = remember(uiCaches) { uiCaches::rememberSuccessfulPainter }
+    val onImagePainterLoaded = remember(uiCaches) { uiCaches::rememberSuccessfulPainterForKey }
 
     val rowKey = row.key
     Column {
@@ -488,7 +488,7 @@ internal fun ModernRowSection(
             delay(150) // Wait before spamming image requests to survive rapid vertical D-pad scrolls!
             val cwWidthPx = with(density) { continueWatchingCardWidth.roundToPx() }
             val cwHeightPx = with(density) { continueWatchingCardHeight.roundToPx() }
-            fun imageUrlAndKey(item: ModernCarouselItem): Pair<String, String>? {
+            fun imageUrlAndKeys(item: ModernCarouselItem): Triple<String, String, String>? {
                 val url = item.imageUrl ?: return null
                 return when (item.payload) {
                     is ModernPayload.Catalog -> {
@@ -501,7 +501,7 @@ internal fun ModernRowSection(
                         )
                         val widthPx = with(density) { metrics.width.roundToPx() }
                         val heightPx = with(density) { metrics.height.roundToPx() }
-                        url to "${url}_${widthPx}x${heightPx}"
+                        Triple(url, url, "${url}_${widthPx}x${heightPx}")
                     }
                     is ModernPayload.CollectionFolder -> {
                         val metrics = item.catalogCardMetrics(
@@ -513,24 +513,25 @@ internal fun ModernRowSection(
                         )
                         val widthPx = with(density) { metrics.width.roundToPx() }
                         val heightPx = with(density) { metrics.height.roundToPx() }
-                        url to "${url}_${widthPx}x${heightPx}"
+                        Triple(url, url, "${url}_${widthPx}x${heightPx}")
                     }
-                    is ModernPayload.ContinueWatching -> url to "${url}_${cwWidthPx}x${cwHeightPx}"
+                    is ModernPayload.ContinueWatching ->
+                        Triple(url, url, "${url}_${cwWidthPx}x${cwHeightPx}")
                 }
             }
             fun enqueueIfNeeded(item: ModernCarouselItem, widthPx: Int, heightPx: Int) {
-                val (url, cacheKey) = imageUrlAndKey(item) ?: return
-                if (hasLoadedImageCacheKey(cacheKey)) return
-                if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
-                    onImageLoaded(cacheKey)
+                val (url, loadKey, memoryCacheKey) = imageUrlAndKeys(item) ?: return
+                if (hasLoadedImageCacheKey(loadKey)) return
+                if (imageLoader.memoryCache?.get(MemoryCache.Key(memoryCacheKey)) != null) {
+                    onImageLoaded(loadKey)
                     return
                 }
                 imageLoader.enqueue(
                     ImageRequest.Builder(context)
                         .data(url)
-                        .memoryCacheKey(cacheKey)
+                        .memoryCacheKey(memoryCacheKey)
                         .memoryCachePolicy(CachePolicy.DISABLED)
-                        .listener(onSuccess = { _, _ -> onImageLoaded(cacheKey) })
+                        .listener(onSuccess = { _, _ -> onImageLoaded(loadKey) })
                         .size(width = widthPx, height = heightPx)
                         .build()
                 )
@@ -748,7 +749,7 @@ private fun ModernCarouselCard(
     trailerPreviewAudioUrl: String?,
     isWatched: Boolean,
     hasLoadedImageCacheKey: (String?) -> Boolean,
-    retainedPainterFor: (String?) -> Painter?,
+    retainedPainterFor: (String) -> Painter?,
     onImageLoaded: (String) -> Unit,
     onImagePainterLoaded: (String, Painter) -> Unit,
     focusRequester: FocusRequester,
@@ -867,18 +868,19 @@ private fun ModernCarouselCard(
     var landscapeLogoLoadFailed by remember(effectiveLogoUrl) { mutableStateOf(false) }
     val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
     val isVerticalRowsScrolling = LocalVerticalRowsScrolling.current
-    val imageCacheKey = imageUrl?.let { "${it}_${requestWidthPx}x${requestHeightPx}" }
+    val imageLoadKey = imageUrl
+    val imageCacheKey = imageLoadKey?.let { "${it}_${requestWidthPx}x${requestHeightPx}" }
     val isImageCached =
         imageCacheKey != null &&
             context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
-    var lastSuccessfulPainter by remember(item.key) { mutableStateOf<Painter?>(null) }
-    val retainedPainter = retainedPainterFor(imageCacheKey) ?: lastSuccessfulPainter
-    LaunchedEffect(imageCacheKey, isImageCached) {
-        if (isImageCached && imageCacheKey != null) {
-            onImageLoaded(imageCacheKey)
+    var lastSuccessfulPainter by remember(item.key, imageLoadKey) { mutableStateOf<Painter?>(null) }
+    val retainedPainter = imageLoadKey?.let(retainedPainterFor) ?: lastSuccessfulPainter
+    LaunchedEffect(imageLoadKey, imageCacheKey, isImageCached) {
+        if (isImageCached && imageLoadKey != null) {
+            onImageLoaded(imageLoadKey)
         }
     }
-    val hasLoadedCurrentImageBefore = hasLoadedImageCacheKey(imageCacheKey)
+    val hasLoadedCurrentImageBefore = hasLoadedImageCacheKey(imageLoadKey)
     val deferCurrentImageRequest =
         isVerticalRowsScrolling &&
             !isFocused &&
@@ -889,8 +891,8 @@ private fun ModernCarouselCard(
         model = safeImageModel,
         onSuccess = {
             lastSuccessfulPainter = it.painter
-            imageCacheKey?.let(onImageLoaded)
-            imageCacheKey?.let { key -> onImagePainterLoaded(key, it.painter) }
+            imageLoadKey?.let(onImageLoaded)
+            imageLoadKey?.let { key -> onImagePainterLoaded(key, it.painter) }
         }
     )
     val shouldShowRetainedPainter =
