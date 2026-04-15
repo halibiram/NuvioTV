@@ -43,7 +43,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -876,7 +878,19 @@ private fun ModernCarouselCard(
         imageCacheKey != null &&
             context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
     var lastSuccessfulPainter by remember(item.key, imageLoadKey) { mutableStateOf<Painter?>(null) }
-    val retainedPainter = imageStateKey?.let(retainedPainterFor) ?: lastSuccessfulPainter
+    val memoryCachedPainter = remember(imageCacheKey, isImageCached) {
+        if (!isImageCached || imageCacheKey == null) {
+            null
+        } else {
+            context.imageLoader.memoryCache
+                ?.get(MemoryCache.Key(imageCacheKey))
+                ?.bitmap
+                ?.asImageBitmap()
+                ?.let(::BitmapPainter)
+        }
+    }
+    val retainedPainter =
+        lastSuccessfulPainter ?: imageStateKey?.let(retainedPainterFor) ?: memoryCachedPainter
     LaunchedEffect(imageStateKey, imageCacheKey, isImageCached) {
         if (isImageCached && imageStateKey != null) {
             onImageLoaded(imageStateKey)
