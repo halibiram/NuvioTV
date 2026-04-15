@@ -487,7 +487,7 @@ internal fun ModernRowSection(
             continueWatchingCardHeight
         ) {
             if (!isActiveRow || isVerticalRowsScrolling) return@LaunchedEffect
-            delay(150) // Wait before spamming image requests to survive rapid vertical D-pad scrolls!
+             delay(50) // Wait before spamming image requests to survive rapid vertical D-pad scrolls!
             val cwWidthPx = with(density) { continueWatchingCardWidth.roundToPx() }
             val cwHeightPx = with(density) { continueWatchingCardHeight.roundToPx() }
             fun imageUrlAndKeys(item: ModernCarouselItem): Triple<String, String, String>? {

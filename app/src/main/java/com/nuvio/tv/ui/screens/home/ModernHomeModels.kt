@@ -170,9 +170,9 @@ internal class ModernHomeUiCaches {
     val rowListStates = mutableMapOf<String, LazyListState>()
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
     private val loadedImageCacheKeys = linkedSetOf<String>()
-    private val loadedImageCacheKeyLimit = 1024
+    private val loadedImageCacheKeyLimit = 10240
     private val retainedImagePainters = linkedMapOf<String, Painter>()
-    private val retainedImagePainterLimit = 48
+    private val retainedImagePainterLimit = 1024
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
