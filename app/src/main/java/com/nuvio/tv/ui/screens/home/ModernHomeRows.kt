@@ -155,6 +155,7 @@ private fun ModernCatalogRowItem(
     item: ModernCarouselItem,
     payload: ModernPayload,
     requester: FocusRequester,
+    isInVerticalScrollLoadWindow: Boolean,
     useLandscapePosters: Boolean,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
@@ -261,6 +262,7 @@ private fun ModernCatalogRowItem(
         cardWidth = cardMetrics.width,
         cardHeight = cardMetrics.height,
         modifier = modifier,
+        isInVerticalScrollLoadWindow = isInVerticalScrollLoadWindow,
         focusedPosterBackdropExpandEnabled = effectiveExpandEnabled,
         isBackdropExpanded = effectiveBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
@@ -383,6 +385,23 @@ internal fun ModernRowSection(
             derivedStateOf { rowListState.isScrollInProgress }
         }
         val isRowScrolling by isRowScrollingState
+        val verticalScrollLoadWindowState = remember(rowListState, row.items.size) {
+            derivedStateOf {
+                val lastIndex = row.items.lastIndex
+                if (lastIndex < 0) {
+                    IntRange.EMPTY
+                } else {
+                    val firstVisibleIndex =
+                        (rowListState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+                            ?: rowListState.firstVisibleItemIndex)
+                            .coerceIn(0, lastIndex)
+                    val endIndex = (firstVisibleIndex + POSTER_PREFETCH_DISTANCE - 1)
+                        .coerceAtMost(lastIndex)
+                    firstVisibleIndex..endIndex
+                }
+            }
+        }
+        val verticalScrollLoadWindow by verticalScrollLoadWindowState
         val currentRowState = rememberUpdatedState(row)
         val loadMoreCatalogId = row.catalogId
         val loadMoreAddonId = row.addonId
@@ -694,6 +713,7 @@ internal fun ModernRowSection(
                                 item = item,
                                 payload = payload,
                                 requester = requester,
+                                isInVerticalScrollLoadWindow = index in verticalScrollLoadWindow,
                                 useLandscapePosters = useLandscapePosters,
                                 showLabels = showLabels,
                                 posterCardCornerRadius = posterCardCornerRadius,
@@ -744,6 +764,7 @@ private fun ModernCarouselCard(
     cardCornerRadius: Dp,
     cardWidth: Dp,
     cardHeight: Dp,
+    isInVerticalScrollLoadWindow: Boolean,
     focusedPosterBackdropExpandEnabled: Boolean,
     isBackdropExpanded: Boolean,
     playTrailerInExpandedCard: Boolean,
@@ -840,12 +861,16 @@ private fun ModernCarouselCard(
     val requestHeightPx = remember(cardHeight, density) {
         with(density) { cardHeight.roundToPx() }
     }
+    val imageLoadKey = imageUrl
+    val imageStateKey = imageLoadKey?.let { "${item.key}::$it" }
+    val imageCacheKey = imageLoadKey?.let { "${it}_${requestWidthPx}x${requestHeightPx}" }
     val imageModel = remember(context, imageUrl, requestWidthPx, requestHeightPx) {
         imageUrl?.let {
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
-                .memoryCacheKey("${it}_${requestWidthPx}x${requestHeightPx}")
+                .memoryCacheKey(imageCacheKey)
+                .placeholderMemoryCacheKey(imageCacheKey)
                 .size(width = requestWidthPx, height = requestHeightPx)
                 .build()
         }
@@ -871,9 +896,6 @@ private fun ModernCarouselCard(
     var landscapeLogoLoadFailed by remember(effectiveLogoUrl) { mutableStateOf(false) }
     val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
     val isVerticalRowsScrolling = LocalVerticalRowsScrolling.current
-    val imageLoadKey = imageUrl
-    val imageStateKey = imageLoadKey?.let { "${item.key}::$it" }
-    val imageCacheKey = imageLoadKey?.let { "${it}_${requestWidthPx}x${requestHeightPx}" }
     val isImageCached =
         imageCacheKey != null &&
             context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
@@ -900,6 +922,7 @@ private fun ModernCarouselCard(
     val deferCurrentImageRequest =
         isVerticalRowsScrolling &&
             !isFocused &&
+            !isInVerticalScrollLoadWindow &&
             !isImageCached &&
             !hasLoadedCurrentImageBefore
     val safeImageModel = if (deferCurrentImageRequest) null else imageModel
