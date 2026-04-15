@@ -170,9 +170,9 @@ internal class ModernHomeUiCaches {
     val rowListStates = mutableMapOf<String, LazyListState>()
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
     private val loadedImageCacheKeys = linkedSetOf<String>()
-    private val loadedImageCacheKeyLimit = 512
+    private val loadedImageCacheKeyLimit = 1024
     private val retainedImagePainters = linkedMapOf<String, Painter>()
-    private val retainedImagePainterLimit = 96
+    private val retainedImagePainterLimit = 48
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }
@@ -215,8 +215,9 @@ class ModernCarouselRowBuildCache {
     var continueWatchingUseLandscapePosters: Boolean = false
     var continueWatchingRow: HeroCarouselRow? = null
     internal val catalogRows = mutableMapOf<String, ModernCatalogRowBuildCacheEntry>()
-    // per-item cache: rowKey -> (itemId -> cached carousel item + source MetaPreview)
+    // per-item cache: rowKey -> (stable item key -> cached carousel item + source MetaPreview)
     internal val catalogItemCache = mutableMapOf<String, MutableMap<String, CachedCarouselItem>>()
+    internal val catalogItemStableKeyCounters = mutableMapOf<String, Int>()
 }
 
 internal data class CachedCarouselItem(
@@ -225,6 +226,49 @@ internal data class CachedCarouselItem(
     val showFullReleaseDate: Boolean,
     val carouselItem: ModernCarouselItem
 )
+
+internal fun nextCatalogStableItemKey(
+    rowKey: String,
+    itemId: String,
+    counters: MutableMap<String, Int>
+): String {
+    val counterKey = "$rowKey::$itemId"
+    val sequence = counters.getOrDefault(counterKey, 0)
+    counters[counterKey] = sequence + 1
+    return "catalog_${rowKey}_${itemId}_$sequence"
+}
+
+internal fun takeReusableCatalogCacheEntry(
+    availableEntries: MutableList<Pair<String, CachedCarouselItem>>,
+    item: MetaPreview
+): Pair<String, CachedCarouselItem>? {
+    fun matchesExactly(candidate: CachedCarouselItem): Boolean {
+        return candidate.source == item
+    }
+
+    fun matchesMetadata(candidate: CachedCarouselItem): Boolean {
+        val source = candidate.source
+        return source.id == item.id &&
+            source.apiType == item.apiType &&
+            source.name == item.name &&
+            source.releaseInfo == item.releaseInfo &&
+            source.posterShape == item.posterShape
+    }
+
+    fun matchesIdentity(candidate: CachedCarouselItem): Boolean {
+        val source = candidate.source
+        return source.id == item.id && source.apiType == item.apiType
+    }
+
+    val matchIndex = availableEntries.indexOfFirst { (_, candidate) -> matchesExactly(candidate) }
+        .takeIf { it >= 0 }
+        ?: availableEntries.indexOfFirst { (_, candidate) -> matchesMetadata(candidate) }
+            .takeIf { it >= 0 }
+        ?: availableEntries.indexOfFirst { (_, candidate) -> matchesIdentity(candidate) }
+            .takeIf { it >= 0 }
+
+    return matchIndex?.let(availableEntries::removeAt)
+}
 
 @Immutable
 internal data class ModernCatalogCardMetrics(
@@ -418,6 +462,7 @@ internal fun buildCatalogItem(
     row: CatalogRow,
     useLandscapePosters: Boolean,
     occurrence: Int,
+    stableItemKey: String? = null,
     strTypeMovie: String = "",
     strTypeSeries: String = "",
     showFullReleaseDate: Boolean = true,
@@ -477,7 +522,7 @@ internal fun buildCatalogItem(
     )
 
     return ModernCarouselItem(
-        key = "catalog_${row.key()}_${item.id}_${occurrence}",
+        key = stableItemKey ?: "catalog_${row.key()}_${item.id}_${occurrence}",
         title = item.name,
         subtitle = item.releaseInfo,
         imageUrl = frozenImage,

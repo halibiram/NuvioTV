@@ -185,7 +185,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             return
         }
 
-        val catalogsToLoad = addons.flatMap { addon ->
+        val homeCatalogsByKey = LinkedHashMap<String, Pair<Addon, CatalogDescriptor>>()
+        addons.forEach { addon ->
             addon.catalogs
                 .filterNot {
                     !it.shouldShowOnHome() || isCatalogDisabled(
@@ -196,23 +197,39 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                         catalogName = it.name
                     )
                 }
-                .map { catalog -> addon to catalog }
+                .forEach { catalog ->
+                    val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+                    homeCatalogsByKey.putIfAbsent(key, addon to catalog)
+                }
+        }
+        val orderedCatalogKeys = snapshotCatalogState().first
+        val catalogsToLoad = buildList {
+            val remainingCatalogs = LinkedHashMap(homeCatalogsByKey)
+            orderedCatalogKeys.forEach { key ->
+                remainingCatalogs.remove(key)?.let(::add)
+            }
+            addAll(remainingCatalogs.values)
         }
 
         // Load hero-selected catalogs even if disabled from home rows —
         // the hero has its own catalog source independent of home rows.
-        val alreadyLoadingKeys = catalogsToLoad.map { (addon, catalog) ->
-            catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
-        }.toSet()
+        val alreadyLoadingKeys = homeCatalogsByKey.keys
         val heroOnlyCatalogs = if (hasHeroSelections) {
-            addons.flatMap { addon ->
+            val heroCatalogsByKey = LinkedHashMap<String, Pair<Addon, CatalogDescriptor>>()
+            addons.forEach { addon ->
                 addon.catalogs
-                    .filter { catalog ->
+                    .filterNot { it.isSearchOnlyCatalog() }
+                    .forEach { catalog ->
                         val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
-                        key in heroCatalogSet && key !in alreadyLoadingKeys && !catalog.isSearchOnlyCatalog()
+                        heroCatalogsByKey.putIfAbsent(key, addon to catalog)
                     }
-                    .map { catalog -> addon to catalog }
             }
+            currentHeroCatalogKeys
+                .asSequence()
+                .distinct()
+                .filter { it !in alreadyLoadingKeys }
+                .mapNotNull(heroCatalogsByKey::get)
+                .toList()
         } else {
             emptyList()
         }
@@ -260,14 +277,21 @@ internal fun HomeViewModel.loadHeroCatalogsPipeline() {
         return
     }
 
-    val heroToLoad = addonsCache.flatMap { addon ->
+    val heroCatalogsByKey = LinkedHashMap<String, Pair<Addon, CatalogDescriptor>>()
+    addonsCache.forEach { addon ->
         addon.catalogs
-            .filter { catalog ->
+            .filterNot { it.isSearchOnlyCatalog() }
+            .forEach { catalog ->
                 val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
-                key in missingHeroKeys && !catalog.isSearchOnlyCatalog()
+                heroCatalogsByKey.putIfAbsent(key, addon to catalog)
             }
-            .map { catalog -> addon to catalog }
     }
+    val heroToLoad = heroCatalogKeys
+        .asSequence()
+        .distinct()
+        .filter { it in missingHeroKeys }
+        .mapNotNull(heroCatalogsByKey::get)
+        .toList()
 
     if (heroToLoad.isEmpty()) {
         scheduleUpdateCatalogRows()

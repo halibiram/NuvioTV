@@ -272,7 +272,9 @@ fun ModernHomeContent(
                         } else {
                             val rowItemOccurrenceCounts = mutableMapOf<String, Int>()
                             val rowItemCache = rowBuildCache.catalogItemCache.getOrPut(rowKey) { mutableMapOf() }
-                            HeroCarouselRow(
+                            val availableCachedEntries = rowItemCache.entries.map { it.key to it.value }.toMutableList()
+                            val nextRowItemCache = LinkedHashMap<String, CachedCarouselItem>(row.items.size)
+                            val builtRow = HeroCarouselRow(
                                 key = rowKey,
                                 title = catalogRowTitle(
                                     row = row,
@@ -290,9 +292,15 @@ fun ModernHomeContent(
                                 items = row.items.map { item ->
                                     val occurrence = rowItemOccurrenceCounts.getOrDefault(item.id, 0)
                                     rowItemOccurrenceCounts[item.id] = occurrence + 1
-                                    val cacheKey = "${item.id}_$occurrence"
-                                    val cachedItem = rowItemCache[cacheKey]
-                                    if (cachedItem != null &&
+                                    val reusedEntry = takeReusableCatalogCacheEntry(availableCachedEntries, item)
+                                    val stableItemKey = reusedEntry?.first
+                                        ?: nextCatalogStableItemKey(
+                                            rowKey = rowKey,
+                                            itemId = item.id,
+                                            counters = rowBuildCache.catalogItemStableKeyCounters
+                                        )
+                                    val cachedItem = reusedEntry?.second
+                                    val builtItem = if (cachedItem != null &&
                                         cachedItem.source == item &&
                                         cachedItem.useLandscapePosters == useLandscapePosters &&
                                         cachedItem.showFullReleaseDate == showFullReleaseDate
@@ -304,6 +312,7 @@ fun ModernHomeContent(
                                             row = row,
                                             useLandscapePosters = useLandscapePosters,
                                             occurrence = occurrence,
+                                            stableItemKey = stableItemKey,
                                             strTypeMovie = strTypeMovie,
                                             strTypeSeries = strTypeSeries,
                                             showFullReleaseDate = showFullReleaseDate,
@@ -311,16 +320,20 @@ fun ModernHomeContent(
                                                 ?.takeIf { it.useLandscapePosters == useLandscapePosters }
                                                 ?.carouselItem
                                         )
-                                        rowItemCache[cacheKey] = CachedCarouselItem(
-                                            source = item,
-                                            useLandscapePosters = useLandscapePosters,
-                                            showFullReleaseDate = showFullReleaseDate,
-                                            carouselItem = built
-                                        )
                                         built
                                     }
+                                    nextRowItemCache[stableItemKey] = CachedCarouselItem(
+                                        source = item,
+                                        useLandscapePosters = useLandscapePosters,
+                                        showFullReleaseDate = showFullReleaseDate,
+                                        carouselItem = builtItem
+                                    )
+                                    builtItem
                                 }
                             )
+                            rowItemCache.clear()
+                            rowItemCache.putAll(nextRowItemCache)
+                            builtRow
                         }
 
                         rowBuildCache.catalogRows[rowKey] = ModernCatalogRowBuildCacheEntry(
@@ -357,6 +370,9 @@ fun ModernHomeContent(
             }
             rowBuildCache.catalogRows.keys.retainAll(activeCatalogKeys)
             rowBuildCache.catalogItemCache.keys.retainAll(activeCatalogKeys)
+            rowBuildCache.catalogItemStableKeyCounters.keys.retainAll { counterKey ->
+                activeCatalogKeys.any { rowKey -> counterKey.startsWith("$rowKey::") }
+            }
         }
     }
 

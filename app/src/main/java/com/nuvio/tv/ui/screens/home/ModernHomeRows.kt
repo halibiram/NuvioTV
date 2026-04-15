@@ -490,6 +490,7 @@ internal fun ModernRowSection(
             val cwHeightPx = with(density) { continueWatchingCardHeight.roundToPx() }
             fun imageUrlAndKeys(item: ModernCarouselItem): Triple<String, String, String>? {
                 val url = item.imageUrl ?: return null
+                val loadStateKey = "${item.key}::$url"
                 return when (item.payload) {
                     is ModernPayload.Catalog -> {
                         val metrics = item.catalogCardMetrics(
@@ -501,7 +502,7 @@ internal fun ModernRowSection(
                         )
                         val widthPx = with(density) { metrics.width.roundToPx() }
                         val heightPx = with(density) { metrics.height.roundToPx() }
-                        Triple(url, url, "${url}_${widthPx}x${heightPx}")
+                        Triple(url, loadStateKey, "${url}_${widthPx}x${heightPx}")
                     }
                     is ModernPayload.CollectionFolder -> {
                         val metrics = item.catalogCardMetrics(
@@ -513,10 +514,10 @@ internal fun ModernRowSection(
                         )
                         val widthPx = with(density) { metrics.width.roundToPx() }
                         val heightPx = with(density) { metrics.height.roundToPx() }
-                        Triple(url, url, "${url}_${widthPx}x${heightPx}")
+                        Triple(url, loadStateKey, "${url}_${widthPx}x${heightPx}")
                     }
                     is ModernPayload.ContinueWatching ->
-                        Triple(url, url, "${url}_${cwWidthPx}x${cwHeightPx}")
+                        Triple(url, loadStateKey, "${url}_${cwWidthPx}x${cwHeightPx}")
                 }
             }
             fun enqueueIfNeeded(item: ModernCarouselItem, widthPx: Int, heightPx: Int) {
@@ -869,18 +870,19 @@ private fun ModernCarouselCard(
     val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
     val isVerticalRowsScrolling = LocalVerticalRowsScrolling.current
     val imageLoadKey = imageUrl
+    val imageStateKey = imageLoadKey?.let { "${item.key}::$it" }
     val imageCacheKey = imageLoadKey?.let { "${it}_${requestWidthPx}x${requestHeightPx}" }
     val isImageCached =
         imageCacheKey != null &&
             context.imageLoader.memoryCache?.get(MemoryCache.Key(imageCacheKey)) != null
     var lastSuccessfulPainter by remember(item.key, imageLoadKey) { mutableStateOf<Painter?>(null) }
-    val retainedPainter = imageLoadKey?.let(retainedPainterFor) ?: lastSuccessfulPainter
-    LaunchedEffect(imageLoadKey, imageCacheKey, isImageCached) {
-        if (isImageCached && imageLoadKey != null) {
-            onImageLoaded(imageLoadKey)
+    val retainedPainter = imageStateKey?.let(retainedPainterFor) ?: lastSuccessfulPainter
+    LaunchedEffect(imageStateKey, imageCacheKey, isImageCached) {
+        if (isImageCached && imageStateKey != null) {
+            onImageLoaded(imageStateKey)
         }
     }
-    val hasLoadedCurrentImageBefore = hasLoadedImageCacheKey(imageLoadKey)
+    val hasLoadedCurrentImageBefore = hasLoadedImageCacheKey(imageStateKey)
     val deferCurrentImageRequest =
         isVerticalRowsScrolling &&
             !isFocused &&
@@ -891,8 +893,8 @@ private fun ModernCarouselCard(
         model = safeImageModel,
         onSuccess = {
             lastSuccessfulPainter = it.painter
-            imageLoadKey?.let(onImageLoaded)
-            imageLoadKey?.let { key -> onImagePainterLoaded(key, it.painter) }
+            imageStateKey?.let(onImageLoaded)
+            imageStateKey?.let { key -> onImagePainterLoaded(key, it.painter) }
         }
     )
     val shouldShowRetainedPainter =

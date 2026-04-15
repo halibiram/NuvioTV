@@ -92,7 +92,9 @@ internal fun buildModernHomePresentation(
             } else {
                 val rowItemOccurrenceCounts = mutableMapOf<String, Int>()
                 val rowItemCache = cache.catalogItemCache.getOrPut(rowKey) { mutableMapOf() }
-                HeroCarouselRow(
+                val availableCachedEntries = rowItemCache.entries.map { it.key to it.value }.toMutableList()
+                val nextRowItemCache = LinkedHashMap<String, CachedCarouselItem>(row.items.size)
+                val builtRow = HeroCarouselRow(
                     key = rowKey,
                     title = catalogRowTitle(
                         row = row,
@@ -110,9 +112,15 @@ internal fun buildModernHomePresentation(
                     items = row.items.map { item ->
                         val occurrence = rowItemOccurrenceCounts.getOrDefault(item.id, 0)
                         rowItemOccurrenceCounts[item.id] = occurrence + 1
-                        val cacheKey = "${item.id}_$occurrence"
-                        val cachedItem = rowItemCache[cacheKey]
-                        if (cachedItem != null &&
+                        val reusedEntry = takeReusableCatalogCacheEntry(availableCachedEntries, item)
+                        val stableItemKey = reusedEntry?.first
+                            ?: nextCatalogStableItemKey(
+                                rowKey = rowKey,
+                                itemId = item.id,
+                                counters = cache.catalogItemStableKeyCounters
+                            )
+                        val cachedItem = reusedEntry?.second
+                        val builtItem = if (cachedItem != null &&
                             cachedItem.source == item &&
                             cachedItem.useLandscapePosters == input.useLandscapePosters &&
                             cachedItem.showFullReleaseDate == input.showFullReleaseDate
@@ -124,6 +132,7 @@ internal fun buildModernHomePresentation(
                                 row = row,
                                 useLandscapePosters = input.useLandscapePosters,
                                 occurrence = occurrence,
+                                stableItemKey = stableItemKey,
                                 strTypeMovie = strTypeMovie,
                                 strTypeSeries = strTypeSeries,
                                 showFullReleaseDate = input.showFullReleaseDate,
@@ -131,16 +140,20 @@ internal fun buildModernHomePresentation(
                                     ?.takeIf { it.useLandscapePosters == input.useLandscapePosters }
                                     ?.carouselItem
                             )
-                            rowItemCache[cacheKey] = CachedCarouselItem(
-                                source = item,
-                                useLandscapePosters = input.useLandscapePosters,
-                                showFullReleaseDate = input.showFullReleaseDate,
-                                carouselItem = built
-                            )
                             built
                         }
+                        nextRowItemCache[stableItemKey] = CachedCarouselItem(
+                            source = item,
+                            useLandscapePosters = input.useLandscapePosters,
+                            showFullReleaseDate = input.showFullReleaseDate,
+                            carouselItem = builtItem
+                        )
+                        builtItem
                     }
                 )
+                rowItemCache.clear()
+                rowItemCache.putAll(nextRowItemCache)
+                builtRow
             }
 
             cache.catalogRows[rowKey] = ModernCatalogRowBuildCacheEntry(
@@ -154,6 +167,9 @@ internal fun buildModernHomePresentation(
 
         cache.catalogRows.keys.retainAll(activeCatalogKeys)
         cache.catalogItemCache.keys.retainAll(activeCatalogKeys)
+        cache.catalogItemStableKeyCounters.keys.retainAll { counterKey ->
+            activeCatalogKeys.any { rowKey -> counterKey.startsWith("$rowKey::") }
+        }
     }
 
     return ModernHomePresentationState(
