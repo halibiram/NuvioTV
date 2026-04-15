@@ -34,6 +34,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Collections
@@ -740,9 +741,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             (it.info.contentId in allSeedContentIds || isCachedFromDisk) &&
                             it.info.contentId !in recentIds &&
                             it.info.contentId !in inProgressIds &&
-                            // Only apply rejection filter to non-cached items.
-                            // Cached items survive until fresh pipeline replaces them.
-                            (isCachedFromDisk || it.info.contentId !in rejectedByFreshPipeline) &&
+                            // Reject items the fresh pipeline evaluated but produced no
+                            // next-up for (e.g. fully watched series).  Cached-from-disk
+                            // items survive only until the fresh pipeline processes their
+                            // seed — once rejected there, they are removed immediately.
+                            it.info.contentId !in rejectedByFreshPipeline &&
                             // Respect "show unaired" setting for all items including cached.
                             (it.info.hasAired || showUnairedNextUp) &&
                             nextUpDismissKey(it.info.contentId, it.info.seedSeason, it.info.seedEpisode) !in dismissedNextUp &&
@@ -2018,19 +2021,41 @@ private fun HomeViewModel.publishBadgeUpdate(
             allWatched
         }
         .toSet()
+    // Expand IDs: for each fully-watched IMDB ID, also include the
+    // "tmdb:<id>" variant so catalogs that use TMDB IDs get the badge too.
+    val expandedFullyWatched = buildSet {
+        addAll(updatedFullyWatched)
+        for (contentId in updatedFullyWatched) {
+            if (contentId.startsWith("tt")) {
+                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
+                    add("tmdb:$tmdbId")
+                }
+            }
+        }
+    }
+    val expandedNotFullyWatched = buildSet {
+        addAll(validatedNotFullyWatched)
+        for (contentId in validatedNotFullyWatched) {
+            if (contentId.startsWith("tt")) {
+                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
+                    add("tmdb:$tmdbId")
+                }
+            }
+        }
+    }
     // Merge with persisted badges — don't remove badges we haven't re-validated yet.
     // But DO remove badges for series we've confirmed are NOT fully watched.
     val current = fullyWatchedSeriesIds.fullyWatchedSeriesIds.value
-    val merged = (current - validatedNotFullyWatched) + updatedFullyWatched
+    val merged = (current - expandedNotFullyWatched) + expandedFullyWatched
     if (current != merged) {
-        fullyWatchedSeriesIds.updateWithValidation(merged, updatedFullyWatched)
+        fullyWatchedSeriesIds.updateWithValidation(merged, expandedFullyWatched)
     }
 }
 
 private fun parseEpisodeReleaseDate(raw: String?): LocalDate? {
     if (raw.isNullOrBlank()) return null
     val value = raw.trim()
-    val zone = ZoneId.systemDefault()
+    val zone = ZoneOffset.UTC
 
     return runCatching {
         Instant.parse(value).atZone(zone).toLocalDate()
@@ -2050,7 +2075,7 @@ private fun parseEpisodeReleaseDate(raw: String?): LocalDate? {
 private fun parseEpisodeReleaseInstant(raw: String?): Instant? {
     if (raw.isNullOrBlank()) return null
     val value = raw.trim()
-    val zone = ZoneId.systemDefault()
+    val zone = ZoneOffset.UTC
 
     return runCatching {
         Instant.parse(value)
@@ -2255,9 +2280,7 @@ private fun formatEpisodeAirDateLabel(releaseDate: LocalDate): String {
     val locale = Locale.getDefault()
     val skeleton = if (releaseDate.year == todayLocal.year) "dMMM" else "dMMMy"
     val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton)
-    return java.text.SimpleDateFormat(pattern, locale).format(
-        java.util.Date(releaseDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli())
-    )
+    return DateTimeFormatter.ofPattern(pattern, locale).format(releaseDate)
 }
 
 private fun resolveNextUpReleaseState(
@@ -2325,6 +2348,18 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
         return
     }
     viewModelScope.launch {
+        // Optimistic UI: remove the item from the CW list immediately
+        // so the user sees instant feedback while the DataStore write propagates.
+        _uiState.update { state ->
+            state.copy(
+                continueWatchingItems = state.continueWatchingItems.filterNot { item ->
+                    when (item) {
+                        is ContinueWatchingItem.InProgress -> item.progress.contentId == contentId
+                        is ContinueWatchingItem.NextUp -> item.info.contentId == contentId
+                    }
+                }
+            )
+        }
         val targetSeason = if (isNextUp) season else null
         val targetEpisode = if (isNextUp) episode else null
         watchProgressRepository.removeProgress(

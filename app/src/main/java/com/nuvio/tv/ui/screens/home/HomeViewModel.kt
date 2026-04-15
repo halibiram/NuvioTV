@@ -228,6 +228,9 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedInProgressOverlay.clear()
                     _uiState.update { it.copy(continueWatchingItems = emptyList()) }
                     loadContinueWatching()
+                    // Clear watched badges so they don't leak between profiles.
+                    watchedSeriesStateHolder.update(emptySet())
+                    _uiState.update { it.copy(movieWatchedStatus = emptyMap()) }
                 }
             }
         }
