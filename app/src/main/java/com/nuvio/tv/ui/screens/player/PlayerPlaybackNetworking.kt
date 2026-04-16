@@ -50,9 +50,12 @@ internal object PlayerPlaybackNetworking {
 
     @OptIn(UnstableApi::class)
     fun createHttpDataSourceFactory(defaultHeaders: Map<String, String> = emptyMap()): DataSource.Factory {
-        return OkHttpDataSource.Factory(playbackHttpClient).apply {
+        return androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {
             setDefaultRequestProperties(defaultHeaders)
             setUserAgent(PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
+            setConnectTimeoutMs(15000)
+            setReadTimeoutMs(15000)
+            setAllowCrossProtocolRedirects(true)
         }
     }
 

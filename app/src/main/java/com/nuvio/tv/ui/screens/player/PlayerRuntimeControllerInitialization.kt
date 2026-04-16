@@ -286,6 +286,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .build()
                 setAudioAttributes(audioAttributes, true)
+                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                 playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
                     _uiState.value.playbackSpeed,
                     selectedAudioRequiresPcmForSpeed(this)
