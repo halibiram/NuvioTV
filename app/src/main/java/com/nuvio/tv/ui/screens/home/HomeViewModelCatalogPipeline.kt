@@ -86,14 +86,30 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
         tmdbSettingsDataStore.settings
             .distinctUntilChanged()
             .collectLatest { settings ->
-                val languageChanged = currentTmdbSettings.language != settings.language
+                val previousSettings = currentTmdbSettings
+                val languageChanged = previousSettings.language != settings.language
+                val rowArtworkBehaviorChanged =
+                    previousSettings.enabled != settings.enabled ||
+                        previousSettings.modernHomeEnabled != settings.modernHomeEnabled ||
+                        previousSettings.useArtwork != settings.useArtwork ||
+                        previousSettings.useBasicInfo != settings.useBasicInfo ||
+                        previousSettings.useDetails != settings.useDetails ||
+                        previousSettings.useReleaseDates != settings.useReleaseDates ||
+                        languageChanged
                 currentTmdbSettings = settings
-                if (languageChanged) {
-                    // Allow re-enrichment with the new language on next focus.
+                if (rowArtworkBehaviorChanged) {
+                    // Existing catalog rows are mutated in-place by enrichment, so changing
+                    // TMDB behavior must clear enrichment markers and rebuild from source data.
                     prefetchedTmdbIds.clear()
                     prefetchedExternalMetaIds.clear()
+                    if (addonsCache.isNotEmpty() && hasAnyCatalogRows()) {
+                        loadAllCatalogsPipeline(addonsCache, forceReload = true)
+                    } else {
+                        scheduleUpdateCatalogRows()
+                    }
+                } else {
+                    scheduleUpdateCatalogRows()
                 }
-                scheduleUpdateCatalogRows()
             }
     }
 }

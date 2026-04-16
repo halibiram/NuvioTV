@@ -51,13 +51,11 @@ data class HeroPreview(
     val poster: String?,
     val backdrop: String?,
     val imageUrl: String?,
-    /** Snapshot of the primary card art (poster/backdrop) captured before refresh churn. */
+    /** Last known non-blank primary card art (poster/backdrop) for rebuild fallback. */
     val frozenImageUrl: String? = null,
-    /** Snapshot of the backdrop URL captured before TMDB enrichment.
-     *  Survives cache rebuilds so landscape cards keep their original art
-     *  even after navigation away and back. */
+    /** Last known non-blank backdrop URL for rebuild fallback. */
     val frozenBackdropUrl: String? = null,
-    /** Same idea for the logo URL. */
+    /** Last known non-blank logo URL for rebuild fallback. */
     val frozenLogoUrl: String? = null
 )
 
@@ -468,9 +466,9 @@ internal fun buildCatalogItem(
     showFullReleaseDate: Boolean = true,
     previousCachedItem: ModernCarouselItem? = null
 ): ModernCarouselItem {
-    // Carry forward the frozen URLs from the previous cache entry so that
-    // TMDB enrichment never changes the image shown on landscape cards,
-    // even after the composable remember-state is lost (e.g. navigation).
+    // Carry forward the last non-blank URLs from the previous cache entry so cards can
+    // survive temporary nulls during enrichment churn, while still allowing newer
+    // enriched artwork to replace older URLs automatically.
     val carriedImage = previousCachedItem?.heroPreview?.frozenImageUrl
         ?.takeIf { it.isNotBlank() }
         ?: previousCachedItem?.imageUrl?.takeIf { it.isNotBlank() }
@@ -487,17 +485,15 @@ internal fun buildCatalogItem(
         firstNonBlank(currentPoster, currentBackdrop)
     }
 
-    // First non-blank value wins and is never replaced.
-    val frozenImage = carriedImage ?: currentImage
-    val frozenPoster = carriedPoster ?: firstNonBlank(currentPoster, frozenImage, currentBackdrop)
-    val frozenBackdrop = carriedBackdrop?.takeIf { it.isNotBlank() }
-        ?: currentBackdrop
-    val frozenLogo = carriedLogo?.takeIf { it.isNotBlank() }
-        ?: currentLogo
+    val resolvedImage = currentImage ?: carriedImage
+    val resolvedPoster =
+        firstNonBlank(currentPoster, resolvedImage, currentBackdrop, carriedPoster, carriedBackdrop)
+    val resolvedBackdrop = firstNonBlank(currentBackdrop, carriedBackdrop)
+    val resolvedLogo = firstNonBlank(currentLogo, carriedLogo)
 
     val heroPreview = HeroPreview(
         title = item.name,
-        logo = frozenLogo,
+        logo = resolvedLogo,
         description = item.description,
         contentTypeText = when (item.apiType.lowercase()) {
             "movie" -> strTypeMovie.ifBlank { item.apiType.replaceFirstChar { ch -> ch.uppercase() } }
@@ -513,19 +509,19 @@ internal fun buildCatalogItem(
         countryText = item.country,
         languageText = item.language?.uppercase(),
         genres = item.genres.take(3),
-        poster = frozenPoster,
-        backdrop = frozenBackdrop ?: currentBackdrop,
-        imageUrl = frozenImage,
-        frozenImageUrl = frozenImage,
-        frozenBackdropUrl = frozenBackdrop,
-        frozenLogoUrl = frozenLogo
+        poster = resolvedPoster,
+        backdrop = resolvedBackdrop,
+        imageUrl = resolvedImage,
+        frozenImageUrl = resolvedImage,
+        frozenBackdropUrl = resolvedBackdrop,
+        frozenLogoUrl = resolvedLogo
     )
 
     return ModernCarouselItem(
         key = stableItemKey ?: "catalog_${row.key()}_${item.id}_${occurrence}",
         title = item.name,
         subtitle = item.releaseInfo,
-        imageUrl = frozenImage,
+        imageUrl = resolvedImage,
         heroPreview = heroPreview,
         payload = ModernPayload.Catalog(
             focusKey = "${row.key()}::${item.id}",

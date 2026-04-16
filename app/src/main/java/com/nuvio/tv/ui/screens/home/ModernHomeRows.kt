@@ -805,32 +805,25 @@ private fun ModernCarouselCard(
         rememberUpdatedState(cardWidth)
     }
     val animatedCardWidth by animatedCardWidthState
-    // Freeze the logo URL for row cards - enrichment updates must not cause flickering.
-    // The first non-blank value wins and is never replaced.
-    // Primary source of truth is the data-layer frozen value (survives navigation);
-    // the remember-state acts as a secondary guard within the same composition.
-    val dataFrozenLogo = item.heroPreview.frozenLogoUrl
-    val frozenLogoUrl = remember(item.key) { mutableStateOf(dataFrozenLogo ?: item.heroPreview.logo) }
-    if (frozenLogoUrl.value.isNullOrBlank() && !item.heroPreview.logo.isNullOrBlank()) {
-        frozenLogoUrl.value = item.heroPreview.logo
+    val latestLogoUrl = item.heroPreview.frozenLogoUrl ?: item.heroPreview.logo
+    val rememberedLogoUrl = remember(item.key) { mutableStateOf(latestLogoUrl) }
+    if (!latestLogoUrl.isNullOrBlank() && latestLogoUrl != rememberedLogoUrl.value) {
+        rememberedLogoUrl.value = latestLogoUrl
     }
-    val effectiveLogoUrl = frozenLogoUrl.value
-    val dataFrozenPrimaryImage = item.heroPreview.frozenImageUrl
-    val frozenPrimaryImageUrl = remember(item.key) {
-        mutableStateOf(dataFrozenPrimaryImage ?: item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop)
+    val effectiveLogoUrl = latestLogoUrl ?: rememberedLogoUrl.value
+    val latestPrimaryImageUrl =
+        item.heroPreview.frozenImageUrl ?: item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+    val rememberedPrimaryImageUrl = remember(item.key) { mutableStateOf(latestPrimaryImageUrl) }
+    if (!latestPrimaryImageUrl.isNullOrBlank() && latestPrimaryImageUrl != rememberedPrimaryImageUrl.value) {
+        rememberedPrimaryImageUrl.value = latestPrimaryImageUrl
     }
-    val latestPrimaryImageUrl = item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
-    if (frozenPrimaryImageUrl.value.isNullOrBlank() && !latestPrimaryImageUrl.isNullOrBlank()) {
-        frozenPrimaryImageUrl.value = latestPrimaryImageUrl
+    val effectivePrimaryImageUrl = latestPrimaryImageUrl ?: rememberedPrimaryImageUrl.value
+    val latestBackdropUrl = item.heroPreview.frozenBackdropUrl ?: item.heroPreview.backdrop
+    val rememberedBackdropUrl = remember(item.key) { mutableStateOf(latestBackdropUrl) }
+    if (!latestBackdropUrl.isNullOrBlank() && latestBackdropUrl != rememberedBackdropUrl.value) {
+        rememberedBackdropUrl.value = latestBackdropUrl
     }
-    val effectivePrimaryImageUrl = frozenPrimaryImageUrl.value
-    // Freeze the backdrop URL for landscape cards - prevents image reload when enrichment updates backdrop.
-    val dataFrozenBackdrop = item.heroPreview.frozenBackdropUrl
-    val frozenBackdropUrl = remember(item.key) { mutableStateOf(dataFrozenBackdrop ?: item.heroPreview.backdrop) }
-    if (frozenBackdropUrl.value.isNullOrBlank() && !item.heroPreview.backdrop.isNullOrBlank()) {
-        frozenBackdropUrl.value = item.heroPreview.backdrop
-    }
-    val effectiveBackdropUrl = frozenBackdropUrl.value
+    val effectiveBackdropUrl = latestBackdropUrl ?: rememberedBackdropUrl.value
     var isFocused by remember { mutableStateOf(false) }
     val payload = item.payload as? ModernPayload.CollectionFolder
     val baseImageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
