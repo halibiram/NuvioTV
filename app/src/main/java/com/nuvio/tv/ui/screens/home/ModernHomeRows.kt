@@ -309,6 +309,7 @@ internal fun ModernRowSection(
     row: HeroCarouselRow,
     isActiveRow: Boolean,
     isVerticalRowsScrolling: Boolean,
+    memoryOnlyVerticalScroll: Boolean,
     rowTitleBottom: Dp,
     defaultBringIntoViewSpec: BringIntoViewSpec,
     focusStateCatalogRowScrollIndex: Int,
@@ -713,7 +714,8 @@ internal fun ModernRowSection(
                                 item = item,
                                 payload = payload,
                                 requester = requester,
-                                isInVerticalScrollLoadWindow = index in verticalScrollLoadWindow,
+                                isInVerticalScrollLoadWindow =
+                                    !memoryOnlyVerticalScroll && index in verticalScrollLoadWindow,
                                 useLandscapePosters = useLandscapePosters,
                                 showLabels = showLabels,
                                 posterCardCornerRadius = posterCardCornerRadius,

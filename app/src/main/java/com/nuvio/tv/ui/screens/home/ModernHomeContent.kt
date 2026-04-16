@@ -975,7 +975,7 @@ fun ModernHomeContent(
 
         CompositionLocalProvider(
             LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
-            LocalVerticalRowsScrolling provides (uiState.memoryOnlyVerticalScroll && isVerticalRowsScrolling)
+            LocalVerticalRowsScrolling provides isVerticalRowsScrolling
         ) {
             LazyColumn(
                 state = verticalRowListState,
@@ -1060,6 +1060,7 @@ fun ModernHomeContent(
                                 row = row,
                                 isActiveRow = row.key == activeRowKey,
                                 isVerticalRowsScrolling = isVerticalRowsScrolling,
+                                memoryOnlyVerticalScroll = uiState.memoryOnlyVerticalScroll,
                                 rowTitleBottom = rowTitleBottom,
                                 defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                                 focusStateCatalogRowScrollIndex = remember(focusState.catalogRowScrollStates, row.key) {
