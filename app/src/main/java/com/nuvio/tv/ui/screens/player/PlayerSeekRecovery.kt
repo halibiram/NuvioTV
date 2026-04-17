@@ -19,10 +19,11 @@ private const val SEEK_RECOVERY_MIN_BUFFER_AHEAD_MS = 1_500L
 private const val SEEK_RECOVERY_MAX_RESEEKS = 1
 private const val SEEK_RECOVERY_MAX_SOFT_RESETS = 1
 private const val PLAYBACK_FREEZE_ARM_DELAY_MS = 500L
-private const val PLAYBACK_FREEZE_STALL_TIMEOUT_MS = 2_500L
+private const val PLAYBACK_FREEZE_STALL_TIMEOUT_MS = 900L
 private const val PLAYBACK_FREEZE_PROGRESS_TOLERANCE_MS = 150L
 private const val PLAYBACK_FREEZE_MIN_BUFFER_AHEAD_MS = 500L
-private const val PLAYBACK_FREEZE_MAX_SOFT_RESETS = 1
+private const val PLAYBACK_FREEZE_MAX_SOFT_RESETS = 0
+private const val PLAYBACK_FREEZE_PLAYING_GRACE_MS = 1_000L
 
 internal fun PlayerRuntimeController.buildExoLoadControl(): LoadControl {
     return DefaultLoadControl.Builder()
@@ -83,6 +84,7 @@ internal fun PlayerRuntimeController.monitorExoPlaybackFreeze(
             !state.showLoadingOverlay &&
             !userPausedManually &&
             !state.playbackEnded &&
+            state.isPlaying &&
             player.playWhenReady &&
             player.playbackState == Player.STATE_READY
 
@@ -92,6 +94,13 @@ internal fun PlayerRuntimeController.monitorExoPlaybackFreeze(
     }
 
     val now = SystemClock.elapsedRealtime()
+    if (playbackFreezeLastPlayingRealtimeMs == 0L) {
+        playbackFreezeLastPlayingRealtimeMs = now
+    }
+    if (now - playbackFreezeLastPlayingRealtimeMs > PLAYBACK_FREEZE_PLAYING_GRACE_MS) {
+        clearPlaybackFreezeMonitor()
+        return
+    }
     val bufferedAheadMs = (bufferedPositionMs - currentPositionMs).coerceAtLeast(0L)
     if (playbackFreezeArmedAtRealtimeMs == 0L) {
         playbackFreezeArmedAtRealtimeMs = now
@@ -138,9 +147,14 @@ internal fun PlayerRuntimeController.monitorExoPlaybackFreeze(
     }
 
     playbackFreezeRecoveryCount++
+    if (tryAudioTrackPcmFallbackForFreeze(currentPositionMs, bufferedPositionMs, stalledForMs)) {
+        playbackFreezeLastProgressRealtimeMs = now
+        playbackFreezeLastObservedPositionMs = currentPositionMs
+        return
+    }
     Log.w(
         PlayerRuntimeController.TAG,
-        "Playback freeze monitor triggering soft reset ${playbackFreezeRecoveryCount}/$PLAYBACK_FREEZE_MAX_SOFT_RESETS: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms ahead=${bufferedAheadMs}ms stalled=${stalledForMs}ms"
+        "Playback freeze monitor triggering soft reset: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms ahead=${bufferedAheadMs}ms stalled=${stalledForMs}ms"
     )
     triggerPlaybackFreezeSoftReset(currentPositionMs)
 }
@@ -150,6 +164,7 @@ internal fun PlayerRuntimeController.clearPlaybackFreezeMonitor() {
     playbackFreezeLastProgressRealtimeMs = 0L
     playbackFreezeLastObservedPositionMs = 0L
     playbackFreezeRecoveryCount = 0
+    playbackFreezeLastPlayingRealtimeMs = 0L
 }
 
 internal fun PlayerRuntimeController.onExoPlaybackStateForSeekRecovery(playbackState: Int) {
@@ -326,4 +341,49 @@ private fun PlayerRuntimeController.triggerPlaybackFreezeSoftReset(targetPositio
     playbackFreezeLastProgressRealtimeMs = now
     playbackFreezeLastObservedPositionMs = targetPositionMs
     softRecoverPlaybackAfterStuckSeek(targetPositionMs)
+}
+
+private fun PlayerRuntimeController.tryAudioTrackPcmFallbackForFreeze(
+    currentPositionMs: Long,
+    bufferedPositionMs: Long,
+    stalledForMs: Long
+): Boolean {
+    if (hasTriedAudioPcmFallback) return false
+    if (cachedDecoderPriority != 1) return false
+    if (_uiState.value.tunnelingEnabled) return false
+
+    val player = _exoPlayer ?: return false
+    hasTriedAudioPcmFallback = true
+    val currentSpeed = _uiState.value.playbackSpeed
+    val pcmSpeed = if (currentSpeed == 1f) 1.00001f else currentSpeed
+    val now = SystemClock.elapsedRealtime()
+
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "Playback freeze monitor forcing PCM fallback: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms stalled=${stalledForMs}ms speed=${pcmSpeed}"
+    )
+
+    seekRecoveryTargetPositionMs = currentPositionMs
+    seekRecoveryExpectedPlayWhenReady = true
+    seekRecoveryArmedAtRealtimeMs = now
+    seekRecoveryLastProgressRealtimeMs = now
+    seekRecoveryLastObservedPositionMs = currentPositionMs
+    seekRecoveryLastObservedBufferedPositionMs = bufferedPositionMs
+    playbackFreezeArmedAtRealtimeMs = now
+    playbackFreezeLastProgressRealtimeMs = now
+    playbackFreezeLastObservedPositionMs = currentPositionMs
+
+    return runCatching {
+        player.playbackParameters = androidx.media3.common.PlaybackParameters(pcmSpeed)
+        player.pause()
+        player.seekTo(currentPositionMs)
+        player.prepare()
+        player.playWhenReady = true
+        player.play()
+        true
+    }.getOrElse { error ->
+        Log.w(PlayerRuntimeController.TAG, "PCM fallback for playback freeze failed", error)
+        hasTriedAudioPcmFallback = false
+        false
+    }
 }

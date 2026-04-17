@@ -388,6 +388,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _uiState.update { it.copy(isPlaying = isPlaying) }
                         if (isPlaying) {
+                            playbackFreezeLastPlayingRealtimeMs = android.os.SystemClock.elapsedRealtime()
                             userPausedManually = false
                             cancelPauseOverlay()
                             startProgressUpdates()
@@ -396,6 +397,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                             tryShowParentalGuide()
                             emitScrobbleStart()
                         } else {
+                            clearPlaybackFreezeMonitor()
                             if (userPausedManually) {
                                 schedulePauseOverlay()
                             } else {

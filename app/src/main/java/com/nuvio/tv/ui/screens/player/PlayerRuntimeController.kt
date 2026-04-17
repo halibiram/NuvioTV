@@ -333,6 +333,7 @@ class PlayerRuntimeController(
     internal var playbackFreezeLastProgressRealtimeMs: Long = 0L
     internal var playbackFreezeLastObservedPositionMs: Long = 0L
     internal var playbackFreezeRecoveryCount: Int = 0
+    internal var playbackFreezeLastPlayingRealtimeMs: Long = 0L
     internal var currentScrobbleItem: TraktScrobbleItem? = null
     internal var currentTraktEpisodeMapping: EpisodeMappingEntry? = null
     internal var currentTraktEpisodeMappingKey: String? = null
