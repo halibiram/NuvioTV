@@ -397,7 +397,7 @@ internal fun PlayerRuntimeController.seekPlaybackTo(positionMs: Long) {
             view.setSubtitleDelayMs(_uiState.value.subtitleDelayMs)
         }
     } else {
-        _exoPlayer?.seekTo(positionMs)
+        performExoSeekTo(positionMs = positionMs, monitorRecovery = true, reason = "playback-seek")
     }
 }
 

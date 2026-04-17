@@ -319,6 +319,16 @@ class PlayerRuntimeController(
     internal var startupRetryCount: Int = 0
     internal var errorRetryCount: Int = 0
     internal var errorRetryJob: Job? = null
+    internal var seekRecoveryJob: Job? = null
+    internal var seekRecoveryTargetPositionMs: Long? = null
+    internal var seekRecoveryArmedAtRealtimeMs: Long = 0L
+    internal var seekRecoveryLastProgressRealtimeMs: Long = 0L
+    internal var seekRecoveryLastObservedPositionMs: Long = 0L
+    internal var seekRecoveryLastObservedBufferedPositionMs: Long = 0L
+    internal var seekRecoveryReseekCount: Int = 0
+    internal var seekRecoveryRestartCount: Int = 0
+    internal var seekRecoveryExpectedPlayWhenReady: Boolean = true
+    internal var seekRecoveryGeneration: Long = 0L
     internal var currentScrobbleItem: TraktScrobbleItem? = null
     internal var currentTraktEpisodeMapping: EpisodeMappingEntry? = null
     internal var currentTraktEpisodeMappingKey: String? = null

@@ -104,14 +104,26 @@ internal fun PlayerRuntimeController.selectAudioTrack(trackIndex: Int) {
                 for (i in 0 until trackGroup.length) {
                     if (currentAudioIndex == trackIndex) {
                         val override = TrackSelectionOverride(trackGroup.mediaTrackGroup, i)
+                        val restorePositionMs = player.currentPosition.coerceAtLeast(0L)
+                        val shouldResumePlayback = player.playWhenReady || player.isPlaying
+                        clearSeekRecovery()
+                        runCatching { player.pause() }
                         player.trackSelectionParameters = player.trackSelectionParameters
                             .buildUpon()
                             .setOverrideForType(override)
                             .build()
-                        // Nudge the player to avoid infinite buffering after audio track switch
-                        // where the new track requires a different segment.
-                        val pos = player.currentPosition
-                        if (pos > 0) player.seekTo((pos - 1).coerceAtLeast(0))
+                        player.prepare()
+                        player.playWhenReady = shouldResumePlayback
+                        if (restorePositionMs > 0L) {
+                            performExoSeekTo(
+                                positionMs = restorePositionMs,
+                                monitorRecovery = shouldResumePlayback,
+                                reason = "audio-track-switch-prepare"
+                            )
+                        }
+                        if (shouldResumePlayback) {
+                            runCatching { player.play() }
+                        }
                         return
                     }
                     currentAudioIndex++

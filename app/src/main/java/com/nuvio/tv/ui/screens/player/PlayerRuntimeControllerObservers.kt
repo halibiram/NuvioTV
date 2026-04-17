@@ -407,7 +407,15 @@ internal fun PlayerRuntimeController.tryApplyPendingResumeProgress(player: Playe
     }
 
     if (target > 0L) {
-        player.seekTo(target)
+        if (player === _exoPlayer) {
+            performExoSeekTo(
+                positionMs = target,
+                monitorRecovery = true,
+                reason = "resume-progress"
+            )
+        } else {
+            player.seekTo(target)
+        }
         _uiState.update { it.copy(pendingSeekPosition = null) }
         pendingResumeProgress = null
     }
@@ -435,7 +443,7 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
                     mimeTypeOverride = currentStreamMimeType
                 )
             )
-            player.seekTo(0L)
+            performExoSeekTo(positionMs = 0L, monitorRecovery = true, reason = "http-416-retry")
             player.playWhenReady = true
             player.prepare()
         }.onFailure { e ->

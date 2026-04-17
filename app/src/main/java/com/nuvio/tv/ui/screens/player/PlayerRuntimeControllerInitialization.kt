@@ -16,7 +16,6 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
@@ -174,17 +173,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 requestedLibassRenderType == AssRenderType.OVERLAY_CANVAS -> AssRenderType.EFFECTS_CANVAS
                 else -> requestedLibassRenderType
             }
-            val loadControl = run {
-                DefaultLoadControl.Builder()
-                    .setTargetBufferBytes(100 * 1024 * 1024)
-                    .setBufferDurationsMs(
-                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                        70_000,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                        5_000
-                    )
-                    .build()
-            }
+            val loadControl = buildExoLoadControl()
 
             
             trackSelector = DefaultTrackSelector(context).apply {
@@ -338,6 +327,7 @@ internal fun PlayerRuntimeController.initializePlayer(
 
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        onExoPlaybackStateForSeekRecovery(playbackState)
                         val playerDuration = duration
                         if (playerDuration > lastKnownDuration) {
                             lastKnownDuration = playerDuration
@@ -374,7 +364,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                             }
                             tryApplyPendingResumeProgress(this@apply)
                             _uiState.value.pendingSeekPosition?.let { position ->
-                                seekTo(position)
+                                performExoSeekTo(
+                                    positionMs = position,
+                                    monitorRecovery = true,
+                                    reason = "pending-seek"
+                                )
                                 _uiState.update { it.copy(pendingSeekPosition = null) }
                             }
                             // Re-evaluate subtitle auto-selection once player is ready.
@@ -423,6 +417,7 @@ internal fun PlayerRuntimeController.initializePlayer(
 
                     override fun onRenderedFirstFrame() {
                         hasRenderedFirstFrame = true
+                        clearSeekRecovery()
                         resetErrorRetryState()
                         // Restore speed after PCM fallback — audio sink is already
                         // configured in PCM mode and won't revert to passthrough.
@@ -443,6 +438,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        clearSeekRecovery()
                         if (isReleasingPlayer && error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT) {
                             return
                         }

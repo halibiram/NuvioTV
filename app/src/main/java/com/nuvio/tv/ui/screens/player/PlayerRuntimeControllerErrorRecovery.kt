@@ -89,7 +89,8 @@ internal fun isRetryablePlaybackError(error: PlaybackException): Boolean {
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> true
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_TIMEOUT -> true
 
         // --- Behind-the-scenes / unexpected errors (often IllegalStateException / NPE) ---
         PlaybackException.ERROR_CODE_UNSPECIFIED -> {
@@ -234,7 +235,11 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
             val player = _exoPlayer
             if (player != null) {
                 if (savedPosition > 0L) {
-                    player.seekTo((savedPosition - 1).coerceAtLeast(0L))
+                    performExoSeekTo(
+                        positionMs = (savedPosition - 1).coerceAtLeast(0L),
+                        monitorRecovery = true,
+                        reason = "error-retry"
+                    )
                 }
                 player.prepare()
                 player.playWhenReady = true
@@ -310,7 +315,11 @@ internal fun PlayerRuntimeController.tryAudioTrackPcmFallback(
     player.playbackParameters = PlaybackParameters(pcmSpeed)
 
     if (savedPosition > 0L) {
-        player.seekTo(savedPosition)
+        performExoSeekTo(
+            positionMs = savedPosition,
+            monitorRecovery = true,
+            reason = "pcm-fallback"
+        )
     }
     player.prepare()
     player.playWhenReady = true

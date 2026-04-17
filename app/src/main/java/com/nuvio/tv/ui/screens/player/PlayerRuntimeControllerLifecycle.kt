@@ -41,6 +41,7 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     nextEpisodeAutoPlayJob = null
     errorRetryJob?.cancel()
     errorRetryJob = null
+    clearSeekRecovery()
     releaseMpvPlayer()
     _exoPlayer?.let { player ->
         runCatching { player.playWhenReady = false }
