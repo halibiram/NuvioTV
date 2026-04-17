@@ -94,6 +94,7 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
 
             _exoPlayer?.let { player ->
                 val pos = player.currentPosition.coerceAtLeast(0L)
+                val bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L)
                 val playerDuration = player.duration
                 if (playerDuration > lastKnownDuration) {
                     lastKnownDuration = playerDuration
@@ -128,6 +129,11 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 evaluateNextEpisodeCardVisibility(
                     positionMs = pos,
                     durationMs = playerDuration.coerceAtLeast(0L)
+                )
+                monitorExoPlaybackFreeze(
+                    player = player,
+                    currentPositionMs = pos,
+                    bufferedPositionMs = bufferedPositionMs
                 )
 
                 if (player.isPlaying) {

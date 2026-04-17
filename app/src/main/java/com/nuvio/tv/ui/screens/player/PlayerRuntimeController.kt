@@ -329,6 +329,10 @@ class PlayerRuntimeController(
     internal var seekRecoveryRestartCount: Int = 0
     internal var seekRecoveryExpectedPlayWhenReady: Boolean = true
     internal var seekRecoveryGeneration: Long = 0L
+    internal var playbackFreezeArmedAtRealtimeMs: Long = 0L
+    internal var playbackFreezeLastProgressRealtimeMs: Long = 0L
+    internal var playbackFreezeLastObservedPositionMs: Long = 0L
+    internal var playbackFreezeRecoveryCount: Int = 0
     internal var currentScrobbleItem: TraktScrobbleItem? = null
     internal var currentTraktEpisodeMapping: EpisodeMappingEntry? = null
     internal var currentTraktEpisodeMappingKey: String? = null

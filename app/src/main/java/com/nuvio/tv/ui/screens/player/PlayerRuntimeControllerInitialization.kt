@@ -418,6 +418,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     override fun onRenderedFirstFrame() {
                         hasRenderedFirstFrame = true
                         clearSeekRecovery()
+                        clearPlaybackFreezeMonitor()
                         resetErrorRetryState()
                         // Restore speed after PCM fallback — audio sink is already
                         // configured in PCM mode and won't revert to passthrough.
@@ -439,6 +440,7 @@ internal fun PlayerRuntimeController.initializePlayer(
 
                     override fun onPlayerError(error: PlaybackException) {
                         clearSeekRecovery()
+                        clearPlaybackFreezeMonitor()
                         if (isReleasingPlayer && error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT) {
                             return
                         }
@@ -748,7 +750,6 @@ private class SubtitleOffsetRenderersFactory(
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
         val baseAudioOutputProvider = AudioTrackAudioOutputProvider.Builder(context)
-            .setAudioTrackBufferSizeProvider(FormatAwareAudioTrackBufferProvider())
             .setMaxPlaybackSpeed(PLAYBACK_SPEEDS.maxOrNull() ?: 2f)
             .build()
         val audioOutputProvider = PlaybackSpeedAwareAudioOutputProvider(baseAudioOutputProvider)

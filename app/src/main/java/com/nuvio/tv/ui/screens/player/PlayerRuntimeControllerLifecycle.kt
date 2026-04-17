@@ -42,6 +42,7 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     errorRetryJob?.cancel()
     errorRetryJob = null
     clearSeekRecovery()
+    clearPlaybackFreezeMonitor()
     releaseMpvPlayer()
     _exoPlayer?.let { player ->
         runCatching { player.playWhenReady = false }

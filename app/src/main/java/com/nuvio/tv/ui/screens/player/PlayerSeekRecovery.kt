@@ -18,6 +18,11 @@ private const val SEEK_RECOVERY_PROGRESS_TOLERANCE_MS = 300L
 private const val SEEK_RECOVERY_MIN_BUFFER_AHEAD_MS = 1_500L
 private const val SEEK_RECOVERY_MAX_RESEEKS = 1
 private const val SEEK_RECOVERY_MAX_SOFT_RESETS = 1
+private const val PLAYBACK_FREEZE_ARM_DELAY_MS = 500L
+private const val PLAYBACK_FREEZE_STALL_TIMEOUT_MS = 2_500L
+private const val PLAYBACK_FREEZE_PROGRESS_TOLERANCE_MS = 150L
+private const val PLAYBACK_FREEZE_MIN_BUFFER_AHEAD_MS = 500L
+private const val PLAYBACK_FREEZE_MAX_SOFT_RESETS = 1
 
 internal fun PlayerRuntimeController.buildExoLoadControl(): LoadControl {
     return DefaultLoadControl.Builder()
@@ -67,9 +72,92 @@ internal fun PlayerRuntimeController.clearSeekRecovery() {
     seekRecoveryGeneration++
 }
 
+internal fun PlayerRuntimeController.monitorExoPlaybackFreeze(
+    player: Player,
+    currentPositionMs: Long,
+    bufferedPositionMs: Long
+) {
+    val state = _uiState.value
+    val playbackEligible =
+        hasRenderedFirstFrame &&
+            !state.showLoadingOverlay &&
+            !userPausedManually &&
+            !state.playbackEnded &&
+            player.playWhenReady &&
+            player.playbackState == Player.STATE_READY
+
+    if (!playbackEligible) {
+        clearPlaybackFreezeMonitor()
+        return
+    }
+
+    val now = SystemClock.elapsedRealtime()
+    val bufferedAheadMs = (bufferedPositionMs - currentPositionMs).coerceAtLeast(0L)
+    if (playbackFreezeArmedAtRealtimeMs == 0L) {
+        playbackFreezeArmedAtRealtimeMs = now
+        playbackFreezeLastProgressRealtimeMs = now
+        playbackFreezeLastObservedPositionMs = currentPositionMs
+        playbackFreezeRecoveryCount = 0
+        Log.d(
+            PlayerRuntimeController.TAG,
+            "Playback freeze monitor armed: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms ahead=${bufferedAheadMs}ms overlay=${state.showLoadingOverlay}"
+        )
+        return
+    }
+
+    if (currentPositionMs > playbackFreezeLastObservedPositionMs + PLAYBACK_FREEZE_PROGRESS_TOLERANCE_MS) {
+        if (playbackFreezeRecoveryCount > 0) {
+            Log.d(
+                PlayerRuntimeController.TAG,
+                "Playback freeze monitor recovered: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms ahead=${bufferedAheadMs}ms"
+            )
+        }
+        playbackFreezeLastProgressRealtimeMs = now
+        playbackFreezeLastObservedPositionMs = currentPositionMs
+        playbackFreezeRecoveryCount = 0
+        return
+    }
+
+    val armedForMs = now - playbackFreezeArmedAtRealtimeMs
+    val stalledForMs = now - playbackFreezeLastProgressRealtimeMs
+    if (
+        armedForMs < PLAYBACK_FREEZE_ARM_DELAY_MS ||
+            stalledForMs < PLAYBACK_FREEZE_STALL_TIMEOUT_MS ||
+            bufferedAheadMs < PLAYBACK_FREEZE_MIN_BUFFER_AHEAD_MS
+    ) {
+        return
+    }
+
+    if (playbackFreezeRecoveryCount >= PLAYBACK_FREEZE_MAX_SOFT_RESETS) {
+        playbackFreezeLastProgressRealtimeMs = now
+        Log.w(
+            PlayerRuntimeController.TAG,
+            "Playback freeze monitor detected persistent freeze: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms ahead=${bufferedAheadMs}ms stalled=${stalledForMs}ms"
+        )
+        return
+    }
+
+    playbackFreezeRecoveryCount++
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "Playback freeze monitor triggering soft reset ${playbackFreezeRecoveryCount}/$PLAYBACK_FREEZE_MAX_SOFT_RESETS: pos=${currentPositionMs}ms buffered=${bufferedPositionMs}ms ahead=${bufferedAheadMs}ms stalled=${stalledForMs}ms"
+    )
+    triggerPlaybackFreezeSoftReset(currentPositionMs)
+}
+
+internal fun PlayerRuntimeController.clearPlaybackFreezeMonitor() {
+    playbackFreezeArmedAtRealtimeMs = 0L
+    playbackFreezeLastProgressRealtimeMs = 0L
+    playbackFreezeLastObservedPositionMs = 0L
+    playbackFreezeRecoveryCount = 0
+}
+
 internal fun PlayerRuntimeController.onExoPlaybackStateForSeekRecovery(playbackState: Int) {
     when (playbackState) {
-        Player.STATE_ENDED, Player.STATE_IDLE -> clearSeekRecovery()
+        Player.STATE_ENDED, Player.STATE_IDLE -> {
+            clearSeekRecovery()
+            clearPlaybackFreezeMonitor()
+        }
     }
 }
 
@@ -223,4 +311,19 @@ private fun PlayerRuntimeController.softRecoverPlaybackAfterStuckSeek(targetPosi
         )
         clearSeekRecovery()
     }
+}
+
+private fun PlayerRuntimeController.triggerPlaybackFreezeSoftReset(targetPositionMs: Long) {
+    val player = _exoPlayer ?: return
+    val now = SystemClock.elapsedRealtime()
+    seekRecoveryTargetPositionMs = targetPositionMs
+    seekRecoveryExpectedPlayWhenReady = player.playWhenReady || player.isPlaying
+    seekRecoveryArmedAtRealtimeMs = now
+    seekRecoveryLastProgressRealtimeMs = now
+    seekRecoveryLastObservedPositionMs = targetPositionMs
+    seekRecoveryLastObservedBufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L)
+    playbackFreezeArmedAtRealtimeMs = now
+    playbackFreezeLastProgressRealtimeMs = now
+    playbackFreezeLastObservedPositionMs = targetPositionMs
+    softRecoverPlaybackAfterStuckSeek(targetPositionMs)
 }
