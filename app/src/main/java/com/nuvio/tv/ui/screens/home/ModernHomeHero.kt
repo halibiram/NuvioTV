@@ -114,18 +114,25 @@ internal fun ModernHeroMediaLayer(
     // so Coil crossfade starts with the final URL, not an intermediate one.
     var stableBackdrop by remember { mutableStateOf(heroBackdrop) }
     if (!enrichmentActive) stableBackdrop = heroBackdrop
-    val heroBackdropTransitionFactory = remember { AlwaysCrossfadeTransitionFactory(durationMillis = 400) }
+
+    
+    val lastBackdropRef = remember { java.util.concurrent.atomic.AtomicReference<String?>(null) }
 
     val imageModel = remember(
         localContext,
         stableBackdrop,
         requestWidthPx,
-        requestHeightPx,
-        heroBackdropTransitionFactory
+        requestHeightPx
     ) {
+        val prev = lastBackdropRef.getAndSet(stableBackdrop)
+        val isBackdropChange = prev != null && prev != stableBackdrop
+
         ImageRequest.Builder(localContext)
             .data(stableBackdrop)
-            .transitionFactory(heroBackdropTransitionFactory)
+            .transitionFactory(
+                if (isBackdropChange) AlwaysCrossfadeTransitionFactory(durationMillis = 400)
+                else coil.transition.Transition.Factory.NONE
+            )
             .size(width = requestWidthPx, height = requestHeightPx)
             .build()
     }
