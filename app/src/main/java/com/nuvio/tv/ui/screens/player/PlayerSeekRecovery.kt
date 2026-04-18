@@ -26,8 +26,17 @@ private const val PLAYBACK_FREEZE_MAX_SOFT_RESETS = 0
 private const val PLAYBACK_FREEZE_PLAYING_GRACE_MS = 1_000L
 
 internal fun PlayerRuntimeController.buildExoLoadControl(): LoadControl {
+    // Ideal RAM buffer for 100GB+ Remux files (Approximately 10-12 seconds of 4K Data)
+    val targetBufferBytes = 150 * 1024 * 1024 // 150 MB
+    val segmentSize = 128 * 1024 // 128 KB
+    val allocator = androidx.media3.exoplayer.upstream.DefaultAllocator(
+        /* trimOnReset = */ true,
+        /* individualAllocationSize = */ segmentSize
+    )
+
     return DefaultLoadControl.Builder()
-        .setTargetBufferBytes(100 * 1024 * 1024)
+        .setAllocator(allocator)
+        .setTargetBufferBytes(targetBufferBytes)
         .setBufferDurationsMs(
             DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
             70_000,
@@ -56,7 +65,18 @@ internal fun PlayerRuntimeController.performExoSeekTo(
         clearSeekRecovery()
     }
 
+    // Forcefully destroy the AudioTrack before seeking to prevent hardware deadlocks on
+    // AudioTrack.flush() during stream leaps. This prevents audio sink lockups on Android TV.
+    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)
+        .build()
+
     player.seekTo(targetPositionMs)
+
+    // Enqueue the reconstruction of the AudioTrack exactly at the new seek position
+    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, false)
+        .build()
 }
 
 internal fun PlayerRuntimeController.clearSeekRecovery() {

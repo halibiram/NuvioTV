@@ -45,6 +45,14 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     clearPlaybackFreezeMonitor()
     releaseMpvPlayer()
     _exoPlayer?.let { player ->
+        // Forcefully tear down the audio track before releasing the player to prevent
+        // Audio Sink from deadlocking the hardware on Android TV devices,
+        // which would otherwise leak into subsequent stream playbacks causing infinite buffering.
+        runCatching {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)
+                .build()
+        }
         runCatching { player.playWhenReady = false }
         runCatching { player.pause() }
         runCatching { player.clearVideoSurface() }
