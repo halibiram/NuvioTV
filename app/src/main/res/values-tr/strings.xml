@@ -407,6 +407,8 @@
     <string name="audio_decoder_prefer_device_desc">Mümkün olduğunda donanım kod çözücülerini kullan, değilse FFmpeg\'e dön. Çoğu cihaz için önerilir.</string>
     <string name="audio_decoder_prefer_app_desc">Mümkün olduğunda FFmpeg kod çözücülerini kullan. Daha iyi format desteği ancak daha yüksek CPU kullanımı.</string>
     <string name="audio_decoder_controls">Ses ve video için donanım mı yoksa yazılım (FFmpeg) kod çözücülerinin mi kullanılacağını kontrol eder</string>
+    <string name="audio_force_av1_software_title">AV1 Yazılımsal Kod Çözmeyi Zorla</string>
+    <string name="audio_force_av1_software_sub">AV1 formatındaki animeleri sorunsuz oynatmak için bu ayarı açın.</string>
 
     <!-- PlaybackSubtitleSettings -->
     <string name="sub_section">Altyazılar</string>

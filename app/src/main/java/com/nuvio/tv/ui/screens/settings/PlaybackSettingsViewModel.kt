@@ -89,6 +89,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setDecoderPriority(priority)
     }
 
+    suspend fun setForceSoftwareAv1Playback(enabled: Boolean) {
+        playerSettingsDataStore.setForceSoftwareAv1Playback(enabled)
+    }
+
     suspend fun setTunnelingEnabled(enabled: Boolean) {
         playerSettingsDataStore.setTunnelingEnabled(enabled)
     }

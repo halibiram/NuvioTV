@@ -78,6 +78,7 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
     onSetTunnelingEnabled: (Boolean) -> Unit,
     onSetDolbyAudioCompatibilityMode: (Boolean) -> Unit,
     onSetDisableDolbyVision: (Boolean) -> Unit,
+    onSetForceSoftwareAv1Playback: (Boolean) -> Unit,
     onItemFocused: () -> Unit = {},
     enabled: Boolean = true
 ) {
@@ -229,6 +230,18 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             subtitle = stringResource(R.string.audio_tunneled_sub),
             isChecked = playerSettings.tunnelingEnabled,
             onCheckedChange = onSetTunnelingEnabled,
+            onFocused = onItemFocused,
+            enabled = enabled
+        )
+    }
+
+    item(key = "audio_force_av1_software") {
+        ToggleSettingsItem(
+            icon = Icons.Default.Tune,
+            title = stringResource(R.string.audio_force_av1_software_title),
+            subtitle = stringResource(R.string.audio_force_av1_software_sub),
+            isChecked = playerSettings.forceSoftwareAv1Playback,
+            onCheckedChange = onSetForceSoftwareAv1Playback,
             onFocused = onItemFocused,
             enabled = enabled
         )

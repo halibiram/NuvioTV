@@ -136,6 +136,7 @@ internal fun PlaybackSettingsSections(
     onSetTunnelingEnabled: (Boolean) -> Unit,
     onSetDolbyAudioCompatibilityMode: (Boolean) -> Unit,
     onSetDisableDolbyVision: (Boolean) -> Unit,
+    onSetForceSoftwareAv1Playback: (Boolean) -> Unit,
     onSetSubtitleSize: (Int) -> Unit,
     onSetSubtitleVerticalOffset: (Int) -> Unit,
     onSetSubtitleBold: (Boolean) -> Unit,
@@ -410,6 +411,7 @@ internal fun PlaybackSettingsSections(
                 onSetTunnelingEnabled = onSetTunnelingEnabled,
                 onSetDolbyAudioCompatibilityMode = onSetDolbyAudioCompatibilityMode,
                 onSetDisableDolbyVision = onSetDisableDolbyVision,
+                onSetForceSoftwareAv1Playback = onSetForceSoftwareAv1Playback,
                 onItemFocused = { focusedSection = PlaybackSection.AUDIO_TRAILER },
                 enabled = !generalUi.isExternalPlayer
             )

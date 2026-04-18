@@ -266,6 +266,7 @@ fun PlaybackSettingsContent(
                 onSetTunnelingEnabled = { enabled -> coroutineScope.launch { viewModel.setTunnelingEnabled(enabled) } },
                 onSetDolbyAudioCompatibilityMode = { enabled -> coroutineScope.launch { viewModel.setDolbyAudioCompatibilityMode(enabled) } },
                 onSetDisableDolbyVision = { enabled -> coroutineScope.launch { viewModel.setDisableDolbyVision(enabled) } },
+                onSetForceSoftwareAv1Playback = { enabled -> coroutineScope.launch { viewModel.setForceSoftwareAv1Playback(enabled) } },
                 onSetSubtitleSize = { newSize -> coroutineScope.launch { viewModel.setSubtitleSize(newSize) } },
                 onSetSubtitleVerticalOffset = { newOffset -> coroutineScope.launch { viewModel.setSubtitleVerticalOffset(newOffset) } },
                 onSetSubtitleBold = { bold -> coroutineScope.launch { viewModel.setSubtitleBold(bold) } },

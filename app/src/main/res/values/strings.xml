@@ -432,6 +432,8 @@
     <string name="audio_decoder_prefer_device_desc">Use hardware decoders when available, fall back to FFmpeg. Recommended for most devices.</string>
     <string name="audio_decoder_prefer_app_desc">Use FFmpeg decoders when available. Better format support but higher CPU usage.</string>
     <string name="audio_decoder_controls">Controls whether hardware or software (FFmpeg) decoders are used for audio and video</string>
+    <string name="audio_force_av1_software_title">Force AV1 Software Decoding</string>
+    <string name="audio_force_av1_software_sub">play AV1 formatted animes without issue</string>
 
     <!-- PlaybackSubtitleSettings -->
     <string name="sub_section">Subtitles</string>

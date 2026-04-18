@@ -182,6 +182,7 @@ data class PlayerSettings(
     val mapDV7ToHevc: Boolean = false,
     val disableDolbyVision: Boolean = false,
     val disableDolbyVisionForDv7: Boolean = false,
+    val forceSoftwareAv1Playback: Boolean = false,
     val hdrPlaybackCompatibilityMode: HdrPlaybackCompatibilityMode = HdrPlaybackCompatibilityMode.OFF,
     val mpvHardwareDecodeMode: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE,
     // Display settings
@@ -330,6 +331,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val disableDolbyVisionForDv7Key = booleanPreferencesKey("disable_dolby_vision_for_dv7")
     private val requestSdrToneMappingKey = booleanPreferencesKey("request_sdr_tone_mapping")
     private val forceInterpretHdrAsSdrKey = booleanPreferencesKey("force_interpret_hdr_as_sdr")
+    private val forceSoftwareAv1PlaybackKey = booleanPreferencesKey("force_software_av1_playback")
     private val hdrPlaybackCompatibilityModeKey = stringPreferencesKey("hdr_playback_compatibility_mode")
     private val mpvHardwareDecodeModeKey = stringPreferencesKey("mpv_hardware_decode_mode")
     private val frameRateMatchingKey = booleanPreferencesKey("frame_rate_matching")
@@ -484,6 +486,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 mapDV7ToHevc = prefs[mapDV7ToHevcKey] ?: false,
                 disableDolbyVision = prefs[disableDolbyVisionKey] ?: false,
                 disableDolbyVisionForDv7 = prefs[disableDolbyVisionForDv7Key] ?: false,
+                forceSoftwareAv1Playback = prefs[forceSoftwareAv1PlaybackKey] ?: false,
                 hdrPlaybackCompatibilityMode = parseHdrPlaybackCompatibilityMode(
                     prefs[hdrPlaybackCompatibilityModeKey],
                     prefs[requestSdrToneMappingKey] ?: false,
@@ -696,6 +699,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setShowPlayerLoadingStatus(enabled: Boolean) {
         store().edit { prefs ->
             prefs[showPlayerLoadingStatusKey] = enabled
+        }
+    }
+
+    suspend fun setForceSoftwareAv1Playback(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[forceSoftwareAv1PlaybackKey] = enabled
         }
     }
 
