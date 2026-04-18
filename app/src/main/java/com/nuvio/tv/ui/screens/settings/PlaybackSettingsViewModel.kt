@@ -13,6 +13,7 @@ import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.data.local.AddonSubtitleStartupMode
 import com.nuvio.tv.data.local.MpvHardwareDecodeMode
+import com.nuvio.tv.data.local.DolbyVisionProfile7Mode
 import com.nuvio.tv.data.local.SubtitleOrganizationMode
 import com.nuvio.tv.data.local.TrailerSettings
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
@@ -124,6 +125,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setSkipIntroEnabled(enabled)
     }
 
+    suspend fun setDolbyAudioCompatibilityMode(enabled: Boolean) {
+        playerSettingsDataStore.setDolbyAudioCompatibilityMode(enabled)
+    }
+
     suspend fun setFrameRateMatchingMode(mode: FrameRateMatchingMode) {
         playerSettingsDataStore.setFrameRateMatchingMode(mode)
     }
@@ -134,6 +139,18 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setMapDV7ToHevc(enabled: Boolean) {
         playerSettingsDataStore.setMapDV7ToHevc(enabled)
+    }
+
+    suspend fun setDisableDolbyVision(enabled: Boolean) {
+        playerSettingsDataStore.setDisableDolbyVision(enabled)
+    }
+
+    suspend fun setDolbyVisionProfile7Mode(mode: DolbyVisionProfile7Mode) {
+        playerSettingsDataStore.setDolbyVisionProfile7Mode(mode)
+    }
+
+    suspend fun setHdrPlaybackCompatibilityMode(mode: com.nuvio.tv.data.local.HdrPlaybackCompatibilityMode) {
+        playerSettingsDataStore.setHdrPlaybackCompatibilityMode(mode)
     }
 
     suspend fun setMpvHardwareDecodeMode(mode: MpvHardwareDecodeMode) {

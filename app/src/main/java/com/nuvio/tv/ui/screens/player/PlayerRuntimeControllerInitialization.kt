@@ -2,12 +2,16 @@ package com.nuvio.tv.ui.screens.player
 
 import android.content.Context
 import android.content.res.Resources
+import android.media.MediaFormat
 import android.os.Build
+import android.os.Handler
 import android.util.Log
 import com.nuvio.tv.R
 import android.view.accessibility.CaptioningManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ColorInfo
+import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -16,16 +20,26 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.decoder.DecoderInputBuffer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.RendererCapabilities
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper
+import androidx.media3.exoplayer.video.VideoFrameReleaseControl
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
@@ -34,6 +48,7 @@ import com.nuvio.tv.data.local.AddonSubtitleStartupMode
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.SUBTITLE_LANGUAGE_FORCED
 import com.nuvio.tv.data.local.FrameRateMatchingMode
+import com.nuvio.tv.data.local.HdrPlaybackCompatibilityMode
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.domain.model.Subtitle
@@ -47,6 +62,44 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private const val STARTUP_SUBTITLE_PREFETCH_TIMEOUT_MS = 10_000L
 private const val MPV_AFR_SETTLE_DELAY_MS = 2_000L
+
+internal fun isDolbyVisionVideo(format: Format): Boolean {
+    return format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION
+}
+
+internal fun isHdrVideo(format: Format): Boolean {
+    return isDolbyVisionVideo(format) || ColorInfo.isTransferHdr(format.colorInfo)
+}
+
+internal fun isHdrCompatibilityModeEnabled(mode: HdrPlaybackCompatibilityMode): Boolean {
+    return mode != HdrPlaybackCompatibilityMode.OFF
+}
+
+internal fun shouldForceDolbyAudioCompatibility(
+    settings: PlayerSettings,
+    currentVideoIsDolbyVision: Boolean
+): Boolean {
+    return settings.dolbyAudioCompatibilityMode ||
+        (isHdrCompatibilityModeEnabled(settings.hdrPlaybackCompatibilityMode) && currentVideoIsDolbyVision)
+}
+
+internal fun PlayerRuntimeController.applyEffectiveDolbyPlaybackSettings(settings: PlayerSettings) {
+    val effectiveDolbyAudioCompatibility = shouldForceDolbyAudioCompatibility(
+        settings = settings,
+        currentVideoIsDolbyVision = currentVideoIsDolbyVision
+    )
+    val requiresPcmForSpeed = _exoPlayer?.let(::selectedAudioRequiresPcmForSpeed) == true
+
+    playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
+        _uiState.value.playbackSpeed,
+        selectedAudioRequiresPcmForSpeed = requiresPcmForSpeed,
+        forceDolbyCompatibilityMode = effectiveDolbyAudioCompatibility
+    )
+
+    _uiState.update {
+        it.copy(tunnelingEnabled = settings.tunnelingEnabled && !effectiveDolbyAudioCompatibility)
+    }
+}
 
 internal data class StartupSubtitlePreparation(
     val fetchedSubtitles: List<Subtitle>,
@@ -96,10 +149,20 @@ internal fun PlayerRuntimeController.initializePlayer(
             }
             resetLoadingOverlayForNewStream()
             hasTriedAudioPcmFallback = false
+            hasTriedAv1SoftwareFallback = false
             hasTriedDv7HevcFallback = false
             mpvDelayStartAfterAfrSwitch = false
             val playerSettings = playerSettingsDataStore.playerSettings.first()
-            cachedDecoderPriority = playerSettings.decoderPriority
+            val effectiveDecoderPriority =
+                if (
+                    forceSoftwareAv1Playback &&
+                    playerSettings.decoderPriority == DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                ) {
+                    DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                } else {
+                    playerSettings.decoderPriority
+                }
+            cachedDecoderPriority = effectiveDecoderPriority
             val preferredAudioLanguages = resolvePreferredAudioLanguages(
                 preferredAudioLanguage = playerSettings.preferredAudioLanguage,
                 secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
@@ -112,12 +175,16 @@ internal fun PlayerRuntimeController.initializePlayer(
             runtimeInternalPlayerEngineOverride = overrideInternalPlayerEngine
             currentInternalPlayerEngine = effectiveInternalPlayerEngine
             val showLoadingStatus = playerSettings.showPlayerLoadingStatus
+            val effectiveDolbyAudioCompatibility = shouldForceDolbyAudioCompatibility(
+                settings = playerSettings,
+                currentVideoIsDolbyVision = currentVideoIsDolbyVision
+            )
             _uiState.update {
                 it.copy(
                     internalPlayerEngine = effectiveInternalPlayerEngine,
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
                     resizeMode = playerSettings.resizeMode,
-                    tunnelingEnabled = playerSettings.tunnelingEnabled,
+                    tunnelingEnabled = playerSettings.tunnelingEnabled && !effectiveDolbyAudioCompatibility,
                     loadingMessage = if (showLoadingStatus) context.getString(R.string.player_loading_detecting_format) else null
                 )
             }
@@ -181,7 +248,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     buildUponParameters()
                         .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
                 )
-                if (playerSettings.tunnelingEnabled) {
+                if (playerSettings.tunnelingEnabled && !effectiveDolbyAudioCompatibility) {
                     setParameters(
                         buildUponParameters().setTunnelingEnabled(true)
                     )
@@ -227,8 +294,19 @@ internal fun PlayerRuntimeController.initializePlayer(
                 },
                 gainAudioProcessor = gainAudioProcessor,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
-                onPlaybackSpeedAwareAudioOutputProviderCreated = { playbackSpeedAwareAudioOutputProvider = it }
-            ).setExtensionRendererMode(playerSettings.decoderPriority)
+                onPlaybackSpeedAwareAudioOutputProviderCreated = { playbackSpeedAwareAudioOutputProvider = it },
+                preferDolbyAudioCompatibilityMode = playerSettings.dolbyAudioCompatibilityMode,
+                mapDV7ToHevc = playerSettings.mapDV7ToHevc,
+                disableDolbyVision = playerSettings.disableDolbyVision,
+                disableDolbyVisionForDv7 = playerSettings.disableDolbyVisionForDv7,
+                requestSdrToneMapping =
+                    playerSettings.hdrPlaybackCompatibilityMode == HdrPlaybackCompatibilityMode.TONE_MAP_HDR_TO_SDR,
+                convertHdr10PlusToHdr10 =
+                    playerSettings.hdrPlaybackCompatibilityMode == HdrPlaybackCompatibilityMode.EXPERIMENTAL_CONVERT_HDR10_PLUS_TO_HDR10,
+                forceSoftwareAv1Playback = forceSoftwareAv1Playback,
+                forceInterpretHdrAsSdr =
+                    playerSettings.hdrPlaybackCompatibilityMode == HdrPlaybackCompatibilityMode.EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR
+            ).setExtensionRendererMode(effectiveDecoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || forceDv7ToHevc)
 
             if (showLoadingStatus) _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
@@ -269,6 +347,12 @@ internal fun PlayerRuntimeController.initializePlayer(
             libassPipelineSwitchInFlight = false
 
             _exoPlayer?.apply {
+                if (
+                    playerSettings.hdrPlaybackCompatibilityMode == HdrPlaybackCompatibilityMode.TONE_MAP_HDR_TO_SDR ||
+                    playerSettings.hdrPlaybackCompatibilityMode == HdrPlaybackCompatibilityMode.EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR
+                ) {
+                    setVideoEffects(emptyList())
+                }
                 
                 val audioAttributes = AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -276,10 +360,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .build()
                 setAudioAttributes(audioAttributes, true)
                 videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-                playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
-                    _uiState.value.playbackSpeed,
-                    selectedAudioRequiresPcmForSpeed(this)
-                )
+                applyEffectiveDolbyPlaybackSettings(playerSettings)
                 setPlaybackSpeed(_uiState.value.playbackSpeed)
 
                 
@@ -461,6 +542,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                         }
                         // Attempt automatic recovery for transient errors.
                         if (tryAudioTrackPcmFallback(error)) {
+                            return
+                        }
+                        if (tryAv1SoftwareDecoderFallback(error)) {
                             return
                         }
                         if (tryDv7HevcFallback(error)) {
@@ -743,8 +827,166 @@ private class SubtitleOffsetRenderersFactory(
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val gainAudioProcessor: GainAudioProcessor,
     private val playbackSpeedProvider: () -> Float,
-    private val onPlaybackSpeedAwareAudioOutputProviderCreated: (PlaybackSpeedAwareAudioOutputProvider) -> Unit
+    private val onPlaybackSpeedAwareAudioOutputProviderCreated: (PlaybackSpeedAwareAudioOutputProvider) -> Unit,
+    private val preferDolbyAudioCompatibilityMode: Boolean,
+    private val mapDV7ToHevc: Boolean,
+    private val disableDolbyVision: Boolean,
+    private val disableDolbyVisionForDv7: Boolean,
+    private val requestSdrToneMapping: Boolean,
+    private val convertHdr10PlusToHdr10: Boolean,
+    private val forceSoftwareAv1Playback: Boolean,
+    private val forceInterpretHdrAsSdr: Boolean
 ) : DefaultRenderersFactory(context) {
+
+    override fun buildAudioRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        audioSink: AudioSink,
+        eventHandler: Handler,
+        eventListener: AudioRendererEventListener,
+        out: ArrayList<Renderer>
+    ) {
+        if (!preferDolbyAudioCompatibilityMode) {
+            super.buildAudioRenderers(
+                context,
+                extensionRendererMode,
+                mediaCodecSelector,
+                enableDecoderFallback,
+                audioSink,
+                eventHandler,
+                eventListener,
+                out
+            )
+            return
+        }
+
+        val effectiveExtensionRendererMode =
+            if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) {
+                EXTENSION_RENDERER_MODE_ON
+            } else {
+                extensionRendererMode
+            }
+
+        val dolbyCompatibilitySelector = MediaCodecSelector {
+                mimeType,
+                requiresSecureDecoder,
+                requiresTunnelingDecoder ->
+            if (isDolbyCompatibilityMimeType(mimeType)) {
+                emptyList()
+            } else {
+                mediaCodecSelector.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder
+                )
+            }
+        }
+
+        super.buildAudioRenderers(
+            context,
+            effectiveExtensionRendererMode,
+            dolbyCompatibilitySelector,
+            enableDecoderFallback,
+            audioSink,
+            eventHandler,
+            eventListener,
+            out
+        )
+    }
+
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<Renderer>
+    ) {
+        if (
+            !disableDolbyVision &&
+            !disableDolbyVisionForDv7 &&
+            !requestSdrToneMapping &&
+            !convertHdr10PlusToHdr10 &&
+            !forceSoftwareAv1Playback &&
+            !forceInterpretHdrAsSdr
+        ) {
+            super.buildVideoRenderers(
+                context,
+                extensionRendererMode,
+                mediaCodecSelector,
+                enableDecoderFallback,
+                eventHandler,
+                eventListener,
+                allowedVideoJoiningTimeMs,
+                out
+            )
+            return
+        }
+
+        val videoRendererBuilder = MediaCodecVideoRenderer.Builder(context)
+            .setCodecAdapterFactory(getCodecAdapterFactory())
+            .setMediaCodecSelector(mediaCodecSelector)
+            .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+            .setEnableDecoderFallback(enableDecoderFallback)
+            .setEventHandler(eventHandler)
+            .setEventListener(eventListener)
+            .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+            .setMapDV7ToHevc(mapDV7ToHevc)
+
+        out.add(
+            NuvioMediaCodecVideoRenderer(
+                context = context,
+                builder = videoRendererBuilder,
+                mapDV7ToHevc = mapDV7ToHevc,
+                disableDolbyVision = disableDolbyVision,
+                disableDolbyVisionForDv7 = disableDolbyVisionForDv7,
+                requestSdrToneMapping = requestSdrToneMapping,
+                convertHdr10PlusToHdr10 = convertHdr10PlusToHdr10,
+                forceSoftwareAv1Playback = forceSoftwareAv1Playback,
+                forceInterpretHdrAsSdr = forceInterpretHdrAsSdr
+            )
+        )
+
+        if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) {
+            return
+        }
+
+        var extensionRendererIndex = out.size
+        if (extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
+            extensionRendererIndex--
+        }
+
+        extensionRendererIndex =
+            addOptionalVideoRenderer(
+                out = out,
+                extensionRendererIndex = extensionRendererIndex,
+                className = "androidx.media3.decoder.vp9.LibvpxVideoRenderer",
+                allowedVideoJoiningTimeMs = allowedVideoJoiningTimeMs,
+                eventHandler = eventHandler,
+                eventListener = eventListener
+            )
+        extensionRendererIndex =
+            addOptionalVideoRenderer(
+                out = out,
+                extensionRendererIndex = extensionRendererIndex,
+                className = "androidx.media3.decoder.av1.Libdav1dVideoRenderer",
+                allowedVideoJoiningTimeMs = allowedVideoJoiningTimeMs,
+                eventHandler = eventHandler,
+                eventListener = eventListener
+            )
+        addOptionalVideoRenderer(
+            out = out,
+            extensionRendererIndex = extensionRendererIndex,
+            className = "androidx.media3.decoder.ffmpeg.ExperimentalFfmpegVideoRenderer",
+            allowedVideoJoiningTimeMs = allowedVideoJoiningTimeMs,
+            eventHandler = eventHandler,
+            eventListener = eventListener
+        )
+    }
 
     override fun buildAudioSink(
         context: Context,
@@ -755,7 +997,10 @@ private class SubtitleOffsetRenderersFactory(
             .setMaxPlaybackSpeed(PLAYBACK_SPEEDS.maxOrNull() ?: 2f)
             .build()
         val audioOutputProvider = PlaybackSpeedAwareAudioOutputProvider(baseAudioOutputProvider)
-        audioOutputProvider.updatePlaybackSpeed(playbackSpeedProvider())
+        audioOutputProvider.updatePlaybackSpeed(
+            playbackSpeedProvider(),
+            forceDolbyCompatibilityMode = preferDolbyAudioCompatibilityMode
+        )
         onPlaybackSpeedAwareAudioOutputProviderCreated(audioOutputProvider)
 
         return DefaultAudioSink.Builder(context)
@@ -784,6 +1029,350 @@ private class SubtitleOffsetRenderersFactory(
         }
     }
 }
+
+private fun isDolbyCompatibilityMimeType(mimeType: String): Boolean {
+    return mimeType == MimeTypes.AUDIO_AC3 ||
+        mimeType == MimeTypes.AUDIO_E_AC3 ||
+        mimeType == MimeTypes.AUDIO_E_AC3_JOC ||
+        mimeType == MimeTypes.AUDIO_TRUEHD
+}
+
+private fun addOptionalVideoRenderer(
+    out: ArrayList<Renderer>,
+    extensionRendererIndex: Int,
+    className: String,
+    allowedVideoJoiningTimeMs: Long,
+    eventHandler: Handler,
+    eventListener: VideoRendererEventListener
+): Int {
+    return try {
+        val clazz = Class.forName(className)
+        val constructor = clazz.getConstructor(
+            Long::class.javaPrimitiveType,
+            Handler::class.java,
+            VideoRendererEventListener::class.java,
+            Int::class.javaPrimitiveType
+        )
+        val renderer = constructor.newInstance(
+            allowedVideoJoiningTimeMs,
+            eventHandler,
+            eventListener,
+            DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+        ) as Renderer
+        out.add(extensionRendererIndex, renderer)
+        extensionRendererIndex + 1
+    } catch (_: ClassNotFoundException) {
+        extensionRendererIndex
+    }
+}
+
+private class NuvioMediaCodecVideoRenderer(
+    context: Context,
+    builder: MediaCodecVideoRenderer.Builder,
+    private val mapDV7ToHevc: Boolean,
+    private val disableDolbyVision: Boolean,
+    private val disableDolbyVisionForDv7: Boolean,
+    private val requestSdrToneMapping: Boolean,
+    private val convertHdr10PlusToHdr10: Boolean,
+    private val forceSoftwareAv1Playback: Boolean,
+    private val forceInterpretHdrAsSdr: Boolean
+) : MediaCodecVideoRenderer(builder) {
+
+    private val appContext = context.applicationContext
+    private var rendererTunnelingEnabled = false
+    private var lastConfiguredInputFormat: Format? = null
+
+    override fun supportsFormat(mediaCodecSelector: MediaCodecSelector, format: Format): Int {
+        if (shouldForceSoftwareAv1Playback(format)) {
+            return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE)
+        }
+        if (!shouldForceDolbyVisionFallback(format)) {
+            return super.supportsFormat(mediaCodecSelector, format)
+        }
+
+        val decoderQueryFormat = getDecoderQueryFormat(format)
+
+        val requiresSecureDecryption = format.drmInitData != null
+        var decoderInfos =
+            getAlternativeDecoderInfos(
+                mediaCodecSelector = mediaCodecSelector,
+                format = format,
+                requiresSecureDecoder = requiresSecureDecryption,
+                requiresTunnelingDecoder = false
+            )
+        if (requiresSecureDecryption && decoderInfos.isEmpty()) {
+            decoderInfos =
+                getAlternativeDecoderInfos(
+                    mediaCodecSelector = mediaCodecSelector,
+                    format = format,
+                    requiresSecureDecoder = false,
+                    requiresTunnelingDecoder = false
+                )
+        }
+        if (decoderInfos.isEmpty()) {
+            return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE)
+        }
+        if (!supportsFormatDrm(format)) {
+            return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_DRM)
+        }
+
+        var decoderInfo = decoderInfos.first()
+        var isFormatSupported = decoderInfo.isFormatSupported(appContext, decoderQueryFormat)
+        if (!isFormatSupported) {
+            for (index in 1 until decoderInfos.size) {
+                val otherDecoderInfo = decoderInfos[index]
+                if (otherDecoderInfo.isFormatSupported(appContext, decoderQueryFormat)) {
+                    decoderInfo = otherDecoderInfo
+                    isFormatSupported = true
+                    break
+                }
+            }
+        }
+
+        val formatSupport = if (isFormatSupported) C.FORMAT_HANDLED else C.FORMAT_EXCEEDS_CAPABILITIES
+        val adaptiveSupport =
+            if (decoderInfo.isSeamlessAdaptationSupported(decoderQueryFormat)) {
+                RendererCapabilities.ADAPTIVE_SEAMLESS
+            } else {
+                RendererCapabilities.ADAPTIVE_NOT_SEAMLESS
+            }
+        val hardwareAccelerationSupport =
+            if (decoderInfo.hardwareAccelerated) {
+                RendererCapabilities.HARDWARE_ACCELERATION_SUPPORTED
+            } else {
+                RendererCapabilities.HARDWARE_ACCELERATION_NOT_SUPPORTED
+            }
+        val tunnelingSupport =
+            if (isFormatSupported &&
+                getAlternativeDecoderInfos(
+                    mediaCodecSelector = mediaCodecSelector,
+                    format = format,
+                    requiresSecureDecoder = requiresSecureDecryption,
+                    requiresTunnelingDecoder = true
+                ).firstOrNull()?.let { tunnelingDecoderInfo ->
+                    tunnelingDecoderInfo.isFormatSupported(appContext, decoderQueryFormat) &&
+                        tunnelingDecoderInfo.isSeamlessAdaptationSupported(decoderQueryFormat)
+                } == true
+            ) {
+                RendererCapabilities.TUNNELING_SUPPORTED
+            } else {
+                RendererCapabilities.TUNNELING_NOT_SUPPORTED
+            }
+
+        return RendererCapabilities.create(
+            formatSupport,
+            adaptiveSupport,
+            tunnelingSupport,
+            hardwareAccelerationSupport,
+            RendererCapabilities.DECODER_SUPPORT_FALLBACK_MIMETYPE
+        )
+    }
+
+    override fun getDecoderInfos(
+        mediaCodecSelector: MediaCodecSelector,
+        format: Format,
+        requiresSecureDecoder: Boolean
+    ): List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> {
+        if (shouldForceSoftwareAv1Playback(format)) {
+            return emptyList()
+        }
+        if (!shouldForceDolbyVisionFallback(format)) {
+            return super.getDecoderInfos(mediaCodecSelector, format, requiresSecureDecoder)
+        }
+
+        return getAlternativeDecoderInfos(
+            mediaCodecSelector = mediaCodecSelector,
+            format = format,
+            requiresSecureDecoder = requiresSecureDecoder,
+            requiresTunnelingDecoder = rendererTunnelingEnabled
+        )
+    }
+
+    override fun onEnabled(joining: Boolean, mayRenderStartOfStream: Boolean) {
+        rendererTunnelingEnabled = getConfiguration().tunneling
+        super.onEnabled(joining, mayRenderStartOfStream)
+    }
+
+    override fun onDisabled() {
+        rendererTunnelingEnabled = false
+        super.onDisabled()
+    }
+
+    override fun createPlaybackVideoGraphWrapper(
+        context: Context,
+        videoFrameReleaseControl: VideoFrameReleaseControl
+    ): PlaybackVideoGraphWrapper {
+        return super.createPlaybackVideoGraphWrapper(context, videoFrameReleaseControl).apply {
+            if (requestSdrToneMapping) {
+                setRequestOpenGlToneMapping(true)
+            }
+            if (forceInterpretHdrAsSdr) {
+                setIsInputSdrToneMapped(true)
+            }
+        }
+    }
+
+    override fun handleInputBufferSupplementalData(buffer: DecoderInputBuffer) {
+        if (
+            (convertHdr10PlusToHdr10 && lastConfiguredInputFormat?.let(::isHdrVideo) == true) ||
+            lastConfiguredInputFormat?.let(::shouldUseAppLevelDv7HdrFallback) == true
+        ) {
+            return
+        }
+        super.handleInputBufferSupplementalData(buffer)
+    }
+
+    override fun getMediaFormat(
+        format: Format,
+        codecMimeType: String,
+        codecMaxValues: CodecMaxValues,
+        codecOperatingRate: Float,
+        deviceNeedsNoPostProcessWorkaround: Boolean,
+        tunnelingAudioSessionId: Int
+    ): MediaFormat {
+        lastConfiguredInputFormat = format
+        val decoderFormat =
+            if (
+                forceInterpretHdrAsSdr &&
+                isHdrVideo(format)
+            ) {
+                getDecoderQueryFormat(format).buildUpon().setColorInfo(ColorInfo.SDR_BT709_LIMITED).build()
+            } else {
+                getDecoderQueryFormat(format)
+            }
+        val mediaFormat = super.getMediaFormat(
+            decoderFormat,
+            codecMimeType,
+            codecMaxValues,
+            codecOperatingRate,
+            deviceNeedsNoPostProcessWorkaround,
+            tunnelingAudioSessionId
+        )
+        return mediaFormat
+    }
+
+    private fun shouldForceDolbyVisionFallback(format: Format): Boolean {
+        if (!isDolbyVisionVideo(format)) {
+            return false
+        }
+
+        val hdrCompatibilityRequestsFallback =
+            (requestSdrToneMapping || convertHdr10PlusToHdr10 || forceInterpretHdrAsSdr)
+
+        return disableDolbyVision ||
+            (disableDolbyVisionForDv7 && isDolbyVisionProfile7(format)) ||
+            hdrCompatibilityRequestsFallback
+    }
+
+    private fun shouldForceSoftwareAv1Playback(format: Format): Boolean {
+        return forceSoftwareAv1Playback &&
+            format.sampleMimeType == MimeTypes.VIDEO_AV1 &&
+            format.cryptoType == C.CRYPTO_TYPE_NONE &&
+            format.drmInitData == null
+    }
+
+    private fun getAlternativeDecoderInfos(
+        mediaCodecSelector: MediaCodecSelector,
+        format: Format,
+        requiresSecureDecoder: Boolean,
+        requiresTunnelingDecoder: Boolean
+    ): List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> {
+        if (!shouldForceDolbyVisionFallback(format)) {
+            return emptyList()
+        }
+
+        val decoderQueryFormat = getDecoderQueryFormat(format)
+        if (shouldUseAppLevelDv7HdrFallback(format)) {
+            val sampleMimeType = decoderQueryFormat.sampleMimeType ?: return emptyList()
+            val decoderInfos = mediaCodecSelector.getDecoderInfos(
+                sampleMimeType,
+                requiresSecureDecoder,
+                requiresTunnelingDecoder
+            )
+            return MediaCodecUtil.getDecoderInfosSortedByFormatSupport(
+                appContext,
+                decoderInfos,
+                decoderQueryFormat
+            )
+        }
+
+        val alternativeDecoderInfos = MediaCodecUtil.getAlternativeDecoderInfos(
+            mediaCodecSelector,
+            format,
+            requiresSecureDecoder,
+            requiresTunnelingDecoder,
+            mapDV7ToHevc
+        )
+        return MediaCodecUtil.getDecoderInfosSortedByFormatSupport(
+            appContext,
+            alternativeDecoderInfos,
+            decoderQueryFormat
+        )
+    }
+
+    private fun getDecoderQueryFormat(format: Format): Format {
+        return if (shouldUseAppLevelDv7HdrFallback(format)) {
+            buildDv7HdrFallbackFormat(format)
+        } else {
+            format
+        }
+    }
+
+    private fun shouldUseAppLevelDv7HdrFallback(format: Format): Boolean {
+        return mapDV7ToHevc && isHdr10CompatibleDolbyVisionProfile7(format)
+    }
+}
+
+internal fun buildDv7HdrFallbackFormat(format: Format): Format {
+    return format.buildUpon()
+        .setSampleMimeType(MimeTypes.VIDEO_H265)
+        .setCodecs(extractHevcFallbackCodecs(format.codecs))
+        .build()
+}
+
+internal fun buildDv7HevcFallbackFormat(format: Format): Format = buildDv7HdrFallbackFormat(format)
+
+internal fun extractHevcFallbackCodecs(codecs: String?): String? {
+    val codecEntries = codecs
+        ?.split(',')
+        ?.asSequence()
+        ?.map(String::trim)
+        ?.filter(String::isNotEmpty)
+        ?.toList()
+        ?: return null
+
+    return codecEntries.firstOrNull { codec ->
+        codec.startsWith("hev1", ignoreCase = true) || codec.startsWith("hvc1", ignoreCase = true)
+    } ?: codecEntries.firstOrNull { codec ->
+        !DOLBY_VISION_CODEC_REGEX.matches(codec)
+    }
+}
+
+internal fun isDolbyVisionProfile7(format: Format): Boolean {
+    if (format.sampleMimeType != MimeTypes.VIDEO_DOLBY_VISION) {
+        return false
+    }
+
+    return format.codecs
+        ?.split(',')
+        ?.asSequence()
+        ?.map(String::trim)
+        ?.mapNotNull { codec -> DOLBY_VISION_PROFILE_REGEX.find(codec)?.groupValues?.getOrNull(1)?.toIntOrNull() }
+        ?.any { profile -> profile == 7 }
+        ?: false
+}
+
+internal fun isHdr10CompatibleDolbyVisionProfile7(format: Format): Boolean {
+    if (!isDolbyVisionProfile7(format)) {
+        return false
+    }
+
+    val colorInfo = format.colorInfo ?: return false
+    return colorInfo.colorTransfer == C.COLOR_TRANSFER_ST2084
+}
+
+private val DOLBY_VISION_CODEC_REGEX = Regex("""(?i)(?:dvhe|dvh1)\..+""")
+private val DOLBY_VISION_PROFILE_REGEX = Regex("""(?i)(?:^|\b)(?:dvhe|dvh1)\.(\d{1,2})(?:\.|$)""")
 
 private class CueNormalizingTextOutput(
     private val delegate: TextOutput,

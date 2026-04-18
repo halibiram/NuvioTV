@@ -189,6 +189,10 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
             val currentState = _uiState.value
             val resolvedInternalPlayerEngine =
                 runtimeInternalPlayerEngineOverride ?: settings.internalPlayerEngine
+            val effectiveDolbyAudioCompatibility = shouldForceDolbyAudioCompatibility(
+                settings = settings,
+                currentVideoIsDolbyVision = currentVideoIsDolbyVision
+            )
             val resolvedAudioAmplificationDb = when {
                 !hasInitializedAudioAmplificationForSession -> {
                     hasInitializedAudioAmplificationForSession = true
@@ -219,7 +223,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                     osdClockEnabled = settings.osdClockEnabled,
                     internalPlayerEngine = resolvedInternalPlayerEngine,
                     frameRateMatchingMode = settings.frameRateMatchingMode,
-                    tunnelingEnabled = settings.tunnelingEnabled,
+                    tunnelingEnabled = settings.tunnelingEnabled && !effectiveDolbyAudioCompatibility,
                     persistAudioAmplification = settings.persistAudioAmplification,
                     audioAmplificationDb = resolvedAudioAmplificationDb
                 )
@@ -228,6 +232,8 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
             if (resolvedAudioAmplificationDb != currentState.audioAmplificationDb) {
                 applyAudioAmplification(resolvedAudioAmplificationDb)
             }
+
+            applyEffectiveDolbyPlaybackSettings(settings)
 
             if (settings.frameRateMatchingMode == FrameRateMatchingMode.OFF) {
                 frameRateProbeJob?.cancel()

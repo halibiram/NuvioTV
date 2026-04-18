@@ -405,6 +405,17 @@
     <string name="audio_tunneled">Tunneled Playback</string>
     <string name="audio_tunneled_sub">Hardware-level audio/video sync. May improve playback on some Android TV devices</string>
     <string name="audio_dv_sub">Map Dolby Vision Profile 7 to standard HEVC for devices without DV hardware support</string>
+    <string name="audio_hdr_compat_mode_title">HDR Playback Compatibility</string>
+    <string name="audio_hdr_compat_mode_off">Off</string>
+    <string name="audio_hdr_compat_mode_off_desc">Use normal HDR or Dolby Vision playback.</string>
+    <string name="audio_hdr_compat_mode_tone_map">HDR - SDR Tone Mapping</string>
+    <string name="audio_hdr_compat_mode_tone_map_desc">Converts HDR video to SDR during playback. Try this if HDR or Dolby Vision colors look wrong on your device.</string>
+    <string name="audio_hdr_compat_mode_hdr10plus_to_hdr10">Experimental: Convert HDR10+ to HDR10</string>
+    <string name="audio_hdr_compat_mode_hdr10plus_to_hdr10_desc">Strips HDR10+ dynamic metadata during playback so compatible streams can fall back to static HDR10.</string>
+    <string name="audio_hdr_compat_mode_force_sdr">Experimental: Force Interpret HDR as SDR</string>
+    <string name="audio_hdr_compat_mode_force_sdr_desc">Ignores HDR metadata and plays the video as SDR. Use only if the other options do not help.</string>
+    <string name="audio_hdr_to_sdr_sub">Converts HDR video to SDR during playback. Try this if HDR or Dolby Vision colors look wrong on your device.</string>
+    <string name="audio_force_hdr_as_sdr_sub">Ignores HDR metadata and plays the video as SDR. Use only if the other options do not help.</string>
     <string name="audio_mpv_hwdec_title">Hardware Decoding (MPV-only)</string>
     <string name="audio_mpv_hwdec_dialog_subtitle">Select how libmpv should use hardware decoders.</string>
     <string name="audio_mpv_hwdec_legacy_direct_copy">Legacy (direct -&gt; copy)</string>
@@ -1299,7 +1310,22 @@
 
     <!-- PlaybackAudioSettings -->
     <string name="audio_passthrough_info">Audio passthrough (TrueHD, DTS, AC-3, etc.) is automatic. When connected to a compatible AV receiver or soundbar via HDMI, lossless audio is sent as-is without decoding.</string>
+    <string name="audio_dolby_settings_title">Dolby Settings</string>
+    <string name="audio_dolby_settings_sub">Dolby audio and Dolby Vision compatibility options.</string>
+    <string name="audio_dolby_compatibility_title">Dolby Audio Compatibility Mode</string>
+    <string name="audio_dolby_compatibility_sub">Disables Dolby passthrough and forces app-side decoding for AC-3, E-AC-3, and TrueHD when available. Helps on devices that show video but have no sound.</string>
     <string name="audio_dv_title">DV7 - HEVC Fallback</string>
+    <string name="audio_dv7_mode_title">Dolby Vision Profile 7</string>
+    <string name="audio_dv7_mode_off">Off</string>
+    <string name="audio_dv7_mode_off_desc">Use normal Dolby Vision playback.</string>
+    <string name="audio_dv7_mode_map_to_hevc">DV7 - HEVC Fallback</string>
+    <string name="audio_dv7_mode_map_to_hevc_desc">Map Dolby Vision Profile 7 to standard HEVC for devices without DV hardware support</string>
+    <string name="audio_dv7_mode_disable">DV7 - HDR Fallback</string>
+    <string name="audio_dv7_mode_disable_desc">Blocks only Dolby Vision Profile 7 streams and falls back to HDR-compatible playback when possible.</string>
+    <string name="audio_disable_dolby_vision_title">Disable Dolby Vision</string>
+    <string name="audio_disable_dolby_vision_sub">Blocks all Dolby Vision profiles and falls back to HEVC, AVC, or AV1 when possible.</string>
+    <string name="audio_hdr_to_sdr_title">HDR - SDR Tone Mapping</string>
+    <string name="audio_force_hdr_as_sdr_title">Experimental: Force Interpret HDR as SDR</string>
 
     <!-- SidebarNavigation / MainActivity -->
     <string name="nav_home">Home</string>

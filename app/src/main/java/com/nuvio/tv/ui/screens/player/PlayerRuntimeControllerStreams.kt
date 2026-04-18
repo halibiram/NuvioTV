@@ -302,6 +302,9 @@ private fun PlayerRuntimeController.applyStreamMetadata(stream: Stream) {
     currentVideoWidth = null
     currentVideoHeight = null
     currentVideoBitrate = null
+    currentVideoFormat = null
+    currentVideoIsHdr = false
+    currentVideoIsDolbyVision = false
 }
 
 private fun PlayerRuntimeController.persistSelectedStreamForReuse(

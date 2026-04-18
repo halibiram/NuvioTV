@@ -18,14 +18,22 @@ internal class PlaybackSpeedAwareAudioOutputProvider(
     @Volatile
     private var forcePcmForCurrentSession: Boolean = false
 
-    fun updatePlaybackSpeed(speed: Float, selectedAudioRequiresPcmForSpeed: Boolean = false) {
+    @Volatile
+    private var forceDolbyPcmOutput: Boolean = false
+
+    fun updatePlaybackSpeed(
+        speed: Float,
+        selectedAudioRequiresPcmForSpeed: Boolean = false,
+        forceDolbyCompatibilityMode: Boolean = false
+    ) {
         val normalizedSpeed = speed.takeIf { it > 0f } ?: 1f
-        val wasForcingPcm = forcePcmForCurrentSession
+        val wasForcingPcm = isForcingPcmOutput()
         if (selectedAudioRequiresPcmForSpeed && normalizedSpeed != 1f) {
             forcePcmForCurrentSession = true
         }
+        this.forceDolbyPcmOutput = forceDolbyCompatibilityMode
         playbackSpeed = normalizedSpeed
-        val isForcingPcm = forcePcmForCurrentSession
+        val isForcingPcm = isForcingPcmOutput()
         if (wasForcingPcm != isForcingPcm) {
             listeners.forEach(AudioOutputProvider.Listener::onFormatSupportChanged)
         }
@@ -52,7 +60,7 @@ internal class PlaybackSpeedAwareAudioOutputProvider(
     }
 
     private fun shouldForcePcm(format: Format): Boolean {
-        if (!forcePcmForCurrentSession) {
+        if (!isForcingPcmOutput()) {
             return false
         }
         val mimeType = format.sampleMimeType
@@ -80,5 +88,9 @@ internal class PlaybackSpeedAwareAudioOutputProvider(
                     codecs.contains("dtshd", ignoreCase = true)
         }
         return false
+    }
+
+    private fun isForcingPcmOutput(): Boolean {
+        return forcePcmForCurrentSession || forceDolbyPcmOutput
     }
 }

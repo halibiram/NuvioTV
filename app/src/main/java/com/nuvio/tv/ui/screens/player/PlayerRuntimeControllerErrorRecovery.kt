@@ -1,10 +1,17 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.decoder.av1.Dav1dLibrary
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import com.nuvio.tv.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -328,6 +335,56 @@ internal fun PlayerRuntimeController.tryAudioTrackPcmFallback(
 }
 
 /**
+ * AV1 software-decoder fallback for devices without a usable AV1 MediaCodec decoder.
+ *
+ * When playback fails on an AV1 stream and the device does not expose a functional AV1 codec,
+ * rebuild the player so the MediaCodec renderer opts out of AV1 and playback falls through to the
+ * bundled dav1d software renderer.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+internal fun PlayerRuntimeController.tryAv1SoftwareDecoderFallback(
+    error: PlaybackException
+): Boolean {
+    when (error.errorCode) {
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> Unit
+
+        else -> return false
+    }
+    if (hasTriedAv1SoftwareFallback || forceSoftwareAv1Playback) return false
+
+    val format = getAv1VideoFormatForFallback(error) ?: return false
+    if (format.drmInitData != null || format.cryptoType != C.CRYPTO_TYPE_NONE) return false
+    if (!Dav1dLibrary.isAvailable()) return false
+    if (hasUsableMediaCodecAv1Decoder(format)) return false
+
+    hasTriedAv1SoftwareFallback = true
+    forceSoftwareAv1Playback = true
+
+    val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
+
+    Log.d(
+        PlayerRuntimeController.TAG,
+        "AV1 decoder failure without usable MediaCodec support - retrying with dav1d software fallback, position=${savedPosition}ms"
+    )
+
+    resetErrorRetryState()
+
+    errorRetryJob = scope.launch {
+        showRecoveryOverlay()
+
+        releasePlayer(flushPlaybackState = false)
+        if (savedPosition > 0L) {
+            _uiState.update { it.copy(pendingSeekPosition = savedPosition) }
+        }
+        initializePlayer(currentStreamUrl, currentHeaders)
+    }
+    return true
+}
+
+/**
  * DV7-to-HEVC decoder fallback for ERROR_CODE_DECODER_INIT_FAILED (4003).
  *
  * When decoderPriority == 1 (EXTENSION_RENDERER_MODE_ON) and the decoder
@@ -372,5 +429,58 @@ internal fun PlayerRuntimeController.tryDv7HevcFallback(
         initializePlayer(currentStreamUrl, currentHeaders)
     }
     return true
+}
+
+private fun PlayerRuntimeController.getAv1VideoFormatForFallback(error: PlaybackException): Format? {
+    getSelectedVideoFormat()?.let { format ->
+        if (format.sampleMimeType == MimeTypes.VIDEO_AV1) {
+            return format
+        }
+    }
+
+    val decoderInitException = error.findCauseOfType<MediaCodecRenderer.DecoderInitializationException>()
+    if (decoderInitException?.mimeType == MimeTypes.VIDEO_AV1 && !decoderInitException.secureDecoderRequired) {
+        return Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_AV1)
+            .build()
+    }
+
+    return null
+}
+
+private fun PlayerRuntimeController.getSelectedVideoFormat(): Format? {
+    val player = _exoPlayer ?: return null
+    player.currentTracks.groups.forEach { trackGroup ->
+        if (trackGroup.type != C.TRACK_TYPE_VIDEO) return@forEach
+        for (i in 0 until trackGroup.length) {
+            if (trackGroup.isTrackSelected(i)) {
+                return trackGroup.getTrackFormat(i)
+            }
+        }
+    }
+    return null
+}
+
+private fun PlayerRuntimeController.hasUsableMediaCodecAv1Decoder(format: Format): Boolean {
+    return try {
+        val appContext = context.applicationContext
+        val decoderInfos = MediaCodecUtil.getDecoderInfosSoftMatch(
+            MediaCodecSelector.DEFAULT,
+            format,
+            format.drmInitData != null,
+            false
+        )
+        MediaCodecUtil.getDecoderInfosSortedByFormatSupport(appContext, decoderInfos, format)
+            .any { decoderInfo ->
+                decoderInfo.isFormatFunctionallySupported(appContext, format)
+            }
+    } catch (error: Exception) {
+        Log.w(
+            PlayerRuntimeController.TAG,
+            "Failed to query AV1 codec support; skipping software fallback",
+            error
+        )
+        true
+    }
 }
 

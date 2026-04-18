@@ -177,8 +177,12 @@ data class PlayerSettings(
     val pauseOverlayEnabled: Boolean = true,
     val osdClockEnabled: Boolean = true,
     val skipIntroEnabled: Boolean = true,
-    // Dolby Vision Profile 7 → HEVC fallback (requires forked ExoPlayer)
+    val dolbyAudioCompatibilityMode: Boolean = false,
+    // Dolby Vision Profile 7 -> HEVC fallback (requires forked ExoPlayer)
     val mapDV7ToHevc: Boolean = false,
+    val disableDolbyVision: Boolean = false,
+    val disableDolbyVisionForDv7: Boolean = false,
+    val hdrPlaybackCompatibilityMode: HdrPlaybackCompatibilityMode = HdrPlaybackCompatibilityMode.OFF,
     val mpvHardwareDecodeMode: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE,
     // Display settings
     val frameRateMatchingMode: FrameRateMatchingMode = FrameRateMatchingMode.OFF,
@@ -245,6 +249,19 @@ enum class MpvHardwareDecodeMode {
     DISABLED
 }
 
+enum class HdrPlaybackCompatibilityMode {
+    OFF,
+    TONE_MAP_HDR_TO_SDR,
+    EXPERIMENTAL_CONVERT_HDR10_PLUS_TO_HDR10,
+    EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR
+}
+
+enum class DolbyVisionProfile7Mode {
+    OFF,
+    MAP_TO_HEVC,
+    DISABLE_DV7
+}
+
 enum class PlayerPreference {
     INTERNAL,
     EXTERNAL,
@@ -307,7 +324,13 @@ class PlayerSettingsDataStore @Inject constructor(
     private val pauseOverlayEnabledKey = booleanPreferencesKey("pause_overlay_enabled")
     private val osdClockEnabledKey = booleanPreferencesKey("osd_clock_enabled")
     private val skipIntroEnabledKey = booleanPreferencesKey("skip_intro_enabled")
+    private val dolbyAudioCompatibilityModeKey = booleanPreferencesKey("dolby_audio_compatibility_mode")
     private val mapDV7ToHevcKey = booleanPreferencesKey("map_dv7_to_hevc")
+    private val disableDolbyVisionKey = booleanPreferencesKey("disable_dolby_vision")
+    private val disableDolbyVisionForDv7Key = booleanPreferencesKey("disable_dolby_vision_for_dv7")
+    private val requestSdrToneMappingKey = booleanPreferencesKey("request_sdr_tone_mapping")
+    private val forceInterpretHdrAsSdrKey = booleanPreferencesKey("force_interpret_hdr_as_sdr")
+    private val hdrPlaybackCompatibilityModeKey = stringPreferencesKey("hdr_playback_compatibility_mode")
     private val mpvHardwareDecodeModeKey = stringPreferencesKey("mpv_hardware_decode_mode")
     private val frameRateMatchingKey = booleanPreferencesKey("frame_rate_matching")
     private val frameRateMatchingModeKey = stringPreferencesKey("frame_rate_matching_mode")
@@ -457,7 +480,15 @@ class PlayerSettingsDataStore @Inject constructor(
                 pauseOverlayEnabled = prefs[pauseOverlayEnabledKey] ?: true,
                 osdClockEnabled = prefs[osdClockEnabledKey] ?: true,
                 skipIntroEnabled = prefs[skipIntroEnabledKey] ?: true,
+                dolbyAudioCompatibilityMode = prefs[dolbyAudioCompatibilityModeKey] ?: false,
                 mapDV7ToHevc = prefs[mapDV7ToHevcKey] ?: false,
+                disableDolbyVision = prefs[disableDolbyVisionKey] ?: false,
+                disableDolbyVisionForDv7 = prefs[disableDolbyVisionForDv7Key] ?: false,
+                hdrPlaybackCompatibilityMode = parseHdrPlaybackCompatibilityMode(
+                    prefs[hdrPlaybackCompatibilityModeKey],
+                    prefs[requestSdrToneMappingKey] ?: false,
+                    prefs[forceInterpretHdrAsSdrKey] ?: false
+                ),
                 mpvHardwareDecodeMode = parseMpvHardwareDecodeMode(prefs[mpvHardwareDecodeModeKey]),
                 frameRateMatchingMode = prefs[frameRateMatchingModeKey]?.let {
                     runCatching { FrameRateMatchingMode.valueOf(it) }.getOrNull()
@@ -650,6 +681,12 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun setDolbyAudioCompatibilityMode(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[dolbyAudioCompatibilityModeKey] = enabled
+        }
+    }
+
     suspend fun setLoadingOverlayEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[loadingOverlayEnabledKey] = enabled
@@ -819,6 +856,25 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
+    private fun parseHdrPlaybackCompatibilityMode(
+        value: String?,
+        requestSdrToneMapping: Boolean,
+        forceInterpretHdrAsSdr: Boolean
+    ): HdrPlaybackCompatibilityMode {
+        return when (value) {
+            "TONE_MAP_HDR_TO_SDR" -> HdrPlaybackCompatibilityMode.TONE_MAP_HDR_TO_SDR
+            "EXPERIMENTAL_CONVERT_HDR10_PLUS_TO_HDR10" ->
+                HdrPlaybackCompatibilityMode.EXPERIMENTAL_CONVERT_HDR10_PLUS_TO_HDR10
+            "EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR" -> HdrPlaybackCompatibilityMode.EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR
+            "OFF", null -> when {
+                forceInterpretHdrAsSdr -> HdrPlaybackCompatibilityMode.EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR
+                requestSdrToneMapping -> HdrPlaybackCompatibilityMode.TONE_MAP_HDR_TO_SDR
+                else -> HdrPlaybackCompatibilityMode.OFF
+            }
+            else -> HdrPlaybackCompatibilityMode.OFF
+        }
+    }
+
     private fun normalizeSelectableLanguageCode(language: String): String {
         val code = language.trim().lowercase()
         return when (code) {
@@ -843,6 +899,29 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setMapDV7ToHevc(enabled: Boolean) {
         store().edit { prefs ->
             prefs[mapDV7ToHevcKey] = enabled
+        }
+    }
+
+    suspend fun setDisableDolbyVision(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[disableDolbyVisionKey] = enabled
+        }
+    }
+
+    suspend fun setDolbyVisionProfile7Mode(mode: DolbyVisionProfile7Mode) {
+        store().edit { prefs ->
+            prefs[mapDV7ToHevcKey] =
+                mode == DolbyVisionProfile7Mode.MAP_TO_HEVC || mode == DolbyVisionProfile7Mode.DISABLE_DV7
+            prefs[disableDolbyVisionForDv7Key] = mode == DolbyVisionProfile7Mode.DISABLE_DV7
+            prefs[disableDolbyVisionKey] = false
+        }
+    }
+
+    suspend fun setHdrPlaybackCompatibilityMode(mode: HdrPlaybackCompatibilityMode) {
+        store().edit { prefs ->
+            prefs[hdrPlaybackCompatibilityModeKey] = mode.name
+            prefs.remove(requestSdrToneMappingKey)
+            prefs.remove(forceInterpretHdrAsSdrKey)
         }
     }
 

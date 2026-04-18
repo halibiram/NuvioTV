@@ -12,6 +12,7 @@ import com.nuvio.tv.data.local.SUBTITLE_LANGUAGE_FORCED
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -39,6 +40,9 @@ internal fun PlayerRuntimeController.updateAvailableTracks(tracks: Tracks) {
                 for (i in 0 until trackGroup.length) {
                     if (trackGroup.isTrackSelected(i)) {
                         val format = trackGroup.getTrackFormat(i)
+                        currentVideoFormat = format
+                        currentVideoIsDolbyVision = isDolbyVisionVideo(format)
+                        currentVideoIsHdr = isHdrVideo(format)
                         if (format.frameRate > 0f) {
                             val raw = format.frameRate
                             val snapped = FrameRateUtils.snapToStandardRate(raw)
@@ -125,6 +129,15 @@ internal fun PlayerRuntimeController.updateAvailableTracks(tracks: Tracks) {
                 }
             }
         }
+    }
+
+    if (currentVideoFormat == null) {
+        currentVideoIsDolbyVision = false
+        currentVideoIsHdr = false
+    }
+
+    scope.launch {
+        applyEffectiveDolbyPlaybackSettings(playerSettingsDataStore.playerSettings.first())
     }
 
     hasScannedTextTracksOnce = true

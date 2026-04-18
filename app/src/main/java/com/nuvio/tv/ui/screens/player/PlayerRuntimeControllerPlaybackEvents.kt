@@ -10,6 +10,7 @@ import com.nuvio.tv.data.repository.parseContentIds
 import com.nuvio.tv.data.repository.toTraktIds
 import com.nuvio.tv.domain.model.WatchProgress
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -717,12 +718,19 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 setPlaybackSpeedInternal(event.speed)
             } else {
                 val requiresPcm = _exoPlayer?.let(::selectedAudioRequiresPcmForSpeed) == true
-                playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
-                    event.speed,
-                    selectedAudioRequiresPcmForSpeed = requiresPcm
-                )
-                _exoPlayer?.let { player ->
-                    player.setPlaybackSpeed(event.speed)
+                scope.launch {
+                    val settings = playerSettingsDataStore.playerSettings.first()
+                    playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
+                        event.speed,
+                        selectedAudioRequiresPcmForSpeed = requiresPcm,
+                        forceDolbyCompatibilityMode = shouldForceDolbyAudioCompatibility(
+                            settings = settings,
+                            currentVideoIsDolbyVision = currentVideoIsDolbyVision
+                        )
+                    )
+                    _exoPlayer?.let { player ->
+                        player.setPlaybackSpeed(event.speed)
+                    }
                 }
             }
             _uiState.update { 
