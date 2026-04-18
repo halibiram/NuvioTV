@@ -1214,10 +1214,14 @@ private class NuvioMediaCodecVideoRenderer(
     }
 
     override fun handleInputBufferSupplementalData(buffer: DecoderInputBuffer) {
-        if (
-            (convertHdr10PlusToHdr10 && lastConfiguredInputFormat?.let(::isHdrVideo) == true) ||
-            lastConfiguredInputFormat?.let(::shouldUseAppLevelDv7HdrFallback) == true
-        ) {
+        val format = lastConfiguredInputFormat
+        if (format != null && format.let {
+                (convertHdr10PlusToHdr10 && isHdrVideo(it)) ||
+                (forceInterpretHdrAsSdr && isHdrVideo(it)) ||
+                shouldUseAppLevelDv7HdrFallback(it)
+            }) {
+            buffer.supplementalData?.clear()
+            buffer.clearFlag(androidx.media3.common.C.BUFFER_FLAG_HAS_SUPPLEMENTAL_DATA)
             return
         }
         super.handleInputBufferSupplementalData(buffer)
@@ -1249,6 +1253,18 @@ private class NuvioMediaCodecVideoRenderer(
             deviceNeedsNoPostProcessWorkaround,
             tunnelingAudioSessionId
         )
+        
+        if (convertHdr10PlusToHdr10 && isHdrVideo(format) && mediaFormat.containsKey(android.media.MediaFormat.KEY_PROFILE)) {
+            val profile = mediaFormat.getInteger(android.media.MediaFormat.KEY_PROFILE)
+            if (profile == 4096 /* HEVCProfileMain10HDR10Plus */) {
+                mediaFormat.setInteger(android.media.MediaFormat.KEY_PROFILE, 2 /* HEVCProfileMain10 */)
+            } else if (profile == 16384 /* VP9Profile2HDR10Plus */) {
+                mediaFormat.setInteger(android.media.MediaFormat.KEY_PROFILE, 4096 /* VP9Profile2 */)
+            } else if (profile == 32768 /* VP9Profile3HDR10Plus */) {
+                mediaFormat.setInteger(android.media.MediaFormat.KEY_PROFILE, 8192 /* VP9Profile3 */)
+            }
+        }
+        
         return mediaFormat
     }
 
