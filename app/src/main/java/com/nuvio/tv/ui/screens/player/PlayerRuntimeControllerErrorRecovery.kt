@@ -385,35 +385,33 @@ internal fun PlayerRuntimeController.tryAv1SoftwareDecoderFallback(
 }
 
 /**
- * DV7-to-HEVC decoder fallback for ERROR_CODE_DECODER_INIT_FAILED (4003).
+ * Disable Dolby Vision fallback for ERROR_CODE_DECODER_INIT_FAILED (4003).
  *
  * When decoderPriority == 1 (EXTENSION_RENDERER_MODE_ON) and the decoder
- * fails to initialise, this is often caused by Dolby Vision profile 7
- * content on devices without a DV decoder.  Enabling the DV7-to-HEVC
- * mapping allows the HEVC decoder to handle the stream instead.
- *
- * Unlike the PCM fallback this requires a full player rebuild because
- * the mapping is baked into the renderers factory at build time.
- * Tunneling state does not matter for this fallback.
+ * fails to initialise, this is often caused by Dolby Vision content on
+ * devices without proper or usable DV decoder support.
+ * By completely disabling Dolby Vision, ExoPlayer will try to fall back
+ * to standard HDR or SDR video codecs (if the stream provides compat tracks)
+ * or decode it as HEVC without DV extensions.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun PlayerRuntimeController.tryDv7HevcFallback(
+internal fun PlayerRuntimeController.tryDisableDolbyVisionFallback(
     error: PlaybackException
 ): Boolean {
     if (error.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) return false
-    if (hasTriedDv7HevcFallback) return false
+    if (hasTriedDisableDolbyVisionFallback) return false
     if (cachedDecoderPriority != 1) return false
-    // Skip if DV7-to-HEVC is already active — nothing more we can do.
-    if (forceDv7ToHevc) return false
+    // Skip if Dolby Vision is already forcefully disabled.
+    if (forceDisableDolbyVision) return false
 
-    hasTriedDv7HevcFallback = true
-    forceDv7ToHevc = true
+    hasTriedDisableDolbyVisionFallback = true
+    forceDisableDolbyVision = true
 
     val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
 
     Log.d(
         PlayerRuntimeController.TAG,
-        "Decoder init failed (4003) — retrying with DV7-to-HEVC mapping, position=${savedPosition}ms"
+        "Decoder init failed (4003) — retrying with Dolby Vision disabled, position=${savedPosition}ms"
     )
 
     resetErrorRetryState()

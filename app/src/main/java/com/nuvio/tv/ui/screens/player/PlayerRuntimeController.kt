@@ -320,8 +320,10 @@ class PlayerRuntimeController(
     internal var hasTriedAudioPcmFallback: Boolean = false
     internal var hasTriedAv1SoftwareFallback: Boolean = false
     internal var hasTriedDv7HevcFallback: Boolean = false
+    internal var hasTriedDisableDolbyVisionFallback: Boolean = false
     internal var forceSoftwareAv1Playback: Boolean = false
     internal var forceDv7ToHevc: Boolean = false
+    internal var forceDisableDolbyVision: Boolean = false
     internal var startupRetryCount: Int = 0
     internal var errorRetryCount: Int = 0
     internal var errorRetryJob: Job? = null

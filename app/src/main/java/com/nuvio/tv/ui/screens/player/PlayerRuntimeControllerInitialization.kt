@@ -151,6 +151,7 @@ internal fun PlayerRuntimeController.initializePlayer(
             hasTriedAudioPcmFallback = false
             hasTriedAv1SoftwareFallback = false
             hasTriedDv7HevcFallback = false
+            hasTriedDisableDolbyVisionFallback = false
             mpvDelayStartAfterAfrSwitch = false
             val playerSettings = playerSettingsDataStore.playerSettings.first()
             val effectiveDecoderPriority =
@@ -297,7 +298,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 onPlaybackSpeedAwareAudioOutputProviderCreated = { playbackSpeedAwareAudioOutputProvider = it },
                 preferDolbyAudioCompatibilityMode = playerSettings.dolbyAudioCompatibilityMode,
                 mapDV7ToHevc = playerSettings.mapDV7ToHevc,
-                disableDolbyVision = playerSettings.disableDolbyVision,
+                disableDolbyVision = playerSettings.disableDolbyVision || forceDisableDolbyVision,
                 disableDolbyVisionForDv7 = playerSettings.disableDolbyVisionForDv7,
                 requestSdrToneMapping =
                     playerSettings.hdrPlaybackCompatibilityMode == HdrPlaybackCompatibilityMode.TONE_MAP_HDR_TO_SDR,
@@ -547,7 +548,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         if (tryAv1SoftwareDecoderFallback(error)) {
                             return
                         }
-                        if (tryDv7HevcFallback(error)) {
+                        if (tryDisableDolbyVisionFallback(error)) {
                             return
                         }
                         if (attemptStartupRecovery(error, detailedError)) {
