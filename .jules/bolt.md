@@ -1,0 +1,3 @@
+## 2025-05-18 - Compose Rendering Performance on Android TV
+**Learning:** For 'ModernHome' layouts, multiple overlapping Box components with static or semi-static backgrounds, such as gradients, cause severe overdraw and increase the node tree depth. This has an outsized negative impact on rendering performance (FPS) specifically on lower-powered Android TV devices compared to standard mobile.
+**Action:** Consolidate multiple overlapping Compose Box components with background modifiers or layers into a single Box by drawing layers manually using `Modifier.drawWithCache` and `onDrawBehind` (or `onDrawWithContent`). This flattens the node tree and significantly cuts down on overdraw for complex backgrounds, especially on TV interfaces.
