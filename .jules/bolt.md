@@ -1,0 +1,3 @@
+## 2026-04-23 - Prevent Overdraw in Compose on Android TV
+**Learning:** Overlapping `Box` elements with backgrounds or gradients in Jetpack Compose cause severe overdraw and increase the node tree depth/width. This is particularly problematic on Android TV devices, leading to performance bottlenecks such as in the `ModernHome` layout.
+**Action:** Instead of stacking multiple `Box` modifiers (like one for the media layer and another for the gradient layer), combine them. Draw the gradient onto the same `Box` using `Modifier.drawWithCache` and `onDrawWithContent`. This eliminates an entire node layer and effectively prevents the overdraw issue.
