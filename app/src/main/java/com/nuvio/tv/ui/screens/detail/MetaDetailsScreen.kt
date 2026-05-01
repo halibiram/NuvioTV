@@ -1358,6 +1358,20 @@ private fun MetaDetailsContent(
         }
     }
 
+    // Re-request hero focus when late-arriving async state (nextToWatch, mdbListRatings)
+    // causes structural recomposition that invalidates the focus node.
+    LaunchedEffect(nextToWatch, mdbListRatings) {
+        if (
+            initialHeroFocusRequested &&
+            pendingRestoreType == null &&
+            !isTrailerPlaying
+        ) {
+            delay(50)
+            android.util.Log.d("DetailFocus", "Focus recovery after async state update (nextToWatch=$nextToWatch, mdbListRatings=${mdbListRatings != null})")
+            heroPlayFocusRequester.requestFocusAfterFrames()
+        }
+    }
+
     // Pre-compute screen dimensions to avoid BoxWithConstraints subcomposition overhead
     val configuration = LocalConfiguration.current
     val localContext = LocalContext.current
