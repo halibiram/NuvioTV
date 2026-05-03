@@ -167,6 +167,7 @@ data class PlayerSettings(
     // Audio settings
     val decoderPriority: Int = 1, // EXTENSION_RENDERER_MODE_ON (0=off, 1=on, 2=prefer)
     val tunnelingEnabled: Boolean = false,
+    val forceStereoDownmix: Boolean = false,
     val skipSilence: Boolean = false,
     val audioAmplificationDb: Int = 0,
     val persistAudioAmplification: Boolean = false,
@@ -299,6 +300,7 @@ class PlayerSettingsDataStore @Inject constructor(
     // Audio settings keys
     private val decoderPriorityKey = intPreferencesKey("decoder_priority")
     private val tunnelingEnabledKey = booleanPreferencesKey("tunneling_enabled")
+    private val forceStereoDownmixKey = booleanPreferencesKey("force_stereo_downmix")
     private val skipSilenceKey = booleanPreferencesKey("skip_silence")
     private val audioAmplificationDbKey = intPreferencesKey("audio_amplification_db")
     private val persistAudioAmplificationKey = booleanPreferencesKey("persist_audio_amplification")
@@ -444,6 +446,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 } ?: LibassRenderType.OVERLAY_OPEN_GL,
                 decoderPriority = prefs[decoderPriorityKey] ?: 1,
                 tunnelingEnabled = prefs[tunnelingEnabledKey] ?: false,
+                forceStereoDownmix = prefs[forceStereoDownmixKey] ?: false,
                 skipSilence = prefs[skipSilenceKey] ?: false,
                 audioAmplificationDb = (prefs[audioAmplificationDbKey] ?: 0).coerceIn(
                     AUDIO_AMPLIFICATION_DB_MIN,
@@ -585,6 +588,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setTunnelingEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[tunnelingEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setForceStereoDownmix(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[forceStereoDownmixKey] = enabled
         }
     }
 

@@ -329,6 +329,7 @@ class PlayerRuntimeController(
     internal var hasRetriedCurrentStreamAfter416: Boolean = false
     internal var isReleasingPlayer: Boolean = false
     internal var cachedDecoderPriority: Int = 1
+    internal var cachedForceStereoDownmix: Boolean = false
     internal var hasTriedAudioPcmFallback: Boolean = false
     internal var hasTriedDv7HevcFallback: Boolean = false
     internal var forceDv7ToHevc: Boolean = false

@@ -13,6 +13,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.ChannelMixingAudioProcessor
+import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
@@ -114,6 +117,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 applyStoredAudioDelayForCurrentRouteIfEnabled()
             }
             cachedDecoderPriority = playerSettings.decoderPriority
+            cachedForceStereoDownmix = playerSettings.forceStereoDownmix
             val preferredAudioLanguages = resolvePreferredAudioLanguages(
                 preferredAudioLanguage = playerSettings.preferredAudioLanguage,
                 secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
@@ -274,6 +278,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 },
                 gainAudioProcessor = gainAudioProcessor,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
+                forceStereoDownmixProvider = { cachedForceStereoDownmix },
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it }
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || forceDv7ToHevc)
@@ -796,6 +801,7 @@ private class SubtitleOffsetRenderersFactory(
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val gainAudioProcessor: GainAudioProcessor,
     private val playbackSpeedProvider: () -> Float,
+    private val forceStereoDownmixProvider: () -> Boolean,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit
 ) : DefaultRenderersFactory(context) {
 
@@ -804,10 +810,21 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
+        val audioProcessors: Array<AudioProcessor> = if (forceStereoDownmixProvider()) {
+            val channelMixing = ChannelMixingAudioProcessor()
+            for (inputChannels in 1..6) {
+                channelMixing.putChannelMixingMatrix(
+                    ChannelMixingMatrix.createForConstantPower(inputChannels, 2)
+                )
+            }
+            arrayOf(channelMixing, gainAudioProcessor)
+        } else {
+            arrayOf(gainAudioProcessor)
+        }
         val baseAudioSink = DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableFloatOutput(enableFloatOutput && !forceStereoDownmixProvider())
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            .setAudioProcessors(arrayOf(gainAudioProcessor))
+            .setAudioProcessors(audioProcessors)
             .build()
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(baseAudioSink)
         playbackSpeedAwareAudioSink.setInitialPlaybackSpeed(playbackSpeedProvider())

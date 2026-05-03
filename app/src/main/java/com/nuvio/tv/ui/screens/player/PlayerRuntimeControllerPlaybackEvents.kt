@@ -1138,8 +1138,15 @@ internal fun PlayerRuntimeController.buildStreamInfoData(): StreamInfoData {
         videoFrameRate = state.detectedFrameRate.takeIf { it > 0f },
         videoBitrate = currentVideoBitrate,
         audioCodec = selectedAudio?.codec,
-        audioChannels = selectedAudio?.channelCount?.let {
-            CustomDefaultTrackNameProvider.getChannelLayoutName(it)
+        audioChannels = selectedAudio?.channelCount?.let { count ->
+            val showDownmix = cachedForceStereoDownmix &&
+                count > 2 &&
+                currentInternalPlayerEngine == com.nuvio.tv.data.local.InternalPlayerEngine.EXOPLAYER
+            if (showDownmix) {
+                context.getString(R.string.stream_info_channels_downmix_label)
+            } else {
+                CustomDefaultTrackNameProvider.getChannelLayoutName(count)
+            }
         },
         audioSampleRate = selectedAudio?.sampleRate,
         audioLanguage = selectedAudio?.language,

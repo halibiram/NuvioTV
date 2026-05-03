@@ -457,6 +457,9 @@
     <string name="audio_decoder_priority">Decoder Priority</string>
     <string name="audio_tunneled">Tunneled Playback</string>
     <string name="audio_tunneled_sub">Hardware-level audio/video sync. May improve playback on some Android TV devices</string>
+    <string name="audio_force_stereo_downmix">Force Stereo Downmix</string>
+    <string name="audio_force_stereo_downmix_sub">Limit playback to 2 channels. Boosts dialogue clarity on TVs without surround speakers, and avoids multichannel AudioTrack init failures</string>
+    <string name="stream_info_channels_downmix_label">Stereo (downmix)</string>
     <string name="audio_dv_sub">Map Dolby Vision Profile 7 to standard HEVC for devices without DV hardware support</string>
     <string name="audio_mpv_hwdec_title">Hardware Decoding (MPV-only)</string>
     <string name="audio_mpv_hwdec_dialog_subtitle">Select how libmpv should use hardware decoders.</string>

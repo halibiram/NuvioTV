@@ -142,6 +142,7 @@ internal fun PlaybackSettingsSections(
     onSetSkipSilence: (Boolean) -> Unit,
     onSetRememberAudioDelayPerDevice: (Boolean) -> Unit,
     onSetTunnelingEnabled: (Boolean) -> Unit,
+    onSetForceStereoDownmix: (Boolean) -> Unit,
     onSetMapDV7ToHevc: (Boolean) -> Unit,
     onSetSubtitleSize: (Int) -> Unit,
     onSetSubtitleVerticalOffset: (Int) -> Unit,
@@ -461,6 +462,7 @@ internal fun PlaybackSettingsSections(
                 onSetSkipSilence = onSetSkipSilence,
                 onSetRememberAudioDelayPerDevice = onSetRememberAudioDelayPerDevice,
                 onSetTunnelingEnabled = onSetTunnelingEnabled,
+                onSetForceStereoDownmix = onSetForceStereoDownmix,
                 onSetMapDV7ToHevc = onSetMapDV7ToHevc,
                 onItemFocused = { focusedSection = PlaybackSection.AUDIO_TRAILER },
                 enabled = !generalUi.isExternalPlayer

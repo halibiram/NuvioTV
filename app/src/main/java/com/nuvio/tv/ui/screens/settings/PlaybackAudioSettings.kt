@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Speed
@@ -71,6 +72,7 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
     onSetSkipSilence: (Boolean) -> Unit,
     onSetRememberAudioDelayPerDevice: (Boolean) -> Unit,
     onSetTunnelingEnabled: (Boolean) -> Unit,
+    onSetForceStereoDownmix: (Boolean) -> Unit,
     onSetMapDV7ToHevc: (Boolean) -> Unit,
     onItemFocused: () -> Unit = {},
     enabled: Boolean = true
@@ -237,6 +239,18 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             subtitle = stringResource(R.string.audio_tunneled_sub),
             isChecked = playerSettings.tunnelingEnabled,
             onCheckedChange = onSetTunnelingEnabled,
+            onFocused = onItemFocused,
+            enabled = enabled
+        )
+    }
+
+    item(key = "audio_force_stereo_downmix") {
+        ToggleSettingsItem(
+            icon = Icons.Default.Hearing,
+            title = stringResource(R.string.audio_force_stereo_downmix),
+            subtitle = stringResource(R.string.audio_force_stereo_downmix_sub),
+            isChecked = playerSettings.forceStereoDownmix,
+            onCheckedChange = onSetForceStereoDownmix,
             onFocused = onItemFocused,
             enabled = enabled
         )
