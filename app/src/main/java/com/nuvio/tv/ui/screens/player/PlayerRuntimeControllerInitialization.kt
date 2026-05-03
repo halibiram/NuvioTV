@@ -842,7 +842,7 @@ private class SubtitleOffsetRenderersFactory(
             arrayOf(gainAudioProcessor)
         }
         val baseAudioSink = DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(enableFloatOutput && !forceStereoDownmixProvider())
+            .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioProcessors(audioProcessors)
             .build()
