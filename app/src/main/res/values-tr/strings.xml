@@ -1062,6 +1062,8 @@
     <string name="audio_mix_value_db">%1$d dB</string>
     <string name="audio_mix_persist_on">Oturumlar arası sakla: Açık</string>
     <string name="audio_mix_persist_off">Oturumlar arası sakla: Kapalı</string>
+    <string name="audio_force_downmix_session_on">Stereo indirgeme: Açık</string>
+    <string name="audio_force_downmix_session_off">Stereo indirgeme: Kapalı</string>
     <string name="audio_mix_range">Aralık: %1$d dB - %2$d dB</string>
     <string name="audio_mix_range_saved">Aralık: %1$d dB - %2$d dB (kaydedildi)</string>
     <string name="audio_mix_unavailable">Bu cihazda amplifikasyon kullanılamıyor</string>

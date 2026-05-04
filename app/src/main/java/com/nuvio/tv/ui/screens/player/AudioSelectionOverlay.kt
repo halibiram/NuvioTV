@@ -367,6 +367,17 @@ private fun AudioControlsContent(
         else -> leftFocusRequester
     }
 
+    val persistLabel = if (persistAmplification) {
+        stringResource(R.string.audio_mix_persist_on)
+    } else {
+        stringResource(R.string.audio_mix_persist_off)
+    }
+    val downmixLabel = if (forceStereoDownmixActive) {
+        stringResource(R.string.audio_force_downmix_session_on)
+    } else {
+        stringResource(R.string.audio_force_downmix_session_off)
+    }
+
     val amplificationHelperText = when {
         !isAmplificationAvailable -> stringResource(R.string.audio_mix_unavailable)
         persistAmplification -> stringResource(
@@ -479,11 +490,7 @@ private fun AudioControlsContent(
                 scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
             ) {
                 Text(
-                    text = if (persistAmplification) {
-                        stringResource(R.string.audio_mix_persist_on)
-                    } else {
-                        stringResource(R.string.audio_mix_persist_off)
-                    },
+                    text = persistLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (persistAmplification) NuvioColors.OnSecondary else Color.White,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -517,11 +524,7 @@ private fun AudioControlsContent(
                 scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
             ) {
                 Text(
-                    text = if (forceStereoDownmixActive) {
-                        stringResource(R.string.audio_force_downmix_session_on)
-                    } else {
-                        stringResource(R.string.audio_force_downmix_session_off)
-                    },
+                    text = downmixLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (forceStereoDownmixActive) NuvioColors.OnSecondary else Color.White,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
