@@ -77,14 +77,11 @@ internal fun ModernHeroScene(
         muted = state.trailerMuted,
         onTrailerEnded = onTrailerEnded,
         onFirstFrameRendered = onFirstFrameRendered,
+        bgColor = bgColor,
+        isFullScreen = state.fullScreenBackdrop,
         modifier = modifier,
         requestWidthPx = requestWidthPx,
         requestHeightPx = requestHeightPx
-    )
-    ModernHeroGradientLayer(
-        bgColor = bgColor,
-        isFullScreen = state.fullScreenBackdrop,
-        modifier = modifier
     )
 }
 
@@ -99,6 +96,8 @@ internal fun ModernHeroMediaLayer(
     muted: Boolean,
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit,
+    bgColor: Color,
+    isFullScreen: Boolean = false,
     modifier: Modifier,
     requestWidthPx: Int,
     requestHeightPx: Int
@@ -123,51 +122,6 @@ internal fun ModernHeroMediaLayer(
             .build()
     }
 
-    Box(modifier = modifier) {
-        AsyncImage(
-            model = imageModel,
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (transitionProgressState.value > 0f) {
-                        Modifier.graphicsLayer {
-                            alpha = 1f - transitionProgressState.value
-                        }
-                    } else {
-                        Modifier
-                    }
-                ),
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopEnd
-        )
-
-        if (shouldPlayHeroTrailer) {
-            TrailerPlayer(
-                trailerUrl = heroTrailerUrl,
-                trailerAudioUrl = heroTrailerAudioUrl,
-                isPlaying = true,
-                onEnded = onTrailerEnded,
-                onFirstFrameRendered = onFirstFrameRendered,
-                muted = muted,
-                cropToFill = true,
-                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = transitionProgressState.value
-                    }
-            )
-        }
-    }
-}
-
-@Composable
-internal fun ModernHeroGradientLayer(
-    bgColor: Color,
-    isFullScreen: Boolean = false,
-    modifier: Modifier
-) {
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(
         modifier = modifier
@@ -225,7 +179,9 @@ internal fun ModernHeroGradientLayer(
                     endY = size.height
                 )
 
-                onDrawBehind {
+                onDrawWithContent {
+                    drawContent()
+
                     // 1. Horizontal fade (reversed in RTL)
                     val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
                     drawRect(
@@ -242,7 +198,43 @@ internal fun ModernHeroGradientLayer(
                     )
                 }
             }
-    )
+    ) {
+        AsyncImage(
+            model = imageModel,
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (transitionProgressState.value > 0f) {
+                        Modifier.graphicsLayer {
+                            alpha = 1f - transitionProgressState.value
+                        }
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopEnd
+        )
+
+        if (shouldPlayHeroTrailer) {
+            TrailerPlayer(
+                trailerUrl = heroTrailerUrl,
+                trailerAudioUrl = heroTrailerAudioUrl,
+                isPlaying = true,
+                onEnded = onTrailerEnded,
+                onFirstFrameRendered = onFirstFrameRendered,
+                muted = muted,
+                cropToFill = true,
+                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = transitionProgressState.value
+                    }
+            )
+        }
+    }
 }
 
 @Composable
