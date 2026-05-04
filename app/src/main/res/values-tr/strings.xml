@@ -1286,7 +1286,6 @@
     <string name="plugin_confirm_confirm">Tamam, Uygula</string>
     <string name="plugin_duplicates_title">Yinelenen sağlayıcılar tespit edildi</string>
     <string name="plugin_duplicates_subtitle">Aşağıdaki sağlayıcıların birden fazla aktif kopyası var. Yinelenen kopyaları devre dışı bırakalım mı?</string>
-    <string name="plugin_duplicates_keep">Aktif kalacak: %1$s</string>
     <string name="plugin_duplicates_disable">%1$d tanesini kapat</string>
     <string name="plugin_duplicates_later">Daha sonra</string>
     <string name="plugin_updated_format">Güncellenme: %1$s</string>

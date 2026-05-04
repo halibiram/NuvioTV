@@ -941,9 +941,8 @@ private fun DuplicateResolutionDialog(
                             if (index > 0) {
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
-                            val keepLabel = stringResource(R.string.plugin_duplicates_keep, group.keep.name)
                             val keepText = buildAnnotatedString {
-                                append(keepLabel)
+                                append(group.keep.name)
                                 if (group.keep.repositoryName.isNotBlank()) {
                                     withStyle(
                                         SpanStyle(

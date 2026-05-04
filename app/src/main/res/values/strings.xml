@@ -1298,7 +1298,6 @@
     <string name="plugin_confirm_confirm">Confirm</string>
     <string name="plugin_duplicates_title">Duplicate providers detected</string>
     <string name="plugin_duplicates_subtitle">The following providers have more than one active copy across your repositories. Disable the duplicates?</string>
-    <string name="plugin_duplicates_keep">Keep enabled: %1$s</string>
     <string name="plugin_duplicates_disable">Disable %1$d</string>
     <string name="plugin_duplicates_later">Later</string>
     <string name="plugin_updated_format">Updated: %1$s</string>
