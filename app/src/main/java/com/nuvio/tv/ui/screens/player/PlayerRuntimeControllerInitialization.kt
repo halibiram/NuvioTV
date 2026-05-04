@@ -285,6 +285,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         PlayerSubtitleUtils.mimeTypeFromUrl(selectedAddonSubtitle.url) == MimeTypes.TEXT_VTT
                 },
                 gainAudioProcessor = gainAudioProcessor,
+                centerChannelGainAudioProcessor = centerChannelGainAudioProcessor,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 forceStereoDownmixProvider = { cachedForceStereoDownmix },
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it }
@@ -808,6 +809,7 @@ private class SubtitleOffsetRenderersFactory(
     private val audioDelayUsProvider: () -> Long,
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val gainAudioProcessor: GainAudioProcessor,
+    private val centerChannelGainAudioProcessor: CenterChannelGainAudioProcessor,
     private val playbackSpeedProvider: () -> Float,
     private val forceStereoDownmixProvider: () -> Boolean,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit
@@ -844,7 +846,11 @@ private class SubtitleOffsetRenderersFactory(
                 )
             )
         )
-        val audioProcessors: Array<AudioProcessor> = arrayOf(channelMixing, gainAudioProcessor)
+        val audioProcessors: Array<AudioProcessor> = arrayOf(
+            centerChannelGainAudioProcessor,
+            channelMixing,
+            gainAudioProcessor
+        )
         val baseAudioSink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)

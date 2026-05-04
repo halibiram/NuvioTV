@@ -311,6 +311,7 @@ class PlayerRuntimeController(
     internal var lastBufferLogTimeMs: Long = 0L
     
     internal val gainAudioProcessor = GainAudioProcessor()
+    internal val centerChannelGainAudioProcessor = CenterChannelGainAudioProcessor()
     internal var trackSelector: DefaultTrackSelector? = null
     internal var currentMediaSession: MediaSession? = null
     internal var mpvView: NuvioMpvSurfaceView? = null

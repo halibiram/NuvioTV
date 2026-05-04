@@ -34,7 +34,13 @@ internal fun PlayerRuntimeController.applyAudioDelay(
 
 internal fun PlayerRuntimeController.applyAudioAmplification(db: Int) {
     val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
-    gainAudioProcessor.setGainDb(clampedDb)
+    if (cachedForceStereoDownmix) {
+        centerChannelGainAudioProcessor.setGainDb(clampedDb)
+        gainAudioProcessor.setGainDb(0)
+    } else {
+        centerChannelGainAudioProcessor.setGainDb(0)
+        gainAudioProcessor.setGainDb(clampedDb)
+    }
     if (isUsingMpvEngine()) {
         mpvView?.applyAudioAmplificationDb(clampedDb)
     }
@@ -670,6 +676,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             sessionForceStereoDownmixOverride = event.enabled
             sessionForceStereoDownmixOverrideUrl = currentStreamUrl
             cachedForceStereoDownmix = event.enabled
+            applyAudioAmplification(_uiState.value.audioAmplificationDb)
             _uiState.update { it.copy(forceStereoDownmixActive = event.enabled) }
             playbackSpeedAwareAudioSink?.notifyAudioCapabilitiesChanged()
         }
