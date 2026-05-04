@@ -1077,6 +1077,8 @@
     <string name="audio_mix_persist_off">Persist between sessions: OFF</string>
     <string name="audio_force_downmix_session_on">Stereo downmix: ON</string>
     <string name="audio_force_downmix_session_off">Stereo downmix: OFF</string>
+    <string name="audio_night_mode_session_on">Night mode: ON</string>
+    <string name="audio_night_mode_session_off">Night mode: OFF</string>
     <string name="audio_mix_range">Range: %1$d dB to %2$d dB</string>
     <string name="audio_mix_range_saved">Range: %1$d dB to %2$d dB (saved)</string>
     <string name="audio_mix_unavailable">Amplification is not available on this device</string>

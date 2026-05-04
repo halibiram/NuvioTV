@@ -126,6 +126,15 @@ internal fun PlayerRuntimeController.initializePlayer(
             cachedForceStereoDownmix =
                 sessionForceStereoDownmixOverride ?: playerSettings.forceStereoDownmix
             _uiState.update { it.copy(forceStereoDownmixActive = cachedForceStereoDownmix) }
+            if (sessionNightModeOverrideUrl != null &&
+                sessionNightModeOverrideUrl != url
+            ) {
+                sessionNightModeOverride = null
+                sessionNightModeOverrideUrl = null
+            }
+            cachedNightMode = sessionNightModeOverride ?: false
+            nightModeAudioProcessor.setEnabled(cachedNightMode)
+            _uiState.update { it.copy(nightModeActive = cachedNightMode) }
             val preferredAudioLanguages = resolvePreferredAudioLanguages(
                 preferredAudioLanguage = playerSettings.preferredAudioLanguage,
                 secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
@@ -286,6 +295,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 },
                 gainAudioProcessor = gainAudioProcessor,
                 centerChannelGainAudioProcessor = centerChannelGainAudioProcessor,
+                nightModeAudioProcessor = nightModeAudioProcessor,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 forceStereoDownmixProvider = { cachedForceStereoDownmix },
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it }
@@ -810,6 +820,7 @@ private class SubtitleOffsetRenderersFactory(
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val gainAudioProcessor: GainAudioProcessor,
     private val centerChannelGainAudioProcessor: CenterChannelGainAudioProcessor,
+    private val nightModeAudioProcessor: NightModeAudioProcessor,
     private val playbackSpeedProvider: () -> Float,
     private val forceStereoDownmixProvider: () -> Boolean,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit
@@ -898,6 +909,7 @@ private class SubtitleOffsetRenderersFactory(
         val audioProcessors: Array<AudioProcessor> = arrayOf(
             centerChannelGainAudioProcessor,
             channelMixing,
+            nightModeAudioProcessor,
             gainAudioProcessor
         )
         val baseAudioSink = DefaultAudioSink.Builder(context)

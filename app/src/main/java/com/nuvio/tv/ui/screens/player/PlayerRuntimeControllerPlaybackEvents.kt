@@ -681,6 +681,13 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _uiState.update { it.copy(forceStereoDownmixActive = event.enabled) }
             playbackSpeedAwareAudioSink?.notifyAudioCapabilitiesChanged()
         }
+        is PlayerEvent.OnSetNightModeForSession -> {
+            sessionNightModeOverride = event.enabled
+            sessionNightModeOverrideUrl = currentStreamUrl
+            cachedNightMode = event.enabled
+            nightModeAudioProcessor.setEnabled(event.enabled)
+            _uiState.update { it.copy(nightModeActive = event.enabled) }
+        }
         is PlayerEvent.OnSelectSubtitleTrack -> {
             logSwitchTrace(
                 stage = "event-select-subtitle-internal",

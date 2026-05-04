@@ -50,6 +50,7 @@ data class PlayerUiState(
     val isAudioAmplificationAvailable: Boolean = true,
     val persistAudioAmplification: Boolean = false,
     val forceStereoDownmixActive: Boolean = false,
+    val nightModeActive: Boolean = false,
     val showAudioOverlay: Boolean = false,
     val showSubtitleOverlay: Boolean = false,
     val showSubtitleStylePanel: Boolean = false,
@@ -214,6 +215,7 @@ sealed class PlayerEvent {
     data class OnSetAudioAmplificationDb(val db: Int) : PlayerEvent()
     data class OnSetPersistAudioAmplification(val enabled: Boolean) : PlayerEvent()
     data class OnSetForceStereoDownmixForSession(val enabled: Boolean) : PlayerEvent()
+    data class OnSetNightModeForSession(val enabled: Boolean) : PlayerEvent()
     data class OnSelectSubtitleTrack(val index: Int) : PlayerEvent()
     data object OnDisableSubtitles : PlayerEvent()
     data class OnSelectAddonSubtitle(val subtitle: Subtitle) : PlayerEvent()

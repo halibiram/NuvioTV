@@ -1083,6 +1083,7 @@ fun PlayerScreen(
             isAmplificationAvailable = uiState.isAudioAmplificationAvailable,
             persistAmplification = uiState.persistAudioAmplification,
             forceStereoDownmixActive = uiState.forceStereoDownmixActive,
+            nightModeActive = uiState.nightModeActive,
             onTrackSelected = { viewModel.onEvent(PlayerEvent.OnSelectAudioTrack(it)) },
             onAudioDelayChange = { viewModel.onEvent(PlayerEvent.OnSetAudioDelayMs(it)) },
             onAmplificationChange = { viewModel.onEvent(PlayerEvent.OnSetAudioAmplificationDb(it)) },
@@ -1091,6 +1092,9 @@ fun PlayerScreen(
             },
             onForceStereoDownmixChange = {
                 viewModel.onEvent(PlayerEvent.OnSetForceStereoDownmixForSession(it))
+            },
+            onNightModeChange = {
+                viewModel.onEvent(PlayerEvent.OnSetNightModeForSession(it))
             },
             onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay) },
             modifier = Modifier

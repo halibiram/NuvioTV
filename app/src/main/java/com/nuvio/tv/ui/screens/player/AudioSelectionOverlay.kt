@@ -62,11 +62,13 @@ internal fun AudioSelectionOverlay(
     isAmplificationAvailable: Boolean,
     persistAmplification: Boolean,
     forceStereoDownmixActive: Boolean,
+    nightModeActive: Boolean,
     onTrackSelected: (Int) -> Unit,
     onAudioDelayChange: (Int) -> Unit,
     onAmplificationChange: (Int) -> Unit,
     onPersistAmplificationChange: (Boolean) -> Unit,
     onForceStereoDownmixChange: (Boolean) -> Unit,
+    onNightModeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -77,6 +79,7 @@ internal fun AudioSelectionOverlay(
     val ampPlusFocusRequester = remember { FocusRequester() }
     val persistFocusRequester = remember { FocusRequester() }
     val downmixFocusRequester = remember { FocusRequester() }
+    val nightModeFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val currentDelayMs = audioDelayMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS)
     val canDecreaseDelay = currentDelayMs > AUDIO_DELAY_MIN_MS
@@ -163,17 +166,20 @@ internal fun AudioSelectionOverlay(
                         isAmplificationAvailable = isAmplificationAvailable,
                         persistAmplification = persistAmplification,
                         forceStereoDownmixActive = forceStereoDownmixActive,
+                        nightModeActive = nightModeActive,
                         delayMinusFocusRequester = delayMinusFocusRequester,
                         delayPlusFocusRequester = delayPlusFocusRequester,
                         ampMinusFocusRequester = ampMinusFocusRequester,
                         ampPlusFocusRequester = ampPlusFocusRequester,
                         persistFocusRequester = persistFocusRequester,
                         downmixFocusRequester = downmixFocusRequester,
+                        nightModeFocusRequester = nightModeFocusRequester,
                         leftFocusRequester = tracksFocusRequester,
                         onAudioDelayChange = onAudioDelayChange,
                         onAmplificationChange = onAmplificationChange,
                         onPersistAmplificationChange = onPersistAmplificationChange,
-                        onForceStereoDownmixChange = onForceStereoDownmixChange
+                        onForceStereoDownmixChange = onForceStereoDownmixChange,
+                        onNightModeChange = onNightModeChange
                     )
                 }
             }
@@ -329,17 +335,20 @@ private fun AudioControlsContent(
     isAmplificationAvailable: Boolean,
     persistAmplification: Boolean,
     forceStereoDownmixActive: Boolean,
+    nightModeActive: Boolean,
     delayMinusFocusRequester: FocusRequester,
     delayPlusFocusRequester: FocusRequester,
     ampMinusFocusRequester: FocusRequester,
     ampPlusFocusRequester: FocusRequester,
     persistFocusRequester: FocusRequester,
     downmixFocusRequester: FocusRequester,
+    nightModeFocusRequester: FocusRequester,
     leftFocusRequester: FocusRequester,
     onAudioDelayChange: (Int) -> Unit,
     onAmplificationChange: (Int) -> Unit,
     onPersistAmplificationChange: (Boolean) -> Unit,
-    onForceStereoDownmixChange: (Boolean) -> Unit
+    onForceStereoDownmixChange: (Boolean) -> Unit,
+    onNightModeChange: (Boolean) -> Unit
 ) {
     val currentDelayMs = audioDelayMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS)
     val canDecreaseDelay = currentDelayMs > AUDIO_DELAY_MIN_MS
@@ -383,6 +392,11 @@ private fun AudioControlsContent(
         stringResource(R.string.audio_force_downmix_session_on)
     } else {
         stringResource(R.string.audio_force_downmix_session_off)
+    }
+    val nightModeLabel = if (nightModeActive) {
+        stringResource(R.string.audio_night_mode_session_on)
+    } else {
+        stringResource(R.string.audio_night_mode_session_off)
     }
 
     val amplificationHelperText = when {
@@ -512,6 +526,7 @@ private fun AudioControlsContent(
                     .focusProperties {
                         left = persistLeftFocusRequester
                         up = persistFocusRequester
+                        down = nightModeFocusRequester
                     },
                 colors = CardDefaults.colors(
                     containerColor = if (forceStereoDownmixActive) NuvioColors.Secondary else Color.Transparent,
@@ -534,6 +549,40 @@ private fun AudioControlsContent(
                     text = downmixLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (forceStereoDownmixActive) NuvioColors.OnSecondary else Color.White,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                )
+            }
+
+            Card(
+                onClick = { onNightModeChange(!nightModeActive) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(nightModeFocusRequester)
+                    .focusProperties {
+                        left = persistLeftFocusRequester
+                        up = downmixFocusRequester
+                    },
+                colors = CardDefaults.colors(
+                    containerColor = if (nightModeActive) NuvioColors.Secondary else Color.Transparent,
+                    focusedContainerColor = if (nightModeActive) NuvioColors.Secondary else Color.Transparent
+                ),
+                shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+                border = CardDefaults.border(
+                    border = Border(
+                        border = BorderStroke(2.dp, Color.Transparent),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                    focusedBorder = Border(
+                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                ),
+                scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+            ) {
+                Text(
+                    text = nightModeLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (nightModeActive) NuvioColors.OnSecondary else Color.White,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                 )
             }

@@ -312,6 +312,7 @@ class PlayerRuntimeController(
     
     internal val gainAudioProcessor = GainAudioProcessor()
     internal val centerChannelGainAudioProcessor = CenterChannelGainAudioProcessor()
+    internal val nightModeAudioProcessor = NightModeAudioProcessor()
     internal var trackSelector: DefaultTrackSelector? = null
     internal var currentMediaSession: MediaSession? = null
     internal var mpvView: NuvioMpvSurfaceView? = null
@@ -333,6 +334,9 @@ class PlayerRuntimeController(
     internal var cachedForceStereoDownmix: Boolean = false
     internal var sessionForceStereoDownmixOverride: Boolean? = null
     internal var sessionForceStereoDownmixOverrideUrl: String? = null
+    internal var cachedNightMode: Boolean = false
+    internal var sessionNightModeOverride: Boolean? = null
+    internal var sessionNightModeOverrideUrl: String? = null
     internal var hasTriedAudioPcmFallback: Boolean = false
     internal var hasTriedDv7HevcFallback: Boolean = false
     internal var forceDv7ToHevc: Boolean = false
