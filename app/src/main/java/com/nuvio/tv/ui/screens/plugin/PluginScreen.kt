@@ -63,8 +63,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -933,47 +936,50 @@ private fun DuplicateResolutionDialog(
                             .padding(12.dp)
                             .verticalScroll(scrollState)
                     ) {
+                        val bodySmallSize = MaterialTheme.typography.bodySmall.fontSize
                         pending.groups.forEachIndexed { index, group ->
                             if (index > 0) {
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            val keepLabel = stringResource(R.string.plugin_duplicates_keep, group.keep.name)
+                            val keepText = buildAnnotatedString {
+                                append(keepLabel)
+                                if (group.keep.repositoryName.isNotBlank()) {
+                                    withStyle(
+                                        SpanStyle(
+                                            color = NuvioColors.TextTertiary,
+                                            fontSize = bodySmallSize
+                                        )
+                                    ) {
+                                        append(" - ${group.keep.repositoryName}")
+                                    }
+                                }
                             }
                             Text(
-                                text = stringResource(R.string.plugin_duplicates_keep, group.keep.name),
+                                text = keepText,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = NuvioColors.Success,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 2.dp)
                             )
-                            if (group.keep.repositoryName.isNotBlank()) {
-                                Text(
-                                    text = group.keep.repositoryName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = NuvioColors.TextTertiary,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 8.dp, bottom = 4.dp)
-                                )
-                            }
                             group.duplicates.forEach { duplicate ->
+                                val dupText = buildAnnotatedString {
+                                    append("- ${duplicate.name}")
+                                    if (duplicate.repositoryName.isNotBlank()) {
+                                        withStyle(SpanStyle(color = NuvioColors.TextTertiary)) {
+                                            append(" - ${duplicate.repositoryName}")
+                                        }
+                                    }
+                                }
                                 Text(
-                                    text = "- ${duplicate.name}",
+                                    text = dupText,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = NuvioColors.Error,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(start = 8.dp, top = 2.dp)
                                 )
-                                if (duplicate.repositoryName.isNotBlank()) {
-                                    Text(
-                                        text = duplicate.repositoryName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = NuvioColors.TextTertiary,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 16.dp)
-                                    )
-                                }
                             }
                         }
                     }
