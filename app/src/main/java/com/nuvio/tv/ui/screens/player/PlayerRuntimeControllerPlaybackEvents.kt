@@ -666,6 +666,13 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 )
             }
         }
+        is PlayerEvent.OnSetForceStereoDownmixForSession -> {
+            sessionForceStereoDownmixOverride = event.enabled
+            sessionForceStereoDownmixOverrideUrl = currentStreamUrl
+            cachedForceStereoDownmix = event.enabled
+            _uiState.update { it.copy(forceStereoDownmixActive = event.enabled) }
+            playbackSpeedAwareAudioSink?.notifyAudioCapabilitiesChanged()
+        }
         is PlayerEvent.OnSelectSubtitleTrack -> {
             logSwitchTrace(
                 stage = "event-select-subtitle-internal",

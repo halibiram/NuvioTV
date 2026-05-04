@@ -117,7 +117,15 @@ internal fun PlayerRuntimeController.initializePlayer(
                 applyStoredAudioDelayForCurrentRouteIfEnabled()
             }
             cachedDecoderPriority = playerSettings.decoderPriority
-            cachedForceStereoDownmix = playerSettings.forceStereoDownmix
+            if (sessionForceStereoDownmixOverrideUrl != null &&
+                sessionForceStereoDownmixOverrideUrl != url
+            ) {
+                sessionForceStereoDownmixOverride = null
+                sessionForceStereoDownmixOverrideUrl = null
+            }
+            cachedForceStereoDownmix =
+                sessionForceStereoDownmixOverride ?: playerSettings.forceStereoDownmix
+            _uiState.update { it.copy(forceStereoDownmixActive = cachedForceStereoDownmix) }
             val preferredAudioLanguages = resolvePreferredAudioLanguages(
                 preferredAudioLanguage = playerSettings.preferredAudioLanguage,
                 secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
@@ -810,37 +818,33 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
-        val audioProcessors: Array<AudioProcessor> = if (forceStereoDownmixProvider()) {
-            val channelMixing = ChannelMixingAudioProcessor()
-            for (inputChannels in 1..6) {
-                channelMixing.putChannelMixingMatrix(
-                    ChannelMixingMatrix.createForConstantPower(inputChannels, 2)
-                )
-            }
+        val channelMixing = ToggleableChannelMixingAudioProcessor(forceStereoDownmixProvider)
+        for (inputChannels in 1..6) {
             channelMixing.putChannelMixingMatrix(
-                ChannelMixingMatrix(
-                    7,
-                    2,
-                    floatArrayOf(
-                        1.0f, 0.0f, 0.7071f, 0.5f, 0.7071f, 0.0f, 0.7071f,
-                        0.0f, 1.0f, 0.7071f, 0.5f, 0.0f, 0.7071f, 0.7071f
-                    )
-                )
+                ChannelMixingMatrix.createForConstantPower(inputChannels, 2)
             )
-            channelMixing.putChannelMixingMatrix(
-                ChannelMixingMatrix(
-                    8,
-                    2,
-                    floatArrayOf(
-                        1.0f, 0.0f, 0.7071f, 0.5f, 0.7071f, 0.0f, 0.7071f, 0.0f,
-                        0.0f, 1.0f, 0.7071f, 0.5f, 0.0f, 0.7071f, 0.0f, 0.7071f
-                    )
-                )
-            )
-            arrayOf(channelMixing, gainAudioProcessor)
-        } else {
-            arrayOf(gainAudioProcessor)
         }
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                7,
+                2,
+                floatArrayOf(
+                    1.0f, 0.0f, 0.7071f, 0.5f, 0.7071f, 0.0f, 0.7071f,
+                    0.0f, 1.0f, 0.7071f, 0.5f, 0.0f, 0.7071f, 0.7071f
+                )
+            )
+        )
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                8,
+                2,
+                floatArrayOf(
+                    1.0f, 0.0f, 0.7071f, 0.5f, 0.7071f, 0.0f, 0.7071f, 0.0f,
+                    0.0f, 1.0f, 0.7071f, 0.5f, 0.0f, 0.7071f, 0.0f, 0.7071f
+                )
+            )
+        )
+        val audioProcessors: Array<AudioProcessor> = arrayOf(channelMixing, gainAudioProcessor)
         val baseAudioSink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)

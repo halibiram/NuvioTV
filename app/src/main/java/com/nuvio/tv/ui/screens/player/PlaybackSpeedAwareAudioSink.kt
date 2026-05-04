@@ -67,6 +67,10 @@ internal class PlaybackSpeedAwareAudioSink(
         return shouldRejectDirectPlayback(format)
     }
 
+    fun notifyAudioCapabilitiesChanged() {
+        listener?.onAudioCapabilitiesChanged()
+    }
+
     private fun shouldRejectDirectPlayback(format: Format): Boolean {
         if (!isEncodedSurroundFormat(format)) return false
         return forceStereoDownmixProvider() ||

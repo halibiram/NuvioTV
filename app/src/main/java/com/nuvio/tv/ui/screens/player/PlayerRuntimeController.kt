@@ -330,6 +330,8 @@ class PlayerRuntimeController(
     internal var isReleasingPlayer: Boolean = false
     internal var cachedDecoderPriority: Int = 1
     internal var cachedForceStereoDownmix: Boolean = false
+    internal var sessionForceStereoDownmixOverride: Boolean? = null
+    internal var sessionForceStereoDownmixOverrideUrl: String? = null
     internal var hasTriedAudioPcmFallback: Boolean = false
     internal var hasTriedDv7HevcFallback: Boolean = false
     internal var forceDv7ToHevc: Boolean = false

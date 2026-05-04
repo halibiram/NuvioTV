@@ -1082,11 +1082,15 @@ fun PlayerScreen(
             audioAmplificationDb = uiState.audioAmplificationDb,
             isAmplificationAvailable = uiState.isAudioAmplificationAvailable,
             persistAmplification = uiState.persistAudioAmplification,
+            forceStereoDownmixActive = uiState.forceStereoDownmixActive,
             onTrackSelected = { viewModel.onEvent(PlayerEvent.OnSelectAudioTrack(it)) },
             onAudioDelayChange = { viewModel.onEvent(PlayerEvent.OnSetAudioDelayMs(it)) },
             onAmplificationChange = { viewModel.onEvent(PlayerEvent.OnSetAudioAmplificationDb(it)) },
             onPersistAmplificationChange = {
                 viewModel.onEvent(PlayerEvent.OnSetPersistAudioAmplification(it))
+            },
+            onForceStereoDownmixChange = {
+                viewModel.onEvent(PlayerEvent.OnSetForceStereoDownmixForSession(it))
             },
             onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay) },
             modifier = Modifier
