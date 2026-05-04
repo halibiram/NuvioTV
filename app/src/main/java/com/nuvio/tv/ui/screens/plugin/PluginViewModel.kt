@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -38,6 +39,9 @@ class PluginViewModel @Inject constructor(
 
     private var repoServer: RepositoryConfigServer? = null
     private var logoBytes: ByteArray? = null
+    private var lastEnabledScraperIds: Set<String> = emptySet()
+    private var hasSeenScrapersEmit = false
+    private var duplicateCheckJob: Job? = null
 
     init {
         loadLogoBytes()
@@ -72,6 +76,21 @@ class PluginViewModel @Inject constructor(
                         scrapers = visibleScrapers
                     )
                 }
+
+                val currentEnabledIds = scrapers.asSequence()
+                    .filter { it.enabled }
+                    .map { it.id }
+                    .toSet()
+                val newlyEnabledIds = currentEnabledIds - lastEnabledScraperIds
+                val isInitialLoad = !hasSeenScrapersEmit && scrapers.isNotEmpty()
+                lastEnabledScraperIds = currentEnabledIds
+                if (scrapers.isNotEmpty()) hasSeenScrapersEmit = true
+
+                val shouldCheck = !isReadOnly && currentEnabledIds.size >= 2 &&
+                    (isInitialLoad || newlyEnabledIds.isNotEmpty())
+                if (shouldCheck) {
+                    scheduleDuplicateCheck()
+                }
             }
         }
     }
@@ -92,6 +111,8 @@ class PluginViewModel @Inject constructor(
             PluginUiEvent.StopQrMode -> stopQrMode()
             PluginUiEvent.ConfirmPendingRepoChange -> confirmPendingRepoChange()
             PluginUiEvent.RejectPendingRepoChange -> rejectPendingRepoChange()
+            PluginUiEvent.ConfirmDisableDuplicates -> confirmDisableDuplicates()
+            PluginUiEvent.DismissDuplicateResolution -> dismissDuplicateResolution()
         }
     }
 
@@ -331,6 +352,90 @@ class PluginViewModel @Inject constructor(
         val pending = _uiState.value.pendingRepoChange ?: return
         repoServer?.rejectChange(pending.changeId)
         _uiState.update { it.copy(pendingRepoChange = null) }
+    }
+
+    private fun scheduleDuplicateCheck() {
+        duplicateCheckJob?.cancel()
+        duplicateCheckJob = viewModelScope.launch {
+            // Debounce so batched scraper emits (one per repo download) coalesce
+            // into a single comprehensive check against the final list.
+            delay(750)
+            checkForDuplicates()
+        }
+    }
+
+    private fun checkForDuplicates() {
+        if (isReadOnly) return
+        val enabledScrapers = _uiState.value.scrapers.filter { it.enabled }
+        if (enabledScrapers.size < 2) return
+
+        val repoNameById = _uiState.value.repositories.associate { it.id to it.name }
+        val n = enabledScrapers.size
+        val parent = IntArray(n) { it }
+        fun find(x: Int): Int {
+            var r = x
+            while (parent[r] != r) r = parent[r]
+            parent[x] = r
+            return r
+        }
+        fun union(a: Int, b: Int) {
+            val ra = find(a); val rb = find(b)
+            if (ra != rb) parent[ra] = rb
+        }
+
+        for (i in 0 until n) {
+            for (j in i + 1 until n) {
+                val a = enabledScrapers[i]
+                val b = enabledScrapers[j]
+                val nameEq = a.name.isNotBlank() && a.name.equals(b.name, ignoreCase = true)
+                val fileEq = a.filename.isNotBlank() && a.filename.equals(b.filename, ignoreCase = true)
+                if (nameEq || fileEq) union(i, j)
+            }
+        }
+
+        val clusters = enabledScrapers.indices
+            .groupBy { find(it) }
+            .values
+            .filter { it.size > 1 }
+        if (clusters.isEmpty()) return
+
+        val groups = clusters.map { indices ->
+            val members = indices.map { enabledScrapers[it] }.sortedBy { it.id }
+            DuplicateGroup(
+                keep = DuplicateEntry(
+                    scraperId = members.first().id,
+                    name = members.first().name,
+                    filename = members.first().filename,
+                    repositoryName = repoNameById[members.first().repositoryId].orEmpty()
+                ),
+                duplicates = members.drop(1).map { member ->
+                    DuplicateEntry(
+                        scraperId = member.id,
+                        name = member.name,
+                        filename = member.filename,
+                        repositoryName = repoNameById[member.repositoryId].orEmpty()
+                    )
+                }
+            )
+        }
+
+        _uiState.update { it.copy(pendingDuplicateResolution = PendingDuplicateResolution(groups)) }
+    }
+
+    private fun confirmDisableDuplicates() {
+        val pending = _uiState.value.pendingDuplicateResolution ?: return
+        _uiState.update { it.copy(pendingDuplicateResolution = null) }
+        viewModelScope.launch {
+            for (group in pending.groups) {
+                for (duplicate in group.duplicates) {
+                    pluginManager.toggleScraper(duplicate.scraperId, false)
+                }
+            }
+        }
+    }
+
+    private fun dismissDuplicateResolution() {
+        _uiState.update { it.copy(pendingDuplicateResolution = null) }
     }
 
     override fun onCleared() {

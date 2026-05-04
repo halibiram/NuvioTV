@@ -23,7 +23,9 @@ data class PluginUiState(
     val qrCodeBitmap: Bitmap? = null,
     val serverUrl: String? = null,
     // Pending change from phone
-    val pendingRepoChange: PendingRepoChangeInfo? = null
+    val pendingRepoChange: PendingRepoChangeInfo? = null,
+    // Duplicate scraper resolution prompt
+    val pendingDuplicateResolution: PendingDuplicateResolution? = null
 )
 
 data class PendingRepoChangeInfo(
@@ -32,6 +34,24 @@ data class PendingRepoChangeInfo(
     val addedUrls: List<String>,
     val removedUrls: List<String>,
     val isApplying: Boolean = false
+)
+
+data class PendingDuplicateResolution(
+    val groups: List<DuplicateGroup>
+) {
+    val totalToDisable: Int get() = groups.sumOf { it.duplicates.size }
+}
+
+data class DuplicateGroup(
+    val keep: DuplicateEntry,
+    val duplicates: List<DuplicateEntry>
+)
+
+data class DuplicateEntry(
+    val scraperId: String,
+    val name: String,
+    val filename: String,
+    val repositoryName: String
 )
 
 sealed interface PluginUiEvent {
@@ -49,4 +69,6 @@ sealed interface PluginUiEvent {
     object StopQrMode : PluginUiEvent
     object ConfirmPendingRepoChange : PluginUiEvent
     object RejectPendingRepoChange : PluginUiEvent
+    object ConfirmDisableDuplicates : PluginUiEvent
+    object DismissDuplicateResolution : PluginUiEvent
 }

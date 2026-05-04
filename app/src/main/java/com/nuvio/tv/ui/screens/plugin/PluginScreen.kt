@@ -292,6 +292,18 @@ fun PluginScreenContent(
         }
     }
 
+    if (uiState.pendingDuplicateResolution != null) {
+        Popup(properties = PopupProperties(focusable = true)) {
+            uiState.pendingDuplicateResolution?.let { pending ->
+                DuplicateResolutionDialog(
+                    pending = pending,
+                    onConfirm = { viewModel.onEvent(PluginUiEvent.ConfirmDisableDuplicates) },
+                    onDismiss = { viewModel.onEvent(PluginUiEvent.DismissDuplicateResolution) }
+                )
+            }
+        }
+    }
+
     }
 }
 
@@ -844,6 +856,192 @@ private fun ConfirmRepoChangesDialog(
                             Text(
                                 text = stringResource(R.string.plugin_confirm_confirm),
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                                color = NuvioColors.OnSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DuplicateResolutionDialog(
+    pending: PendingDuplicateResolution,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    BackHandler { onDismiss() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            onClick = { },
+            modifier = Modifier
+                .width(560.dp)
+                .heightIn(max = 640.dp),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = NuvioColors.SurfaceVariant
+            ),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = stringResource(R.string.plugin_duplicates_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = NuvioColors.TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = stringResource(R.string.plugin_duplicates_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuvioColors.TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .background(
+                            color = NuvioColors.Surface,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                            .verticalScroll(scrollState)
+                    ) {
+                        pending.groups.forEachIndexed { index, group ->
+                            if (index > 0) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+                            Text(
+                                text = stringResource(R.string.plugin_duplicates_keep, group.keep.name),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = NuvioColors.Success,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 2.dp)
+                            )
+                            if (group.keep.repositoryName.isNotBlank()) {
+                                Text(
+                                    text = group.keep.repositoryName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NuvioColors.TextTertiary,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 8.dp, bottom = 4.dp)
+                                )
+                            }
+                            group.duplicates.forEach { duplicate ->
+                                Text(
+                                    text = "- ${duplicate.name}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NuvioColors.Error,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 8.dp, top = 2.dp)
+                                )
+                                if (duplicate.repositoryName.isNotBlank()) {
+                                    Text(
+                                        text = duplicate.repositoryName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NuvioColors.TextTertiary,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Surface(
+                        onClick = onDismiss,
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = NuvioColors.Surface,
+                            focusedContainerColor = NuvioColors.FocusBackground
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            focusedBorder = Border(
+                                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = RoundedCornerShape(50)
+                            )
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = NuvioColors.TextPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.plugin_duplicates_later),
+                                color = NuvioColors.TextPrimary
+                            )
+                        }
+                    }
+
+                    Surface(
+                        onClick = onConfirm,
+                        modifier = Modifier.focusRequester(focusRequester),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = NuvioColors.Secondary,
+                            focusedContainerColor = NuvioColors.SecondaryVariant
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            focusedBorder = Border(
+                                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = RoundedCornerShape(50)
+                            )
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = NuvioColors.OnSecondary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.plugin_duplicates_disable, pending.totalToDisable),
                                 color = NuvioColors.OnSecondary
                             )
                         }
