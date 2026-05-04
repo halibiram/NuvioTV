@@ -1284,10 +1284,6 @@
     <string name="plugin_confirm_total">Listeye kayıtlı toplam depo: %1$d</string>
     <string name="plugin_confirm_reject">Reddet</string>
     <string name="plugin_confirm_confirm">Tamam, Uygula</string>
-    <string name="plugin_risky_enable_title">Sağlayıcı etkinleştirilsin mi?</string>
-    <string name="plugin_risky_enable_message">%1$s bazı içeriklerde çökmeye yol açabileceği bilinmektedir. Yine de etkinleştirmek istiyor musunuz?</string>
-    <string name="plugin_risky_enable_cancel">İptal</string>
-    <string name="plugin_risky_enable_confirm">Etkinleştir</string>
     <string name="plugin_updated_format">Güncellenme: %1$s</string>
     <string name="plugin_test_btn">Test Et</string>
     <string name="plugin_test_results">Deneme Sonucu (%1$d Bağlantı bulundu)</string>

@@ -1196,10 +1196,6 @@
     <string name="plugin_confirm_total">إجمالي المستودعات: %1$d</string>
     <string name="plugin_confirm_reject">رفض</string>
     <string name="plugin_confirm_confirm">تأكيد</string>
-    <string name="plugin_risky_enable_title">تفعيل المصدر؟</string>
-    <string name="plugin_risky_enable_message">يُعرف %1$s بتسببه في أعطال في بعض المحتوى. هل تريد تفعيله على أي حال؟</string>
-    <string name="plugin_risky_enable_cancel">إلغاء</string>
-    <string name="plugin_risky_enable_confirm">تفعيل</string>
     <string name="plugin_updated_format">تاريخ التحديث: %1$s</string>
     <string name="plugin_test_btn">اختبار</string>
     <string name="plugin_test_results">نتائج الاختبار (%1$d مصدر بث)</string>

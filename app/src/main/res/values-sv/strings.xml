@@ -1451,10 +1451,6 @@
     <string name="plugin_error_test">Test misslyckades: %1$s</string>
     <string name="plugin_test_no_results">Inga resultat hittades</string>
     <string name="plugin_test_found_streams">Hittade %1$d strömmar</string>
-    <string name="plugin_risky_enable_title">Aktivera leverantör?</string>
-    <string name="plugin_risky_enable_message">%1$s är känt för att orsaka krascher på visst innehåll. Aktivera ändå?</string>
-    <string name="plugin_risky_enable_cancel">Avbryt</string>
-    <string name="plugin_risky_enable_confirm">Aktivera</string>
     <string name="plugin_version">Version %1$s</string>
 
     <!-- Trakt errors -->

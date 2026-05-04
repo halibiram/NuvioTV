@@ -1216,10 +1216,6 @@
     <string name="plugin_confirm_total">Celkem repozitářů: %1$d</string>
     <string name="plugin_confirm_reject">Odmítnout</string>
     <string name="plugin_confirm_confirm">Potvrdit</string>
-    <string name="plugin_risky_enable_title">Zapnout poskytovatele?</string>
-    <string name="plugin_risky_enable_message">%1$s je známý tím, že způsobuje pády na některém obsahu. Přesto zapnout?</string>
-    <string name="plugin_risky_enable_cancel">Zrušit</string>
-    <string name="plugin_risky_enable_confirm">Zapnout</string>
     <string name="plugin_updated_format">Aktualizováno: %1$s</string>
     <string name="plugin_test_btn">Testovat</string>
     <string name="plugin_test_results">Výsledky testu (%1$d streamů)</string>

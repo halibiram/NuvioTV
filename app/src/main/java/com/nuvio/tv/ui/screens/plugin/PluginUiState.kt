@@ -23,9 +23,7 @@ data class PluginUiState(
     val qrCodeBitmap: Bitmap? = null,
     val serverUrl: String? = null,
     // Pending change from phone
-    val pendingRepoChange: PendingRepoChangeInfo? = null,
-    // Pending scraper enable confirmation
-    val pendingScraperEnable: PendingScraperEnableInfo? = null
+    val pendingRepoChange: PendingRepoChangeInfo? = null
 )
 
 data class PendingRepoChangeInfo(
@@ -34,11 +32,6 @@ data class PendingRepoChangeInfo(
     val addedUrls: List<String>,
     val removedUrls: List<String>,
     val isApplying: Boolean = false
-)
-
-data class PendingScraperEnableInfo(
-    val scraperId: String,
-    val scraperName: String
 )
 
 sealed interface PluginUiEvent {
@@ -56,6 +49,4 @@ sealed interface PluginUiEvent {
     object StopQrMode : PluginUiEvent
     object ConfirmPendingRepoChange : PluginUiEvent
     object RejectPendingRepoChange : PluginUiEvent
-    object ConfirmPendingScraperEnable : PluginUiEvent
-    object DismissPendingScraperEnable : PluginUiEvent
 }

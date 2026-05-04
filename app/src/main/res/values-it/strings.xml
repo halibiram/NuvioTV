@@ -1258,10 +1258,6 @@
 <string name="plugin_confirm_total">Totale repository: %1$d</string>
 <string name="plugin_confirm_reject">Rifiuta</string>
 <string name="plugin_confirm_confirm">Conferma</string>
-<string name="plugin_risky_enable_title">Abilitare il provider?</string>
-<string name="plugin_risky_enable_message">%1$s è noto per causare crash con alcuni contenuti. Abilitare comunque?</string>
-<string name="plugin_risky_enable_cancel">Annulla</string>
-<string name="plugin_risky_enable_confirm">Abilita</string>
 <string name="plugin_updated_format">Aggiornato: %1$s</string>
 <string name="plugin_test_btn">Test</string>
 <string name="plugin_test_results">Risultati del test (%1$d stream)</string>

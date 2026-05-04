@@ -1148,10 +1148,6 @@
     <string name="plugin_confirm_total">Skupno število repozitorijev: %1$d</string>
     <string name="plugin_confirm_reject">Zavrni</string>
     <string name="plugin_confirm_confirm">Potrdi</string>
-	<string name="plugin_risky_enable_title">Omogoči ponudnika?</string>
-    <string name="plugin_risky_enable_message">Znano je, da %1$s povzroča zrušitve pri nekateri vsebini. Vseeno omogoči?</string>
-    <string name="plugin_risky_enable_cancel">Prekliči</string>
-    <string name="plugin_risky_enable_confirm">Omogoči</string>																  
 	<string name="plugin_updated_format">Posodobljeno: %1$s</string>
     <string name="plugin_test_btn">Testiraj</string>
     <string name="plugin_test_results">Rezultati testa (%1$d prenosov)</string>

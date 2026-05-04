@@ -1201,10 +1201,6 @@
     <string name="plugin_confirm_total">Ukupno repozitorija: %1$d</string>
     <string name="plugin_confirm_reject">Odbij</string>
     <string name="plugin_confirm_confirm">Potvrdi</string>
-    <string name="plugin_risky_enable_title">Omogući provajdera?</string>
-    <string name="plugin_risky_enable_message">%1$s je poznat po tome da uzrokuje padove aplikacije na nekom sadržaju. Ipak omogućiti?</string>
-    <string name="plugin_risky_enable_cancel">Otkaži</string>
-    <string name="plugin_risky_enable_confirm">Omogući</string>
     <string name="plugin_updated_format">Ažurirano: %1$s</string>
     <string name="plugin_test_btn">Testiraj</string>
     <string name="plugin_test_results">Rezultati Testa (%1$d streamova)</string>

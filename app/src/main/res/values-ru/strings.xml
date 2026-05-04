@@ -1184,10 +1184,6 @@
     <string name="plugin_confirm_total">Всего репозиториев: %1$d</string>
     <string name="plugin_confirm_reject">Отклонить</string>
     <string name="plugin_confirm_confirm">Подтвердить</string>
-    <string name="plugin_risky_enable_title">Включить провайдер?</string>
-    <string name="plugin_risky_enable_message">%1$s известен тем, что вызывает сбои на некотором контенте. Все равно включить?</string>
-    <string name="plugin_risky_enable_cancel">Отмена</string>
-    <string name="plugin_risky_enable_confirm">Включить</string>
     <string name="plugin_updated_format">Обновлено: %1$s</string>
     <string name="plugin_test_btn">Тест</string>
     <string name="plugin_test_results">Результаты теста (%1$d потоков)</string>

@@ -1285,10 +1285,6 @@
     <string name="plugin_confirm_total">Total de repositorios: %1$d</string>
     <string name="plugin_confirm_reject">Rechazar</string>
     <string name="plugin_confirm_confirm">Confirmar</string>
-    <string name="plugin_risky_enable_title">¿Activar proveedor?</string>
-    <string name="plugin_risky_enable_message">%1$s es conocido por causar fallos con algunos contenidos. ¿Activarlo de todas formas?</string>
-    <string name="plugin_risky_enable_cancel">Cancelar</string>
-    <string name="plugin_risky_enable_confirm">Activar</string>
     <string name="plugin_updated_format">Actualizado: %1$s</string>
     <string name="plugin_test_btn">Probar</string>
     <string name="plugin_test_results">Resultados de la prueba (%1$d enlaces)</string>

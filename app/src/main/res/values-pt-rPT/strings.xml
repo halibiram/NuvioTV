@@ -1267,10 +1267,6 @@
     <string name="plugin_confirm_total">Total de repositórios: %1$d</string>
     <string name="plugin_confirm_reject">Rejeitar</string>
     <string name="plugin_confirm_confirm">Confirmar</string>
-    <string name="plugin_risky_enable_title">Ativar fornecedor?</string>
-    <string name="plugin_risky_enable_message">Sabe-se que %1$s causa falhas em alguns conteúdos. Ativar de qualquer forma?</string>
-    <string name="plugin_risky_enable_cancel">Cancelar</string>
-    <string name="plugin_risky_enable_confirm">Ativar</string>
     <string name="plugin_updated_format">Atualizado: %1$s</string>
     <string name="plugin_test_btn">Testar</string>
     <string name="plugin_test_results">Resultados do Teste (%1$d transmissões)</string>

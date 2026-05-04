@@ -1286,10 +1286,6 @@
     <string name="plugin_confirm_total">Total des dépôts : %1$d</string>
     <string name="plugin_confirm_reject">Rejeter</string>
     <string name="plugin_confirm_confirm">Confirmer</string>
-    <string name="plugin_risky_enable_title">Activer le fournisseur ?</string>
-    <string name="plugin_risky_enable_message">%1$s est connu pour provoquer des crashs sur certains contenus. L\'activer quand même ?</string>
-    <string name="plugin_risky_enable_cancel">Annuler</string>
-    <string name="plugin_risky_enable_confirm">Activer</string>
     <string name="plugin_updated_format">Mis à jour : %1$s</string>
     <string name="plugin_test_btn">Tester</string>
     <string name="plugin_test_results">Résultats du test (%1$d flux)</string>

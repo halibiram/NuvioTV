@@ -918,10 +918,6 @@
     <string name="plugin_confirm_total">Łącznie repozytoriów: %1$d</string>
     <string name="plugin_confirm_reject">Odrzuć</string>
     <string name="plugin_confirm_confirm">Potwierdź</string>
-    <string name="plugin_risky_enable_title">Włączyć dostawcę?</string>
-    <string name="plugin_risky_enable_message">%1$s może powodować awarie przy niektórych treściach. Włączyć mimo to?</string>
-    <string name="plugin_risky_enable_cancel">Anuluj</string>
-    <string name="plugin_risky_enable_confirm">Włącz</string>
     <string name="plugin_updated_format">Zaktualizowano: %1$s</string>
     <string name="plugin_test_btn">Testuj</string>
     <string name="plugin_test_results">Wyniki testu (%1$d źródeł)</string>

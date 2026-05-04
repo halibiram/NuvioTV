@@ -1211,10 +1211,6 @@
     <string name="plugin_confirm_total">Összes adattár: %1$d</string>
     <string name="plugin_confirm_reject">Elvetés</string>
     <string name="plugin_confirm_confirm">Megerősítés</string>
-    <string name="plugin_risky_enable_title">Engedélyezed a szolgáltatót?</string>
-    <string name="plugin_risky_enable_message">%1$s ismert, hogy néhány tartalomnál összeomlást okozhat. Mégis engedélyezed?</string>
-    <string name="plugin_risky_enable_cancel">Mégse</string>
-    <string name="plugin_risky_enable_confirm">Engedélyezés</string>
     <string name="plugin_updated_format">Frissítve: %1$s</string>
     <string name="plugin_test_btn">Tesztelés</string>
     <string name="plugin_test_results">Teszteredmények (%1$d forrás)</string>
