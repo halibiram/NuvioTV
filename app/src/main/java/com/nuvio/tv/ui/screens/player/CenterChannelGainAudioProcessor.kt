@@ -17,7 +17,7 @@ internal class CenterChannelGainAudioProcessor : BaseAudioProcessor() {
     private var gainScale: Float = 1f
 
     fun setGainDb(db: Int) {
-        val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+        val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_CENTER_MAX_DB)
         gainDb = clampedDb
         gainScale = if (clampedDb == 0) 1f else 10.0.pow(clampedDb / 20.0).toFloat()
     }
