@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -149,7 +151,12 @@ internal fun AudioSelectionOverlay(
                         onTrackSelected = onTrackSelected
                     )
                 }
-                Column(modifier = Modifier.width(286.dp)) {
+                Column(
+                    modifier = Modifier
+                        .width(286.dp)
+                        .heightIn(max = 620.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
                     AudioControlsContent(
                         audioDelayMs = audioDelayMs,
                         audioAmplificationDb = audioAmplificationDb,
@@ -395,8 +402,8 @@ private fun AudioControlsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .padding(top = 4.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         AdjustmentSection(
             title = stringResource(R.string.audio_delay_label),
@@ -432,7 +439,7 @@ private fun AudioControlsContent(
 
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             AdjustmentSection(
                 title = stringResource(R.string.audio_mix_label),
