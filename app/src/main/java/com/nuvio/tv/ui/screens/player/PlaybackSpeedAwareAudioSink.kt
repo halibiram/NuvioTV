@@ -8,7 +8,8 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 
 internal class PlaybackSpeedAwareAudioSink(
-    sink: AudioSink
+    sink: AudioSink,
+    private val forceStereoDownmixProvider: () -> Boolean = { false }
 ) : ForwardingAudioSink(sink) {
 
     @Volatile
@@ -67,11 +68,14 @@ internal class PlaybackSpeedAwareAudioSink(
     }
 
     private fun shouldRejectDirectPlayback(format: Format): Boolean {
-        return requiresPcmForSpeed(format) && (forcePcmForCurrentSession || playbackSpeed != 1f)
+        if (!isEncodedSurroundFormat(format)) return false
+        return forceStereoDownmixProvider() ||
+            forcePcmForCurrentSession ||
+            playbackSpeed != 1f
     }
 
     private fun markPcmFallbackIfNeeded(format: Format?, speed: Float): Boolean {
-        if (format == null || speed == 1f || !requiresPcmForSpeed(format)) {
+        if (format == null || speed == 1f || !isEncodedSurroundFormat(format)) {
             return false
         }
         val wasForcingPcm = forcePcmForCurrentSession
@@ -83,7 +87,7 @@ internal class PlaybackSpeedAwareAudioSink(
         return speed.takeIf { it > 0f } ?: 1f
     }
 
-    private fun requiresPcmForSpeed(format: Format): Boolean {
+    private fun isEncodedSurroundFormat(format: Format): Boolean {
         val mimeType = format.sampleMimeType
         if (mimeType != null && (
                 mimeType == MimeTypes.AUDIO_E_AC3 ||
