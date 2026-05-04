@@ -821,11 +821,60 @@ private class SubtitleOffsetRenderersFactory(
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
         val channelMixing = ToggleableChannelMixingAudioProcessor(forceStereoDownmixProvider)
-        for (inputChannels in 1..6) {
-            channelMixing.putChannelMixingMatrix(
-                ChannelMixingMatrix.createForConstantPower(inputChannels, 2)
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                1, 2,
+                floatArrayOf(
+                    1.0f,
+                    1.0f
+                )
             )
-        }
+        )
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                2, 2,
+                floatArrayOf(
+                    1.0f, 0.0f,
+                    0.0f, 1.0f
+                )
+            )
+        )
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                3, 2,
+                floatArrayOf(
+                    1.0f, 0.0f, 0.7071f,
+                    0.0f, 1.0f, 0.7071f
+                )
+            )
+        )
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                4, 2,
+                floatArrayOf(
+                    1.0f, 0.0f, 0.7071f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.7071f
+                )
+            )
+        )
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                5, 2,
+                floatArrayOf(
+                    1.0f, 0.0f, 0.7071f, 0.7071f, 0.0f,
+                    0.0f, 1.0f, 0.7071f, 0.0f, 0.7071f
+                )
+            )
+        )
+        channelMixing.putChannelMixingMatrix(
+            ChannelMixingMatrix(
+                6, 2,
+                floatArrayOf(
+                    1.0f, 0.0f, 0.7071f, 0.5f, 0.7071f, 0.0f,
+                    0.0f, 1.0f, 0.7071f, 0.5f, 0.0f, 0.7071f
+                )
+            )
+        )
         channelMixing.putChannelMixingMatrix(
             ChannelMixingMatrix(
                 7,
