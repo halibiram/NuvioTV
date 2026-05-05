@@ -35,12 +35,22 @@ internal fun PlayerRuntimeController.applyAudioDelay(
 
 internal fun PlayerRuntimeController.applyAudioAmplification(db: Int) {
     val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
-    if (cachedForceStereoDownmix) {
-        centerChannelGainAudioProcessor.setGainDb(clampedDb * 2)
-        gainAudioProcessor.setGainDb(0)
-    } else {
-        centerChannelGainAudioProcessor.setGainDb(0)
-        gainAudioProcessor.setGainDb(clampedDb)
+    when {
+        cachedNightMode -> {
+            nightModeAudioProcessor.setDialogIsolationDb((clampedDb * 2).toFloat())
+            centerChannelGainAudioProcessor.setGainDb(0)
+            gainAudioProcessor.setGainDb(0)
+        }
+        cachedForceStereoDownmix -> {
+            nightModeAudioProcessor.setDialogIsolationDb(0f)
+            centerChannelGainAudioProcessor.setGainDb(clampedDb * 2)
+            gainAudioProcessor.setGainDb(0)
+        }
+        else -> {
+            nightModeAudioProcessor.setDialogIsolationDb(0f)
+            centerChannelGainAudioProcessor.setGainDb(0)
+            gainAudioProcessor.setGainDb(clampedDb)
+        }
     }
     if (isUsingMpvEngine()) {
         mpvView?.applyAudioAmplificationDb(clampedDb)
@@ -688,6 +698,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             sessionNightModeOverrideUrl = currentStreamUrl
             cachedNightMode = event.enabled
             nightModeAudioProcessor.setEnabled(event.enabled)
+            applyAudioAmplification(_uiState.value.audioAmplificationDb)
             _uiState.update { it.copy(nightModeActive = event.enabled) }
             playbackSpeedAwareAudioSink?.notifyAudioCapabilitiesChanged()
             if (_uiState.value.persistAudioAmplification) {
