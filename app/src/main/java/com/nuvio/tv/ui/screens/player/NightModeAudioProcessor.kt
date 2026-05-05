@@ -41,6 +41,12 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
     @Volatile
     private var currentNonCenterGain: Float = NON_CENTER_GAIN_MIN
 
+    @Volatile
+    private var currentLfeGain: Float = LFE_GAIN_MIN
+
+    @Volatile
+    private var currentHpfCutoffHz: Float = HPF_CUTOFF_MAX_HZ
+
     private var attackCoeff: Float = 0f
     private var releaseCoeff: Float = 0f
     private var gainSmoothCoeff: Float = 0f
@@ -89,9 +95,16 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         val nonCenterDb = NON_CENTER_ATTENUATION_MIN_DB +
             ampNorm * (NON_CENTER_ATTENUATION_MAX_DB - NON_CENTER_ATTENUATION_MIN_DB)
         val mudCutDb = MUD_CUT_MIN_DB + ampNorm * (MUD_CUT_MAX_DB - MUD_CUT_MIN_DB)
+        val lfeDb = LFE_ATTENUATION_MIN_DB + ampNorm * (LFE_ATTENUATION_MAX_DB - LFE_ATTENUATION_MIN_DB)
+        val hpfHz = HPF_CUTOFF_MAX_HZ + ampNorm * (HPF_CUTOFF_MIN_HZ - HPF_CUTOFF_MAX_HZ)
+
         currentSideGain = 10f.pow(sideDb / 20f)
         currentNonCenterGain = 10f.pow(nonCenterDb / 20f)
+        currentLfeGain = 10f.pow(lfeDb / 20f)
+        currentHpfCutoffHz = hpfHz
+
         updateMudCoefficients(mudCutDb)
+        updateHpfCoefficients(hpfHz)
         if (amp <= 0f) {
             compressionEnabled = false
             compressionThresholdFraction = 1f
@@ -228,8 +241,10 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         return multichannelFcGain * midStaticGain
     }
 
-    private fun configureHpf(sampleRate: Float, channelCount: Int) {
-        val w0 = 2.0 * PI * HPF_CUTOFF_HZ / sampleRate
+    private fun updateHpfCoefficients(cutoffHz: Float) {
+        val sampleRate = cachedSampleRate
+        if (sampleRate <= 0f) return
+        val w0 = 2.0 * PI * cutoffHz / sampleRate
         val cosW0 = cos(w0).toFloat()
         val sinW0 = sin(w0).toFloat()
         val alpha = sinW0 / (2f * HPF_Q)
@@ -239,6 +254,10 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         hpfB2 = ((1f + cosW0) / 2f) / a0
         hpfA1 = (-2f * cosW0) / a0
         hpfA2 = (1f - alpha) / a0
+    }
+
+    private fun configureHpf(sampleRate: Float, channelCount: Int) {
+        updateHpfCoefficients(currentHpfCutoffHz)
         hpfStage1 = Array(channelCount) { BiquadState() }
         hpfStage2 = Array(channelCount) { BiquadState() }
     }
@@ -369,7 +388,7 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
                 val sample = inputBuffer.short.toFloat()
                 val scale = when (channel) {
                     centerIndex -> updateMultichannelFcGain(sample, fullScale)
-                    lfeIndex -> LFE_GAIN
+                    lfeIndex -> currentLfeGain
                     else -> nonCenterGain
                 }
                 val scaled = sample * scale
@@ -402,7 +421,7 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
                 val sample = inputBuffer.float
                 val scale = when (channel) {
                     centerIndex -> updateMultichannelFcGain(sample, fullScale)
-                    lfeIndex -> LFE_GAIN
+                    lfeIndex -> currentLfeGain
                     else -> nonCenterGain
                 }
                 val hpFiltered = applyShelf(channel, sample * scale)
@@ -427,16 +446,18 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
     companion object {
         private const val MID_BOOST_DB = 0f
         private const val SIDE_ATTENUATION_MIN_DB = -12f
-        private const val SIDE_ATTENUATION_MAX_DB = -60f
+        private const val SIDE_ATTENUATION_MAX_DB = 0f
         private const val NON_CENTER_ATTENUATION_MIN_DB = -12f
-        private const val NON_CENTER_ATTENUATION_MAX_DB = -48f
-        private const val LFE_ATTENUATION_DB = -80f
-        private const val HPF_CUTOFF_HZ = 60f
+        private const val NON_CENTER_ATTENUATION_MAX_DB = 0f
+        private const val LFE_ATTENUATION_MIN_DB = -80f
+        private const val LFE_ATTENUATION_MAX_DB = 0f
+        private const val HPF_CUTOFF_MAX_HZ = 60f
+        private const val HPF_CUTOFF_MIN_HZ = 20f
         private const val HPF_Q = 0.7071f
         private val MID_GAIN = 10f.pow(MID_BOOST_DB / 20f)
         private val SIDE_GAIN_MIN = 10f.pow(SIDE_ATTENUATION_MIN_DB / 20f)
         private val NON_CENTER_GAIN_MIN = 10f.pow(NON_CENTER_ATTENUATION_MIN_DB / 20f)
-        private val LFE_GAIN = 10f.pow(LFE_ATTENUATION_DB / 20f)
+        private val LFE_GAIN_MIN = 10f.pow(LFE_ATTENUATION_MIN_DB / 20f)
 
         private const val AMP_RANGE_DB = 10f
         private const val COMP_THRESHOLD_HIGH_DB = -12f
@@ -447,10 +468,10 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         private const val PEAK_THRESHOLD_HIGH_DB = -3f
         private const val PEAK_THRESHOLD_LOW_DB = -12f
         private const val PEAK_MAX_ATTEN_DB = 18f
-        private const val MUD_FREQ_HZ = 250f
+        private const val MUD_FREQ_HZ = 200f
         private const val MUD_Q = 1.0f
-        private const val MUD_CUT_MIN_DB = -2f
-        private const val MUD_CUT_MAX_DB = -8f
+        private const val MUD_CUT_MIN_DB = -5f
+        private const val MUD_CUT_MAX_DB = 0f
         private const val COMP_ATTACK_SECONDS = 0.010f
         private const val COMP_RELEASE_SECONDS = 0.200f
         private const val COMP_GAIN_SMOOTH_SECONDS = 0.020f
