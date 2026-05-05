@@ -665,11 +665,13 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         is PlayerEvent.OnSetPersistAudioAmplification -> {
             val currentDb = _uiState.value.audioAmplificationDb
+            val currentNightMode = _uiState.value.nightModeActive
             _uiState.update { it.copy(persistAudioAmplification = event.enabled) }
             scope.launch {
                 playerSettingsDataStore.setPersistAudioAmplification(
                     enabled = event.enabled,
-                    dbToPersist = if (event.enabled) currentDb else null
+                    dbToPersist = if (event.enabled) currentDb else null,
+                    nightModeToPersist = if (event.enabled) currentNightMode else null
                 )
             }
         }
@@ -687,6 +689,12 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             cachedNightMode = event.enabled
             nightModeAudioProcessor.setEnabled(event.enabled)
             _uiState.update { it.copy(nightModeActive = event.enabled) }
+            playbackSpeedAwareAudioSink?.notifyAudioCapabilitiesChanged()
+            if (_uiState.value.persistAudioAmplification) {
+                scope.launch {
+                    playerSettingsDataStore.setNightMode(event.enabled)
+                }
+            }
         }
         is PlayerEvent.OnSelectSubtitleTrack -> {
             logSwitchTrace(

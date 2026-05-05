@@ -9,7 +9,8 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink
 
 internal class PlaybackSpeedAwareAudioSink(
     sink: AudioSink,
-    private val forceStereoDownmixProvider: () -> Boolean = { false }
+    private val forceStereoDownmixProvider: () -> Boolean = { false },
+    private val nightModeProvider: () -> Boolean = { false }
 ) : ForwardingAudioSink(sink) {
 
     @Volatile
@@ -74,6 +75,7 @@ internal class PlaybackSpeedAwareAudioSink(
     private fun shouldRejectDirectPlayback(format: Format): Boolean {
         if (!isEncodedSurroundFormat(format)) return false
         return forceStereoDownmixProvider() ||
+            nightModeProvider() ||
             forcePcmForCurrentSession ||
             playbackSpeed != 1f
     }

@@ -132,7 +132,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                 sessionNightModeOverride = null
                 sessionNightModeOverrideUrl = null
             }
-            cachedNightMode = sessionNightModeOverride ?: false
+            cachedNightMode = sessionNightModeOverride
+                ?: (playerSettings.persistAudioAmplification && playerSettings.nightMode)
             nightModeAudioProcessor.setEnabled(cachedNightMode)
             _uiState.update { it.copy(nightModeActive = cachedNightMode) }
             val preferredAudioLanguages = resolvePreferredAudioLanguages(
@@ -298,6 +299,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 nightModeAudioProcessor = nightModeAudioProcessor,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 forceStereoDownmixProvider = { cachedForceStereoDownmix },
+                nightModeProvider = { cachedNightMode },
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it }
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || forceDv7ToHevc)
@@ -823,6 +825,7 @@ private class SubtitleOffsetRenderersFactory(
     private val nightModeAudioProcessor: NightModeAudioProcessor,
     private val playbackSpeedProvider: () -> Float,
     private val forceStereoDownmixProvider: () -> Boolean,
+    private val nightModeProvider: () -> Boolean,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit
 ) : DefaultRenderersFactory(context) {
 
@@ -919,7 +922,8 @@ private class SubtitleOffsetRenderersFactory(
             .build()
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
             sink = baseAudioSink,
-            forceStereoDownmixProvider = forceStereoDownmixProvider
+            forceStereoDownmixProvider = forceStereoDownmixProvider,
+            nightModeProvider = nightModeProvider
         )
         playbackSpeedAwareAudioSink.setInitialPlaybackSpeed(playbackSpeedProvider())
         onPlaybackSpeedAwareAudioSinkCreated(playbackSpeedAwareAudioSink)

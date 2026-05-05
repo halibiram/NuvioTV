@@ -171,6 +171,7 @@ data class PlayerSettings(
     val skipSilence: Boolean = false,
     val audioAmplificationDb: Int = 0,
     val persistAudioAmplification: Boolean = false,
+    val nightMode: Boolean = false,
     val rememberAudioDelayPerDevice: Boolean = true,
     val preferredAudioLanguage: String = AudioLanguageOption.DEVICE,
     val secondaryPreferredAudioLanguage: String? = null,
@@ -304,6 +305,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val skipSilenceKey = booleanPreferencesKey("skip_silence")
     private val audioAmplificationDbKey = intPreferencesKey("audio_amplification_db")
     private val persistAudioAmplificationKey = booleanPreferencesKey("persist_audio_amplification")
+    private val nightModeKey = booleanPreferencesKey("night_mode")
     private val rememberAudioDelayPerDeviceKey = booleanPreferencesKey("remember_audio_delay_per_device")
     private val preferredAudioLanguageKey = stringPreferencesKey("preferred_audio_language")
     private val secondaryPreferredAudioLanguageKey = stringPreferencesKey("secondary_preferred_audio_language")
@@ -453,6 +455,7 @@ class PlayerSettingsDataStore @Inject constructor(
                     AUDIO_AMPLIFICATION_DB_MAX
                 ),
                 persistAudioAmplification = prefs[persistAudioAmplificationKey] ?: false,
+                nightMode = prefs[nightModeKey] ?: false,
                 rememberAudioDelayPerDevice = prefs[rememberAudioDelayPerDeviceKey] ?: true,
                 preferredAudioLanguage = normalizeSelectableLanguageCode(
                     prefs[preferredAudioLanguageKey] ?: AudioLanguageOption.DEVICE
@@ -612,15 +615,30 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setPersistAudioAmplification(enabled: Boolean, dbToPersist: Int? = null) {
+    suspend fun setPersistAudioAmplification(
+        enabled: Boolean,
+        dbToPersist: Int? = null,
+        nightModeToPersist: Boolean? = null
+    ) {
         store().edit { prefs ->
             prefs[persistAudioAmplificationKey] = enabled
-            if (enabled && dbToPersist != null) {
-                prefs[audioAmplificationDbKey] = dbToPersist.coerceIn(
-                    AUDIO_AMPLIFICATION_DB_MIN,
-                    AUDIO_AMPLIFICATION_DB_MAX
-                )
+            if (enabled) {
+                if (dbToPersist != null) {
+                    prefs[audioAmplificationDbKey] = dbToPersist.coerceIn(
+                        AUDIO_AMPLIFICATION_DB_MIN,
+                        AUDIO_AMPLIFICATION_DB_MAX
+                    )
+                }
+                if (nightModeToPersist != null) {
+                    prefs[nightModeKey] = nightModeToPersist
+                }
             }
+        }
+    }
+
+    suspend fun setNightMode(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[nightModeKey] = enabled
         }
     }
 
