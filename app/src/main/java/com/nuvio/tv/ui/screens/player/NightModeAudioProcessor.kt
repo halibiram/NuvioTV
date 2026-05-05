@@ -7,6 +7,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -15,6 +16,24 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
 
     @Volatile
     private var enabled: Boolean = false
+
+    @Volatile
+    private var compressionEnabled: Boolean = false
+
+    @Volatile
+    private var compressionThresholdFraction: Float = 1f
+
+    @Volatile
+    private var compressionMaxGain: Float = 1f
+
+    private var attackCoeff: Float = 0f
+    private var releaseCoeff: Float = 0f
+    private var gainSmoothCoeff: Float = 0f
+
+    private var stereoMidEnvelope: Float = 0f
+    private var stereoMidGain: Float = 1f
+    private var multichannelFcEnvelope: Float = 0f
+    private var multichannelFcGain: Float = 1f
 
     private var hpfStage1: Array<BiquadState> = emptyArray()
     private var hpfStage2: Array<BiquadState> = emptyArray()
@@ -28,15 +47,76 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         enabled = on
     }
 
+    fun setDialogIsolationDb(extraDb: Float) {
+        val amp = (extraDb * 0.5f).coerceIn(0f, AMP_RANGE_DB)
+        if (amp <= 0f) {
+            compressionEnabled = false
+            compressionThresholdFraction = 1f
+            compressionMaxGain = 1f
+            return
+        }
+        val ampNorm = amp / AMP_RANGE_DB
+        val thresholdDb =
+            COMP_THRESHOLD_HIGH_DB + ampNorm * (COMP_THRESHOLD_LOW_DB - COMP_THRESHOLD_HIGH_DB)
+        val maxBoostDb = ampNorm * COMP_MAX_BOOST_DB
+        compressionThresholdFraction = 10f.pow(thresholdDb / 20f)
+        compressionMaxGain = 10f.pow(maxBoostDb / 20f)
+        compressionEnabled = true
+    }
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         return when (inputAudioFormat.encoding) {
             C.ENCODING_PCM_16BIT,
             C.ENCODING_PCM_FLOAT -> {
-                configureHpf(inputAudioFormat.sampleRate.toFloat(), inputAudioFormat.channelCount)
+                val sampleRate = inputAudioFormat.sampleRate.toFloat()
+                configureHpf(sampleRate, inputAudioFormat.channelCount)
+                configureCompressor(sampleRate)
                 inputAudioFormat
             }
             else -> AudioProcessor.AudioFormat.NOT_SET
         }
+    }
+
+    private fun configureCompressor(sampleRate: Float) {
+        attackCoeff = exp(-1f / (sampleRate * COMP_ATTACK_SECONDS))
+        releaseCoeff = exp(-1f / (sampleRate * COMP_RELEASE_SECONDS))
+        gainSmoothCoeff = exp(-1f / (sampleRate * COMP_GAIN_SMOOTH_SECONDS))
+        stereoMidEnvelope = 0f
+        stereoMidGain = 1f
+        multichannelFcEnvelope = 0f
+        multichannelFcGain = 1f
+    }
+
+    private fun updateStereoMidGain(mid: Float, fullScale: Float): Float {
+        if (!compressionEnabled) return MID_GAIN
+        val absMid = if (mid < 0f) -mid else mid
+        val coeff = if (absMid > stereoMidEnvelope) attackCoeff else releaseCoeff
+        stereoMidEnvelope = absMid + coeff * (stereoMidEnvelope - absMid)
+        val thresholdSamples = compressionThresholdFraction * fullScale
+        val noiseFloor = NOISE_FLOOR_FRACTION * fullScale
+        val rawGain = when {
+            stereoMidEnvelope < noiseFloor -> 1f
+            stereoMidEnvelope >= thresholdSamples -> 1f
+            else -> (thresholdSamples / stereoMidEnvelope).coerceAtMost(compressionMaxGain)
+        }
+        stereoMidGain = rawGain + gainSmoothCoeff * (stereoMidGain - rawGain)
+        return stereoMidGain * MID_GAIN
+    }
+
+    private fun updateMultichannelFcGain(fc: Float, fullScale: Float): Float {
+        if (!compressionEnabled) return MID_GAIN
+        val absFc = if (fc < 0f) -fc else fc
+        val coeff = if (absFc > multichannelFcEnvelope) attackCoeff else releaseCoeff
+        multichannelFcEnvelope = absFc + coeff * (multichannelFcEnvelope - absFc)
+        val thresholdSamples = compressionThresholdFraction * fullScale
+        val noiseFloor = NOISE_FLOOR_FRACTION * fullScale
+        val rawGain = when {
+            multichannelFcEnvelope < noiseFloor -> 1f
+            multichannelFcEnvelope >= thresholdSamples -> 1f
+            else -> (thresholdSamples / multichannelFcEnvelope).coerceAtMost(compressionMaxGain)
+        }
+        multichannelFcGain = rawGain + gainSmoothCoeff * (multichannelFcGain - rawGain)
+        return multichannelFcGain * MID_GAIN
     }
 
     private fun configureHpf(sampleRate: Float, channelCount: Int) {
@@ -122,12 +202,13 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun processStereoPcm16(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
+        val fullScale = SHORT_FULL_SCALE
         while (inputBuffer.remaining() >= 4) {
             val l = inputBuffer.short.toFloat()
             val r = inputBuffer.short.toFloat()
             val mid = (l + r) * 0.5f
             val side = (l - r) * 0.5f * SIDE_GAIN
-            val midBoost = mid * MID_GAIN
+            val midBoost = mid * updateStereoMidGain(mid, fullScale)
             val preL = midBoost + side
             val preR = midBoost - side
             val filtL = applyShelf(0, preL)
@@ -141,12 +222,13 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun processStereoPcmFloat(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
+        val fullScale = FLOAT_FULL_SCALE
         while (inputBuffer.remaining() >= 8) {
             val l = inputBuffer.float
             val r = inputBuffer.float
             val mid = (l + r) * 0.5f
             val side = (l - r) * 0.5f * SIDE_GAIN
-            val midBoost = mid * MID_GAIN
+            val midBoost = mid * updateStereoMidGain(mid, fullScale)
             val preL = midBoost + side
             val preR = midBoost - side
             val filtL = applyShelf(0, preL)
@@ -165,11 +247,12 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         val frameBytes = channelCount * 2
         val centerIndex = if (channelCount >= 3) 2 else -1
         val lfeIndex = if (channelCount >= 4) 3 else -1
+        val fullScale = SHORT_FULL_SCALE
         while (inputBuffer.remaining() >= frameBytes) {
             for (channel in 0 until channelCount) {
                 val sample = inputBuffer.short.toFloat()
                 val scale = when (channel) {
-                    centerIndex -> MID_GAIN
+                    centerIndex -> updateMultichannelFcGain(sample, fullScale)
                     lfeIndex -> LFE_GAIN
                     else -> NON_CENTER_GAIN
                 }
@@ -191,11 +274,12 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         val frameBytes = channelCount * 4
         val centerIndex = if (channelCount >= 3) 2 else -1
         val lfeIndex = if (channelCount >= 4) 3 else -1
+        val fullScale = FLOAT_FULL_SCALE
         while (inputBuffer.remaining() >= frameBytes) {
             for (channel in 0 until channelCount) {
                 val sample = inputBuffer.float
                 val scale = when (channel) {
-                    centerIndex -> MID_GAIN
+                    centerIndex -> updateMultichannelFcGain(sample, fullScale)
                     lfeIndex -> LFE_GAIN
                     else -> NON_CENTER_GAIN
                 }
@@ -224,5 +308,16 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
         private val SIDE_GAIN = 10f.pow(SIDE_ATTENUATION_DB / 20f)
         private val NON_CENTER_GAIN = 10f.pow(NON_CENTER_ATTENUATION_DB / 20f)
         private val LFE_GAIN = 10f.pow(LFE_ATTENUATION_DB / 20f)
+
+        private const val AMP_RANGE_DB = 10f
+        private const val COMP_THRESHOLD_HIGH_DB = -12f
+        private const val COMP_THRESHOLD_LOW_DB = -36f
+        private const val COMP_MAX_BOOST_DB = 18f
+        private const val COMP_ATTACK_SECONDS = 0.010f
+        private const val COMP_RELEASE_SECONDS = 0.200f
+        private const val COMP_GAIN_SMOOTH_SECONDS = 0.020f
+        private const val NOISE_FLOOR_FRACTION = 0.0005f
+        private const val SHORT_FULL_SCALE = 32768f
+        private const val FLOAT_FULL_SCALE = 1f
     }
 }
