@@ -214,11 +214,11 @@ internal class NightModeAudioProcessor : BaseAudioProcessor() {
     }
 
     companion object {
-        private const val MID_BOOST_DB = 9f
+        private const val MID_BOOST_DB = 0f
         private const val SIDE_ATTENUATION_DB = -60f
         private const val NON_CENTER_ATTENUATION_DB = -48f
         private const val LFE_ATTENUATION_DB = -80f
-        private const val HPF_CUTOFF_HZ = 130f
+        private const val HPF_CUTOFF_HZ = 60f
         private const val HPF_Q = 0.7071f
         private val MID_GAIN = 10f.pow(MID_BOOST_DB / 20f)
         private val SIDE_GAIN = 10f.pow(SIDE_ATTENUATION_DB / 20f)
