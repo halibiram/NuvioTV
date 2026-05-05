@@ -911,8 +911,8 @@ private class SubtitleOffsetRenderersFactory(
         )
         val audioProcessors: Array<AudioProcessor> = arrayOf(
             centerChannelGainAudioProcessor,
-            channelMixing,
             nightModeAudioProcessor,
+            channelMixing,
             gainAudioProcessor
         )
         val baseAudioSink = DefaultAudioSink.Builder(context)
