@@ -79,12 +79,9 @@ internal fun ModernHeroScene(
         onFirstFrameRendered = onFirstFrameRendered,
         modifier = modifier,
         requestWidthPx = requestWidthPx,
-        requestHeightPx = requestHeightPx
-    )
-    ModernHeroGradientLayer(
+        requestHeightPx = requestHeightPx,
         bgColor = bgColor,
-        isFullScreen = state.fullScreenBackdrop,
-        modifier = modifier
+        isFullScreen = state.fullScreenBackdrop
     )
 }
 
@@ -101,7 +98,9 @@ internal fun ModernHeroMediaLayer(
     onFirstFrameRendered: () -> Unit,
     modifier: Modifier,
     requestWidthPx: Int,
-    requestHeightPx: Int
+    requestHeightPx: Int,
+    bgColor: Color,
+    isFullScreen: Boolean = false
 ) {
     val transitionProgressState = animateFloatAsState(
         targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
@@ -109,6 +108,7 @@ internal fun ModernHeroMediaLayer(
         label = "heroBackdropTrailerCrossfadeProgress"
     )
     val localContext = LocalContext.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
     // Freeze the backdrop URL while enrichment is active — only update when enrichment ends
     // so Coil crossfade starts with the final URL, not an intermediate one.
@@ -123,52 +123,6 @@ internal fun ModernHeroMediaLayer(
             .build()
     }
 
-    Box(modifier = modifier) {
-        AsyncImage(
-            model = imageModel,
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (transitionProgressState.value > 0f) {
-                        Modifier.graphicsLayer {
-                            alpha = 1f - transitionProgressState.value
-                        }
-                    } else {
-                        Modifier
-                    }
-                ),
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopEnd
-        )
-
-        if (shouldPlayHeroTrailer) {
-            TrailerPlayer(
-                trailerUrl = heroTrailerUrl,
-                trailerAudioUrl = heroTrailerAudioUrl,
-                isPlaying = true,
-                onEnded = onTrailerEnded,
-                onFirstFrameRendered = onFirstFrameRendered,
-                muted = muted,
-                cropToFill = true,
-                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = transitionProgressState.value
-                    }
-            )
-        }
-    }
-}
-
-@Composable
-internal fun ModernHeroGradientLayer(
-    bgColor: Color,
-    isFullScreen: Boolean = false,
-    modifier: Modifier
-) {
-    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(
         modifier = modifier
             .drawWithCache {
@@ -225,7 +179,9 @@ internal fun ModernHeroGradientLayer(
                     endY = size.height
                 )
 
-                onDrawBehind {
+                onDrawWithContent {
+                    drawContent()
+
                     // 1. Horizontal fade (reversed in RTL)
                     val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
                     drawRect(
@@ -242,7 +198,43 @@ internal fun ModernHeroGradientLayer(
                     )
                 }
             }
-    )
+    ) {
+        AsyncImage(
+            model = imageModel,
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (transitionProgressState.value > 0f) {
+                        Modifier.graphicsLayer {
+                            alpha = 1f - transitionProgressState.value
+                        }
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopEnd
+        )
+
+        if (shouldPlayHeroTrailer) {
+            TrailerPlayer(
+                trailerUrl = heroTrailerUrl,
+                trailerAudioUrl = heroTrailerAudioUrl,
+                isPlaying = true,
+                onEnded = onTrailerEnded,
+                onFirstFrameRendered = onFirstFrameRendered,
+                muted = muted,
+                cropToFill = true,
+                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = transitionProgressState.value
+                    }
+            )
+        }
+    }
 }
 
 @Composable
