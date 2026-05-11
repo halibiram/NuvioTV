@@ -1,4 +1,12 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-only
+ *
+ * This modified decoder module is distributed with NuvioTV under GPL-3.0-only.
+ * It is based on AndroidX Media3 decoder_ffmpeg; the original Apache-2.0 notice
+ * is preserved below. Additional downmix behavior was adapted from Kodi
+ * (GPL-2.0-or-later). See this module's NOTICE.md for provenance details.
+ */
+/*
  * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,10 +20,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
-/*
- * Additional downmix behavior in this file was adapted from Kodi's FFmpeg/AudioEngine
- * playback path. See this module's NOTICE.md for provenance details.
  */
 package androidx.media3.decoder.ffmpeg;
 
