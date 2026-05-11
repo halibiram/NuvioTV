@@ -75,16 +75,13 @@ internal fun ModernHeroScene(
         heroTrailerUrl = state.trailerUrl,
         heroTrailerAudioUrl = state.trailerAudioUrl,
         muted = state.trailerMuted,
+        bgColor = bgColor,
+        isFullScreen = state.fullScreenBackdrop,
         onTrailerEnded = onTrailerEnded,
         onFirstFrameRendered = onFirstFrameRendered,
         modifier = modifier,
         requestWidthPx = requestWidthPx,
         requestHeightPx = requestHeightPx
-    )
-    ModernHeroGradientLayer(
-        bgColor = bgColor,
-        isFullScreen = state.fullScreenBackdrop,
-        modifier = modifier
     )
 }
 
@@ -97,6 +94,8 @@ internal fun ModernHeroMediaLayer(
     heroTrailerUrl: String?,
     heroTrailerAudioUrl: String?,
     muted: Boolean,
+    bgColor: Color,
+    isFullScreen: Boolean = false,
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit,
     modifier: Modifier,
@@ -123,7 +122,85 @@ internal fun ModernHeroMediaLayer(
             .build()
     }
 
-    Box(modifier = modifier) {
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+
+    // ⚡ Bolt Optimization: Consolidate gradient layer into media layer's modifier
+    // using drawWithCache/onDrawWithContent to avoid creating an entirely separate
+    // Compose Box node and reducing severe overdraw on Android TV.
+    Box(
+        modifier = modifier.drawWithCache {
+            val horizontalFadeEndX = size.width * if (isFullScreen) 0.65f else 0.45f
+            val colorStops = if (isFullScreen) {
+                arrayOf(
+                    0.0f to bgColor,
+                    0.22f to bgColor.copy(alpha = 0.90f),
+                    0.46f to bgColor.copy(alpha = 0.80f),
+                    0.76f to bgColor.copy(alpha = 0.42f),
+                    1.0f to Color.Transparent
+                )
+            } else {
+                arrayOf(
+                    0.0f to bgColor,
+                    0.22f to bgColor.copy(alpha = 0.86f),
+                    0.46f to bgColor.copy(alpha = 0.56f),
+                    0.76f to bgColor.copy(alpha = 0.16f),
+                    1.0f to Color.Transparent
+                )
+            }
+            val horizontalGradient = if (isRtl) {
+                Brush.horizontalGradient(
+                    colorStops = colorStops,
+                    startX = size.width,
+                    endX = size.width - horizontalFadeEndX
+                )
+            } else {
+                Brush.horizontalGradient(
+                    colorStops = colorStops,
+                    startX = 0f,
+                    endX = horizontalFadeEndX
+                )
+            }
+
+            val bottomStripStartY = size.height * if (isFullScreen) 0.64f else 0.82f
+            val verticalGradient = Brush.verticalGradient(
+                colorStops = if (isFullScreen) {
+                    arrayOf(
+                        0.0f to Color.Transparent,
+                        0.30f to bgColor.copy(alpha = 0.35f),
+                        0.60f to bgColor.copy(alpha = 0.75f),
+                        1.0f to bgColor
+                    )
+                } else {
+                    arrayOf(
+                        0.0f to Color.Transparent,
+                        0.40f to bgColor.copy(alpha = 0.25f),
+                        0.75f to bgColor.copy(alpha = 0.65f),
+                        1.0f to bgColor
+                    )
+                },
+                startY = bottomStripStartY,
+                endY = size.height
+            )
+
+            onDrawWithContent {
+                drawContent()
+                // 1. Horizontal fade (reversed in RTL)
+                val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
+                drawRect(
+                    brush = horizontalGradient,
+                    topLeft = Offset(rectLeft, 0f),
+                    size = Size(horizontalFadeEndX, size.height)
+                )
+
+                // 2. Bottom vertical strip
+                drawRect(
+                    brush = verticalGradient,
+                    topLeft = Offset(0f, bottomStripStartY),
+                    size = Size(size.width, size.height - bottomStripStartY)
+                )
+            }
+        }
+    ) {
         AsyncImage(
             model = imageModel,
             contentDescription = null,
@@ -160,89 +237,6 @@ internal fun ModernHeroMediaLayer(
             )
         }
     }
-}
-
-@Composable
-internal fun ModernHeroGradientLayer(
-    bgColor: Color,
-    isFullScreen: Boolean = false,
-    modifier: Modifier
-) {
-    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    Box(
-        modifier = modifier
-            .drawWithCache {
-                val horizontalFadeEndX = size.width * if (isFullScreen) 0.65f else 0.45f
-                val colorStops = if (isFullScreen) {
-                    arrayOf(
-                        0.0f to bgColor,
-                        0.22f to bgColor.copy(alpha = 0.90f),
-                        0.46f to bgColor.copy(alpha = 0.80f),
-                        0.76f to bgColor.copy(alpha = 0.42f),
-                        1.0f to Color.Transparent
-                    )
-                } else {
-                    arrayOf(
-                        0.0f to bgColor,
-                        0.22f to bgColor.copy(alpha = 0.86f),
-                        0.46f to bgColor.copy(alpha = 0.56f),
-                        0.76f to bgColor.copy(alpha = 0.16f),
-                        1.0f to Color.Transparent
-                    )
-                }
-                val horizontalGradient = if (isRtl) {
-                    Brush.horizontalGradient(
-                        colorStops = colorStops,
-                        startX = size.width,
-                        endX = size.width - horizontalFadeEndX
-                    )
-                } else {
-                    Brush.horizontalGradient(
-                        colorStops = colorStops,
-                        startX = 0f,
-                        endX = horizontalFadeEndX
-                    )
-                }
-
-                val bottomStripStartY = size.height * if (isFullScreen) 0.64f else 0.82f
-                val verticalGradient = Brush.verticalGradient(
-                    colorStops = if (isFullScreen) {
-                        arrayOf(
-                            0.0f to Color.Transparent,
-                            0.30f to bgColor.copy(alpha = 0.35f),
-                            0.60f to bgColor.copy(alpha = 0.75f),
-                            1.0f to bgColor
-                        )
-                    } else {
-                        arrayOf(
-                            0.0f to Color.Transparent,
-                            0.40f to bgColor.copy(alpha = 0.25f),
-                            0.75f to bgColor.copy(alpha = 0.65f),
-                            1.0f to bgColor
-                        )
-                    },
-                    startY = bottomStripStartY,
-                    endY = size.height
-                )
-
-                onDrawBehind {
-                    // 1. Horizontal fade (reversed in RTL)
-                    val rectLeft = if (isRtl) size.width - horizontalFadeEndX else 0f
-                    drawRect(
-                        brush = horizontalGradient,
-                        topLeft = Offset(rectLeft, 0f),
-                        size = Size(horizontalFadeEndX, size.height)
-                    )
-                    
-                    // 2. Bottom vertical strip
-                    drawRect(
-                        brush = verticalGradient,
-                        topLeft = Offset(0f, bottomStripStartY),
-                        size = Size(size.width, size.height - bottomStripStartY)
-                    )
-                }
-            }
-    )
 }
 
 @Composable
