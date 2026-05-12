@@ -1,0 +1,3 @@
+## 2024-05-12 - ModernHomeHero Compose Overdraw Optimization
+**Learning:** Using an extra Box to render a gradient layer (like `ModernHeroGradientLayer`) adds unnecessary node overhead to the Compose tree. This leads to increased memory footprint and reduced composition/drawing performance.
+**Action:** When a modifier simply applies visual effects (such as gradients) over a given layout structure, consolidate the effect directly into the main node's modifiers. In Compose Multiplatform/Android TV, use `Modifier.drawWithCache` alongside `onDrawWithContent` to draw effects directly onto a single composable node instead of adding overlay Boxes.
