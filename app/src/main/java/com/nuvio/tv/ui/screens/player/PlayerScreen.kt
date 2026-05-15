@@ -111,6 +111,7 @@ import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.domain.model.Subtitle
+import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import android.text.format.DateFormat
@@ -129,8 +130,8 @@ import kotlin.math.abs
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
-    onBackPress: (currentVideoId: String?, currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean) -> Unit,
-    onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, null, false) },
+    onBackPress: (currentVideoId: String?, currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean, playbackCompleted: Boolean) -> Unit,
+    onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, null, false, false) },
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?, exitReason: PlayerExitReason?) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -150,7 +151,10 @@ fun PlayerScreen(
     var subtitleTimingConsumeNextConfirmKeyUp by remember { mutableStateOf(false) }
     val exitPlayer: () -> Unit = {
         viewModel.stopAndRelease()
-        onBackPress(uiState.currentVideoId, uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL)
+        val timeline = viewModel.playbackTimeline.value
+        val completed = timeline.duration > 0L &&
+            (timeline.currentPosition.toFloat() / timeline.duration.toFloat()) >= WatchProgress.COMPLETED_THRESHOLD
+        onBackPress(uiState.currentVideoId, uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL, completed)
     }
     val exitPlayerFromError: () -> Unit = {
         viewModel.stopAndRelease()
@@ -222,7 +226,8 @@ fun PlayerScreen(
                         uiState.currentVideoId,
                         uiState.currentSeason,
                         uiState.currentEpisode,
-                        uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL
+                        uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL,
+                        true
                     )
                 }
                 viewModel.consumePendingExitReason()
@@ -238,7 +243,8 @@ fun PlayerScreen(
                         uiState.currentVideoId,
                         uiState.currentSeason,
                         uiState.currentEpisode,
-                        uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL
+                        uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL,
+                        true
                     )
                 }
             }
@@ -846,7 +852,10 @@ fun PlayerScreen(
                     val title = uiState.title
                     val headers = viewModel.getCurrentHeaders()
                     viewModel.stopAndRelease()
-                    onBackPress(uiState.currentVideoId, uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL)
+                    val timeline = viewModel.playbackTimeline.value
+                    val completed = timeline.duration > 0L &&
+                        (timeline.currentPosition.toFloat() / timeline.duration.toFloat()) >= WatchProgress.COMPLETED_THRESHOLD
+                    onBackPress(uiState.currentVideoId, uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL, completed)
                     ExternalPlayerLauncher.launch(
                         context = context,
                         url = url,

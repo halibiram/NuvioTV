@@ -866,6 +866,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
             skipIntervalDismissed = false,
             postPlayMode = null,
             postPlayDismissedForCurrentEpisode = false,
+            playbackEnded = false,
         )
     }
     showStreamSourceIndicator(stream)
@@ -951,6 +952,7 @@ private fun PlayerRuntimeController.switchToEpisodeStreamCommon(
             skipIntervalDismissed = false,
             postPlayMode = null,
             postPlayDismissedForCurrentEpisode = false,
+            playbackEnded = false,
         )
     }
     showStreamSourceIndicator(stream)
@@ -1187,6 +1189,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     it.copy(
                         postPlayMode = null,
                         postPlayDismissedForCurrentEpisode = true,
+                        playbackEnded = false,
                     )
                 }
                 switchToEpisodeStream(
