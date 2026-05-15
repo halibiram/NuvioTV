@@ -45,6 +45,7 @@ internal object PlayerPlaybackNetworking {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .let { NuvioExoPlayerPerformanceHelper.applyNetworkOptimizations(it) }
             .build()
     }
 

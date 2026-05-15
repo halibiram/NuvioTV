@@ -205,7 +205,9 @@ data class PlayerSettings(
     val streamReuseLastLinkCacheHours: Int = 24,
     val subtitleOrganizationMode: SubtitleOrganizationMode = SubtitleOrganizationMode.NONE,
     val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES,
-    val resizeMode: Int = 0
+    val resizeMode: Int = 0,
+    // Nuvio ExoPlayer Performance Mode
+    val nuvioPerformanceModeEnabled: Boolean = false
 ) {
     companion object {
         const val DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD = 3
@@ -390,6 +392,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val targetBufferSizeMbKey = intPreferencesKey("target_buffer_size_mb")
     private val backBufferDurationMsKey = intPreferencesKey("back_buffer_duration_ms")
     private val retainBackBufferFromKeyframeKey = booleanPreferencesKey("retain_back_buffer_from_keyframe")
+    private val nuvioPerformanceModeEnabledKey = booleanPreferencesKey("nuvio_performance_mode_enabled")
 
     private val migrationLoadControlDefaultsAlignedDoneKey = booleanPreferencesKey("migration_load_control_defaults_aligned_done")
 
@@ -572,6 +575,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 subtitleOrganizationMode = parseSubtitleOrganizationMode(prefs[subtitleOrganizationModeKey]),
                 addonSubtitleStartupMode = parseAddonSubtitleStartupMode(prefs[addonSubtitleStartupModeKey]),
                 resizeMode = (prefs[resizeModeKey] ?: 0).coerceIn(0, 4),
+                nuvioPerformanceModeEnabled = prefs[nuvioPerformanceModeEnabledKey] ?: false,
                 subtitleStyle = SubtitleStyleSettings(
                     preferredLanguage = normalizeSubtitlePreferredLanguageForRead(
                         prefs[subtitlePreferredLanguageKey],
@@ -1141,6 +1145,20 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setBufferRetainBackBufferFromKeyframe(retain: Boolean) {
         store().edit { prefs ->
             prefs[retainBackBufferFromKeyframeKey] = retain
+        }
+    }
+
+    // Nuvio ExoPlayer Performance Mode
+
+    val nuvioPerformanceModeEnabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            prefs[nuvioPerformanceModeEnabledKey] ?: false
+        }
+    }
+
+    suspend fun setNuvioPerformanceModeEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[nuvioPerformanceModeEnabledKey] = enabled
         }
     }
 }

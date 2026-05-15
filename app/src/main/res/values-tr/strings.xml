@@ -459,6 +459,8 @@
     <string name="advanced_section_cache">Önbellek</string>
     <string name="advanced_fast_horizontal_navigation">Hızlı Yatay Gezinme</string>
     <string name="advanced_fast_horizontal_navigation_subtitle">Performans için yatay listelerde daha pürüzsüz kaydırma sağlar</string>
+    <string name="advanced_nuvio_performance_mode">Nuvio ExoPlayer Performans Modu</string>
+    <string name="advanced_nuvio_performance_mode_subtitle">Daha akıcı oynatma için gelişmiş tampon yönetimi, hızlı ileri/geri optimizasyonu, asenkron codec kuyruğu ve HTTP/2 ağ desteğini etkinleştirir</string>
     <string name="advanced_nuvio_focus_scroll">Nuvio Odak Kaydırma</string>
     <string name="advanced_nuvio_focus_scroll_subtitle">Varsayılan Android TV odak davranışını Nuvio\'nun özel kaydırma sistemi ile değiştirir</string>
     <string name="advanced_memory_only_vertical_scroll">Yalnızca Bellekte Dikey Kaydırma</string>

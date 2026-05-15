@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
+import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +17,8 @@ data class AdvancedSettingsUiState(
     val fastHorizontalNavigationEnabled: Boolean = false,
     val smoothBringIntoViewEnabled: Boolean = true,
     val memoryOnlyVerticalScroll: Boolean = true,
-    val composeHighlighterEnabled: Boolean = false
+    val composeHighlighterEnabled: Boolean = false,
+    val nuvioPerformanceModeEnabled: Boolean = false
 )
 
 sealed class AdvancedSettingsEvent {
@@ -24,11 +26,13 @@ sealed class AdvancedSettingsEvent {
     data class SetSmoothBringIntoViewEnabled(val enabled: Boolean) : AdvancedSettingsEvent()
     data class SetMemoryOnlyVerticalScroll(val enabled: Boolean) : AdvancedSettingsEvent()
     data class SetComposeHighlighterEnabled(val enabled: Boolean) : AdvancedSettingsEvent()
+    data class SetNuvioPerformanceModeEnabled(val enabled: Boolean) : AdvancedSettingsEvent()
 }
 
 @HiltViewModel
 class AdvancedSettingsViewModel @Inject constructor(
-    private val layoutPreferenceDataStore: LayoutPreferenceDataStore
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val playerSettingsDataStore: PlayerSettingsDataStore
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(AdvancedSettingsUiState())
     val uiState: StateFlow<AdvancedSettingsUiState> = _uiState.asStateFlow()
@@ -54,6 +58,11 @@ class AdvancedSettingsViewModel @Inject constructor(
                 _uiState.update { it.copy(composeHighlighterEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            playerSettingsDataStore.nuvioPerformanceModeEnabled.collectLatest { enabled ->
+                _uiState.update { it.copy(nuvioPerformanceModeEnabled = enabled) }
+            }
+        }
     }
 
     fun onEvent(event: AdvancedSettingsEvent) {
@@ -76,6 +85,11 @@ class AdvancedSettingsViewModel @Inject constructor(
             is AdvancedSettingsEvent.SetComposeHighlighterEnabled -> {
                 viewModelScope.launch {
                     layoutPreferenceDataStore.setComposeHighlighterEnabled(event.enabled)
+                }
+            }
+            is AdvancedSettingsEvent.SetNuvioPerformanceModeEnabled -> {
+                viewModelScope.launch {
+                    playerSettingsDataStore.setNuvioPerformanceModeEnabled(event.enabled)
                 }
             }
         }

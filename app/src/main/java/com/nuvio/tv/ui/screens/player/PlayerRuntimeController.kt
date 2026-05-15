@@ -6,6 +6,7 @@ import android.media.AudioDeviceCallback
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.torrent.TorrentService
@@ -233,6 +234,7 @@ class PlayerRuntimeController(
     internal var _exoPlayer: ExoPlayer? = null
     val exoPlayer: ExoPlayer?
         get() = _exoPlayer
+    internal var _loadControl: DefaultLoadControl? = null
     internal var playbackSpeedAwareAudioSink: PlaybackSpeedAwareAudioSink? = null
 
     internal var progressJob: Job? = null
@@ -326,6 +328,11 @@ class PlayerRuntimeController(
 
     internal var lastBufferLogTimeMs: Long = 0L
     internal var pendingSeekFlush: Boolean = false
+    internal var suppressBufferingUiForSeek: Boolean = false
+    internal var isScrubbingModeActive: Boolean = false
+    internal var seekBufferingUiJob: Job? = null
+    internal var seekBufferingUiDeferred: Boolean = false
+    internal val seekBufferingUiDelayMs = 1000L
     
     internal val gainAudioProcessor = GainAudioProcessor()
     internal var trackSelector: DefaultTrackSelector? = null

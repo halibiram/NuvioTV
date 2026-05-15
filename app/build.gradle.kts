@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
@@ -226,10 +226,15 @@ composeCompiler {
     stabilityConfigurationFiles.add(rootProject.layout.projectDirectory.file("compose_stability_config.conf"))
 }
 
-// Globally exclude stock media3-exoplayer and media3-ui — replaced by forked local AARs
+// Globally exclude stock media3 modules — replaced by forked local AARs
 configurations.all {
     exclude(group = "androidx.media3", module = "media3-exoplayer")
     exclude(group = "androidx.media3", module = "media3-ui")
+    exclude(group = "androidx.media3", module = "media3-common")
+    exclude(group = "androidx.media3", module = "media3-datasource")
+    exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
+    exclude(group = "androidx.media3", module = "media3-exoplayer-hls")
+    exclude(group = "androidx.media3", module = "media3-extractor")
 }
 
 baselineProfile {
@@ -296,29 +301,34 @@ dependencies {
     // ViewModel
     implementation(libs.lifecycle.viewmodel.compose)
 
-    // Media3 ExoPlayer — using custom forked ExoPlayer from local AARs (like Just Player)
-    // The forked lib-exoplayer-release.aar replaces stock media3-exoplayer (globally excluded above)
-    // lib-ui-release.aar replaces stock media3-ui (globally excluded above)
-    implementation(libs.media3.exoplayer.hls)
+    // Media3 — remaining stock modules from Maven (not forked)
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.exoplayer.smoothstreaming)
     implementation(libs.media3.exoplayer.rtsp)
-    implementation(libs.media3.datasource)
-    implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.decoder)
     implementation(libs.media3.session)
-    implementation(libs.media3.common)
     implementation(libs.media3.container)
-    implementation(libs.media3.extractor)
 
-    
-    // Local AAR libraries from forked ExoPlayer (matching Just Player setup):
-    // - lib-exoplayer-release.aar    — Custom forked ExoPlayer core (replaces media3-exoplayer)
-    // - lib-ui-release.aar           — Custom forked ExoPlayer UI
-    // - lib-decoder-ffmpeg-release.aar — FFmpeg audio decoders (vorbis,opus,flac,alac,pcm,mp3,amr,aac,ac3,eac3,dca,mlp,truehd)
-    // - lib-decoder-av1-release.aar  — AV1 software video decoder (libgav1)
-    // - lib-decoder-iamf-release.aar — IAMF immersive audio decoder
-    // - lib-decoder-mpegh-release.aar — MPEG-H 3D audio decoder
+    // Transitive dependencies required by forked local AARs (not bundled in AARs):
+    // - Guava: needed by lib-common (ImmutableList/ImmutableSet in Tracks, Player API)
+    // - media3-database: needed by lib-datasource (cache/storage layer)
+    // - annotation-experimental: needed by lib-common (OptIn annotations)
+    implementation("com.google.guava:guava:33.3.1-android")
+    implementation("androidx.media3:media3-database:1.8.0")
+    implementation("androidx.annotation:annotation-experimental:1.3.1")
+
+    // Local AAR libraries from forked Media3 1.8.0:
+    // - lib-exoplayer-release.aar         — Custom forked ExoPlayer core (replaces media3-exoplayer)
+    // - lib-ui-release.aar                — Custom forked ExoPlayer UI (replaces media3-ui)
+    // - lib-common-release.aar            — Forked common module (replaces media3-common)
+    // - lib-datasource-release.aar        — Forked datasource module (replaces media3-datasource)
+    // - lib-datasource-okhttp-release.aar — Forked OkHttp datasource (replaces media3-datasource-okhttp)
+    // - lib-exoplayer-hls-release.aar     — Forked HLS module (replaces media3-exoplayer-hls)
+    // - lib-extractor-release.aar         — Forked extractor module (replaces media3-extractor)
+    // - lib-decoder-ffmpeg-release.aar    — FFmpeg audio decoders
+    // - lib-decoder-av1-release.aar       — AV1 software video decoder (libgav1)
+    // - lib-decoder-iamf-release.aar      — IAMF immersive audio decoder
+    // - lib-decoder-mpegh-release.aar     — MPEG-H 3D audio decoder
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
 
     // libass-android for ASS/SSA subtitle support (from Maven Central)

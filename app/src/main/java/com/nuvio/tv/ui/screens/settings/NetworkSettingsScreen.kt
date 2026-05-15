@@ -314,6 +314,19 @@ fun AdvancedSettingsContent(
                     }
                 }
                 SettingsToggleRow(
+                    title = stringResource(R.string.advanced_nuvio_performance_mode),
+                    subtitle = stringResource(R.string.advanced_nuvio_performance_mode_subtitle),
+                    checked = uiState.nuvioPerformanceModeEnabled,
+                    onToggle = {
+                        viewModel.onEvent(
+                            AdvancedSettingsEvent.SetNuvioPerformanceModeEnabled(
+                                !uiState.nuvioPerformanceModeEnabled
+                            )
+                        )
+                    },
+                    modifier = Modifier.focusRequester(performanceFocusRequester)
+                )
+                SettingsToggleRow(
                     title = stringResource(R.string.advanced_fast_horizontal_navigation),
                     subtitle = stringResource(R.string.advanced_fast_horizontal_navigation_subtitle),
                     checked = uiState.fastHorizontalNavigationEnabled,
@@ -323,8 +336,7 @@ fun AdvancedSettingsContent(
                                 !uiState.fastHorizontalNavigationEnabled
                             )
                         )
-                    },
-                    modifier = Modifier.focusRequester(performanceFocusRequester)
+                    }
                 )
                 SettingsToggleRow(
                     title = stringResource(R.string.advanced_nuvio_focus_scroll),

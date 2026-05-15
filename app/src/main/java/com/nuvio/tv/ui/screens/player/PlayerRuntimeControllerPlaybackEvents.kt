@@ -203,6 +203,15 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
                         val maxMb = runtime.maxMemory() / (1024 * 1024)
                         Log.d(PlayerRuntimeController.TAG, "BUFFER: ahead=${bufAhead}s, loading=$loading, heap=$usedMb/${maxMb}MB, pos=${pos / 1000}s")
+                        
+                        if (NuvioExoPlayerPerformanceHelper.shouldLogMemoryFootprint()) {
+                            val defaultAllocator = _loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator
+                            val totalFootprintBytes = defaultAllocator?.memoryFootprint ?: 0
+                            val totalActiveBytes = defaultAllocator?.totalBytesAllocated ?: 0
+                            val footprintMb = totalFootprintBytes / (1024 * 1024)
+                            val activeMb = totalActiveBytes / (1024 * 1024)
+                            Log.d("ExoMemory", "Off-heap OS ahead: $footprintMb MB, active: $activeMb MB")
+                        }
                     }
                 }
             }

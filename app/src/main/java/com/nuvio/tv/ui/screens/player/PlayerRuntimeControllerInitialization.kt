@@ -19,6 +19,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.ScrubbingModeParameters
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
@@ -226,18 +227,10 @@ internal fun PlayerRuntimeController.initializePlayer(
                     libassRenderType = playerSettings.libassRenderType
                 )
             }
-            val loadControl = run {
-                DefaultLoadControl.Builder()
-                    .setTargetBufferBytes(100 * 1024 * 1024)
-                    .setBufferDurationsMs(
-                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                        70_000,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                        5_000
-                    )
-                    .build()
-            }
-
+            NuvioExoPlayerPerformanceHelper.enabled = playerSettings.nuvioPerformanceModeEnabled
+            val bandwidthMeter = NuvioExoPlayerPerformanceHelper.buildBandwidthMeter(context)
+            val loadControl = NuvioExoPlayerPerformanceHelper.buildLoadControl()
+            _loadControl = loadControl
             
             trackSelector = DefaultTrackSelector(context).apply {
                 setParameters(
@@ -295,6 +288,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it }
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || applyDv7FallbackOnStartup)
+            NuvioExoPlayerPerformanceHelper.applyAsyncQueueing(renderersFactory)
 
             if (showLoadingStatus) _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
             val buildDefaultPlayer = {
@@ -339,7 +333,6 @@ internal fun PlayerRuntimeController.initializePlayer(
             libassPipelineSwitchInFlight = false
 
             _exoPlayer?.apply {
-                
                 val audioAttributes = AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -436,8 +429,17 @@ internal fun PlayerRuntimeController.initializePlayer(
                         updatePlaybackTimeline(duration = playerDuration.coerceAtLeast(0L))
                         _uiState.update { 
                             it.copy(
-                                isBuffering = isBuffering,
+                                isBuffering = if (NuvioExoPlayerPerformanceHelper.shouldSuppressBufferingUi(
+                                    suppressBufferingUiForSeek, seekBufferingUiDeferred, isBuffering
+                                )) false else isBuffering,
                                 playbackEnded = playbackState == Player.STATE_ENDED
+                            )
+                        }
+
+                        if (isScrubbingModeActive) {
+                            isScrubbingModeActive = false
+                            _exoPlayer?.setScrubbingModeParameters(
+                                ScrubbingModeParameters.Builder().build()
                             )
                         }
 
@@ -487,12 +489,25 @@ internal fun PlayerRuntimeController.initializePlayer(
                             tryApplyPendingResumeProgress(this@apply)
                             _uiState.value.pendingSeekPosition?.let { position ->
                                 seekTo(position)
+                                if (NuvioExoPlayerPerformanceHelper.enabled) {
+                                    seekBufferingUiDeferred = true
+                                    seekBufferingUiJob?.cancel()
+                                    seekBufferingUiJob = scope.launch {
+                                        delay(seekBufferingUiDelayMs)
+                                        seekBufferingUiDeferred = false
+                                        if (pendingSeekFlush) {
+                                            _uiState.update { it.copy(isBuffering = true) }
+                                        }
+                                    }
+                                }
                                 _uiState.update { it.copy(pendingSeekPosition = null) }
                             }
                             // Re-evaluate subtitle auto-selection once player is ready.
                             tryAutoSelectPreferredSubtitleFromAvailableTracks()
 
-                            trackSelectionParameters = trackSelectionParameters.buildUpon().build()
+                            if (!NuvioExoPlayerPerformanceHelper.shouldGuardTrackRebuild() || !hasRenderedFirstFrame) {
+                                trackSelectionParameters = trackSelectionParameters.buildUpon().build()
+                            }
                         }
                     
                         
