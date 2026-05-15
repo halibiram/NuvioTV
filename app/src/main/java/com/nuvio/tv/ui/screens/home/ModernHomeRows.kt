@@ -927,49 +927,47 @@ private fun ModernCarouselCard(
             scale = CardDefaults.scale(focusedScale = 1f),
             glow = cardGlow
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                val mediaLayerModifier = remember(hasLandscapeLogo) {
-                    if (hasLandscapeLogo) {
-                        Modifier
-                            .fillMaxSize()
-                            .drawWithCache {
-                                onDrawWithContent {
-                                    drawContent()
-                                    drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size)
-                                }
+            val mediaLayerModifier = remember(hasLandscapeLogo) {
+                if (hasLandscapeLogo) {
+                    Modifier
+                        .fillMaxSize()
+                        .drawWithCache {
+                            onDrawWithContent {
+                                drawContent()
+                                drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size)
                             }
-                    } else {
-                        Modifier.fillMaxSize()
-                    }
+                        }
+                } else {
+                    Modifier.fillMaxSize()
+                }
+            }
+
+            Box(modifier = mediaLayerModifier) {
+                if (hasImage) {
+                    AsyncImage(
+                        model = scrollAwareImageModel,
+                        contentDescription = item.title,
+                        modifier = Modifier.fillMaxSize(),
+                        placeholder = backgroundPainter,
+                        error = backgroundPainter,
+                        fallback = backgroundPainter,
+                        contentScale = imageContentScale
+                    )
+                } else {
+                    MonochromePosterPlaceholder()
                 }
 
-                Box(modifier = mediaLayerModifier) {
-                    if (hasImage) {
-                        AsyncImage(
-                            model = scrollAwareImageModel,
-                            contentDescription = item.title,
-                            modifier = Modifier.fillMaxSize(),
-                            placeholder = backgroundPainter,
-                            error = backgroundPainter,
-                            fallback = backgroundPainter,
-                            contentScale = imageContentScale
-                        )
-                    } else {
-                        MonochromePosterPlaceholder()
-                    }
-
-                    if (shouldPlayTrailerInCard) {
-                        TrailerPlayer(
-                            trailerUrl = trailerPreviewUrl,
-                            trailerAudioUrl = trailerPreviewAudioUrl,
-                            isPlaying = true,
-                            onEnded = onTrailerEnded,
-                            muted = focusedPosterBackdropTrailerMuted,
-                            cropToFill = true,
-                            overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                if (shouldPlayTrailerInCard) {
+                    TrailerPlayer(
+                        trailerUrl = trailerPreviewUrl,
+                        trailerAudioUrl = trailerPreviewAudioUrl,
+                        isPlaying = true,
+                        onEnded = onTrailerEnded,
+                        muted = focusedPosterBackdropTrailerMuted,
+                        cropToFill = true,
+                        overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 if (hasLandscapeLogo) {

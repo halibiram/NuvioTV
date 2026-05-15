@@ -1,0 +1,4 @@
+## 2024-05-15 - Remove redundant Box wrapper around ModernHome card media
+
+**Learning:** When using Jetpack Compose, wrapping the entire content of a `Card` in a `Box(Modifier.fillMaxSize())` when the immediate inner children already use a `Box(Modifier.fillMaxSize())` creates an unnecessary node in the UI tree. In lists/carousels (like ModernHome), this adds up and increases the Compose node overhead (tree depth/width), degrading scrolling performance. The gradient can be drawn via `Modifier.drawWithCache` directly on the inner `Box` without needing an outer container just to group the media and overlay.
+**Action:** Always look for overlapping or redundant `Box` layers, especially at the root of list items. Consolidate them and move visual effects (like gradients) to modifiers on a single container whenever possible to flatten the Compose hierarchy.
