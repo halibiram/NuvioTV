@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -729,6 +730,50 @@ internal fun ModernRowSection(
             }
         }
 
+        // When a poster in this row expands, ensure it scrolls fully into view.
+        var isExpansionScrollActive by remember { mutableStateOf(false) }
+        val expandedCardWidthPx = with(density) {
+            if (useLandscapePosters) {
+                landscapeCatalogCardWidth.roundToPx()
+            } else {
+                (portraitCatalogCardHeight * (16f / 9f)).roundToPx()
+            }
+        }
+        LaunchedEffect(expandedCatalogFocusKey.value, row.key, effectiveExpandEnabled, rowItemCount) {
+            if (!effectiveExpandEnabled) return@LaunchedEffect
+            val expandedKey = expandedCatalogFocusKey.value ?: return@LaunchedEffect
+            val lastIndex = row.items.list.lastIndex
+            if (lastIndex < 0) return@LaunchedEffect
+            // Find the index of the expanded item in this row
+            val expandedIndex = row.items.list.indexOfFirst { item ->
+                when (val p = item.payload) {
+                    is ModernPayload.Catalog -> p.focusKey == expandedKey
+                    is ModernPayload.CollectionFolder -> p.focusKey == expandedKey
+                    else -> false
+                }
+            }
+            if (expandedIndex < 0) return@LaunchedEffect
+            // Only act on the last two items in the row
+            if (expandedIndex < lastIndex - 1) return@LaunchedEffect
+            // Small delay so the item is still in visible layout info
+            delay(50)
+            // Calculate overshoot using the known final expanded width rather than
+            // the mid-animation layout size which underestimates the trailing edge.
+            val layoutInfo = rowListState.layoutInfo
+            val itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == expandedIndex }
+                ?: return@LaunchedEffect
+            val viewportEnd = layoutInfo.viewportEndOffset
+            val itemEndExpanded = itemInfo.offset + expandedCardWidthPx
+            if (itemEndExpanded > viewportEnd) {
+                // Scroll just enough to reveal the trailing edge plus a small margin.
+                // Flag prevents isBackdropExpandedLambda from collapsing during this scroll.
+                val overshoot = itemEndExpanded - viewportEnd + with(density) { 15.dp.roundToPx() }
+                isExpansionScrollActive = true
+                rowListState.animateScrollBy(overshoot.toFloat())
+                isExpansionScrollActive = false
+            }
+        }
+
         CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
             val usesPlaceholderShimmer = row.isLoading &&
                 row.items.list.firstOrNull()?.imageUrl?.startsWith("placeholder://") == true
@@ -837,7 +882,8 @@ internal fun ModernRowSection(
                                 expandedFocusKey
                             ) {
                                 {
-                                    effectiveExpandEnabled && !isRowScrollingState.value &&
+                                    effectiveExpandEnabled &&
+                                        (!isRowScrollingState.value || isExpansionScrollActive) &&
                                         expandedCatalogFocusKey.value == expandedFocusKey
                                 }
                             }
