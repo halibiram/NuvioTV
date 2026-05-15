@@ -21,7 +21,9 @@ import static java.lang.Math.min;
 import android.net.Uri;
 import android.util.Base64;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Assertions;
@@ -29,11 +31,12 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import java.io.IOException;
 import java.net.URLDecoder;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 /** A {@link DataSource} for reading data URLs, as defined by RFC 2397. */
 @UnstableApi
-public final class DataSchemeDataSource extends BaseDataSource {
+public final class DataSchemeDataSource extends BaseDataSource implements ByteBufferDataReader {
 
   public static final String SCHEME_DATA = "data";
 
@@ -93,6 +96,27 @@ public final class DataSchemeDataSource extends BaseDataSource {
     }
     length = min(length, bytesRemaining);
     System.arraycopy(castNonNull(data), readPosition, buffer, offset, length);
+    readPosition += length;
+    bytesRemaining -= length;
+    bytesTransferred(length);
+    return length;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) {
+    if (length == 0) {
+      return 0;
+    }
+    if (bytesRemaining == 0) {
+      return C.RESULT_END_OF_INPUT;
+    }
+    length = min(min(length, buffer.remaining()), bytesRemaining);
+    buffer.put(castNonNull(data), readPosition, length);
     readPosition += length;
     bytesRemaining -= length;
     bytesTransferred(length);

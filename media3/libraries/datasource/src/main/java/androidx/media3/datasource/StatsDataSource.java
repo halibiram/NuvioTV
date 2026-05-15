@@ -17,10 +17,12 @@ package androidx.media3.datasource;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +32,7 @@ import java.util.Map;
  * headers.
  */
 @UnstableApi
-public final class StatsDataSource implements DataSource {
+public final class StatsDataSource implements DataSource, ByteBufferDataReader {
 
   private final DataSource dataSource;
 
@@ -101,6 +103,24 @@ public final class StatsDataSource implements DataSource {
   @Override
   public int read(byte[] buffer, int offset, int length) throws IOException {
     int bytesRead = dataSource.read(buffer, offset, length);
+    if (bytesRead != C.RESULT_END_OF_INPUT) {
+      this.bytesRead += bytesRead;
+    }
+    return bytesRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return dataSource instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) dataSource).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    int bytesRead = ((ByteBufferDataReader) dataSource).read(buffer, length);
     if (bytesRead != C.RESULT_END_OF_INPUT) {
       this.bytesRead += bytesRead;
     }

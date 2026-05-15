@@ -19,12 +19,14 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -57,7 +59,7 @@ import java.util.Map;
  *       data source if constructed using {@link #DefaultDataSource(Context, DataSource)}.
  * </ul>
  */
-public final class DefaultDataSource implements DataSource {
+public final class DefaultDataSource implements DataSource, ByteBufferDataReader {
 
   /** {@link DataSource.Factory} for {@link DefaultDataSource} instances. */
   public static final class Factory implements DataSource.Factory {
@@ -279,6 +281,20 @@ public final class DefaultDataSource implements DataSource {
   @Override
   public int read(byte[] buffer, int offset, int length) throws IOException {
     return Assertions.checkNotNull(dataSource).read(buffer, offset, length);
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return dataSource instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) dataSource).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    return ((ByteBufferDataReader) Assertions.checkNotNull(dataSource)).read(buffer, length);
   }
 
   @UnstableApi

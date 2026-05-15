@@ -27,6 +27,7 @@ import static java.lang.annotation.ElementType.TYPE_USE;
 import android.net.Uri;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PriorityTaskManager;
@@ -49,6 +50,7 @@ import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +62,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
  * written into the cache.
  */
 @UnstableApi
-public final class CacheDataSource implements DataSource {
+public final class CacheDataSource implements DataSource, ByteBufferDataReader {
 
   /** {@link DataSource.Factory} for {@link CacheDataSource} instances. */
   public static final class Factory implements DataSource.Factory {
@@ -656,6 +658,58 @@ public final class CacheDataSource implements DataSource {
         closeCurrentSource();
         openNextSource(requestDataSpec, false);
         return read(buffer, offset, length);
+      }
+      return bytesRead;
+    } catch (Throwable e) {
+      handleBeforeThrow(e);
+      throw e;
+    }
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return currentDataSource instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) currentDataSource).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    if (length == 0) {
+      return 0;
+    }
+    if (bytesRemaining == 0) {
+      return C.RESULT_END_OF_INPUT;
+    }
+    DataSpec requestDataSpec = checkNotNull(this.requestDataSpec);
+    DataSpec currentDataSpec = checkNotNull(this.currentDataSpec);
+    try {
+      if (readPosition >= checkCachePosition) {
+        openNextSource(requestDataSpec, true);
+      }
+      if (!supportsByteBufferRead()) {
+        throw new UnsupportedOperationException();
+      }
+      int bytesRead = ((ByteBufferDataReader) checkNotNull(currentDataSource)).read(buffer, length);
+      if (bytesRead != C.RESULT_END_OF_INPUT) {
+        if (isReadingFromCache()) {
+          totalCachedBytesRead += bytesRead;
+        }
+        readPosition += bytesRead;
+        currentDataSourceBytesRead += bytesRead;
+        if (bytesRemaining != C.LENGTH_UNSET) {
+          bytesRemaining -= bytesRead;
+        }
+      } else if (isReadingFromUpstream()
+          && (currentDataSpec.length == C.LENGTH_UNSET
+              || currentDataSourceBytesRead < currentDataSpec.length)) {
+        setNoBytesRemainingAndMaybeStoreLength(castNonNull(requestDataSpec.key));
+      } else if (bytesRemaining > 0 || bytesRemaining == C.LENGTH_UNSET) {
+        closeCurrentSource();
+        openNextSource(requestDataSpec, false);
+        return read(buffer, length);
       }
       return bytesRead;
     } catch (Throwable e) {

@@ -17,22 +17,25 @@ package androidx.media3.datasource;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 
 /** Tees data into a {@link DataSink} as the data is read. */
 @UnstableApi
-public final class TeeDataSource implements DataSource {
+public final class TeeDataSource implements DataSource, ByteBufferDataReader {
 
   private final DataSource upstream;
   private final DataSink dataSink;
 
   private boolean dataSinkNeedsClosing;
   private long bytesRemaining;
+  private byte[] byteBufferScratch;
 
   /**
    * @param upstream The upstream {@link DataSource}.
@@ -81,6 +84,31 @@ public final class TeeDataSource implements DataSource {
   }
 
   @Override
+  public boolean supportsByteBufferRead() {
+    return upstream instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) upstream).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    if (bytesRemaining == 0) {
+      return C.RESULT_END_OF_INPUT;
+    }
+    int startPosition = buffer.position();
+    int bytesRead = ((ByteBufferDataReader) upstream).read(buffer, length);
+    if (bytesRead > 0) {
+      writeToSink(buffer, startPosition, bytesRead);
+      if (bytesRemaining != C.LENGTH_UNSET) {
+        bytesRemaining -= bytesRead;
+      }
+    }
+    return bytesRead;
+  }
+
+  @Override
   @Nullable
   public Uri getUri() {
     return upstream.getUri();
@@ -101,5 +129,26 @@ public final class TeeDataSource implements DataSource {
         dataSink.close();
       }
     }
+  }
+
+  private void writeToSink(ByteBuffer buffer, int offset, int length) throws IOException {
+    byte[] scratch = getByteBufferScratch(length);
+    ByteBuffer duplicate = buffer.duplicate();
+    duplicate.position(offset);
+    int remaining = length;
+    while (remaining > 0) {
+      int bytesToWrite = Math.min(remaining, scratch.length);
+      duplicate.get(scratch, 0, bytesToWrite);
+      dataSink.write(scratch, 0, bytesToWrite);
+      remaining -= bytesToWrite;
+    }
+  }
+
+  private byte[] getByteBufferScratch(int length) {
+    int scratchLength = Math.min(length, 16 * 1024);
+    if (byteBufferScratch == null || byteBufferScratch.length < scratchLength) {
+      byteBufferScratch = new byte[scratchLength];
+    }
+    return byteBufferScratch;
   }
 }

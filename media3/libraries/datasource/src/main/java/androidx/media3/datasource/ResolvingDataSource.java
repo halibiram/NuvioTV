@@ -19,14 +19,16 @@ import static androidx.media3.common.util.Assertions.checkNotNull;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 
 /** {@link DataSource} wrapper allowing just-in-time resolution of {@link DataSpec DataSpecs}. */
 @UnstableApi
-public final class ResolvingDataSource implements DataSource {
+public final class ResolvingDataSource implements DataSource, ByteBufferDataReader {
 
   /** Resolves {@link DataSpec DataSpecs}. */
   public interface Resolver {
@@ -113,6 +115,20 @@ public final class ResolvingDataSource implements DataSource {
   @Override
   public int read(byte[] buffer, int offset, int length) throws IOException {
     return upstreamDataSource.read(buffer, offset, length);
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return upstreamDataSource instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) upstreamDataSource).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    return ((ByteBufferDataReader) upstreamDataSource).read(buffer, length);
   }
 
   @Override

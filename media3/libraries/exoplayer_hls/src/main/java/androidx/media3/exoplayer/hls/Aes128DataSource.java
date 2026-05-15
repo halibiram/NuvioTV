@@ -17,13 +17,18 @@ package androidx.media3.exoplayer.hls;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSourceInputStream;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.TransferListener;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.Key;
@@ -45,13 +50,14 @@ import javax.crypto.spec.SecretKeySpec;
  * designed specifically for reading whole files as defined in an HLS media playlist. For this
  * reason the implementation is private to the HLS package.
  */
-/* package */ class Aes128DataSource implements DataSource {
+/* package */ class Aes128DataSource implements DataSource, ByteBufferDataReader {
 
   private final DataSource upstream;
   private final byte[] encryptionKey;
   private final byte[] encryptionIv;
 
   @Nullable private CipherInputStream cipherInputStream;
+  @Nullable private ReadableByteChannel cipherChannel;
 
   /**
    * @param upstream The upstream {@link DataSource}.
@@ -90,6 +96,7 @@ import javax.crypto.spec.SecretKeySpec;
 
     DataSourceInputStream inputStream = new DataSourceInputStream(upstream, dataSpec);
     cipherInputStream = new CipherInputStream(inputStream, cipher);
+    cipherChannel = Channels.newChannel(cipherInputStream);
     inputStream.open();
 
     return C.LENGTH_UNSET;
@@ -99,6 +106,27 @@ import javax.crypto.spec.SecretKeySpec;
   public final int read(byte[] buffer, int offset, int length) throws IOException {
     Assertions.checkNotNull(cipherInputStream);
     int bytesRead = cipherInputStream.read(buffer, offset, length);
+    if (bytesRead < 0) {
+      return C.RESULT_END_OF_INPUT;
+    }
+    return bytesRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public final int read(ByteBuffer buffer, int length) throws IOException {
+    int originalLimit = buffer.limit();
+    int bytesRead;
+    try {
+      buffer.limit(buffer.position() + Math.min(length, buffer.remaining()));
+      bytesRead = Assertions.checkNotNull(cipherChannel).read(buffer);
+    } finally {
+      buffer.limit(originalLimit);
+    }
     if (bytesRead < 0) {
       return C.RESULT_END_OF_INPUT;
     }
@@ -119,6 +147,7 @@ import javax.crypto.spec.SecretKeySpec;
   @Override
   public void close() throws IOException {
     if (cipherInputStream != null) {
+      cipherChannel = null;
       cipherInputStream = null;
       upstream.close();
     }

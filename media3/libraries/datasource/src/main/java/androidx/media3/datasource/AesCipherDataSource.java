@@ -20,21 +20,24 @@ import static androidx.media3.common.util.Util.castNonNull;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import javax.crypto.Cipher;
 
 /** A {@link DataSource} that decrypts the data read from an upstream source. */
 @UnstableApi
-public final class AesCipherDataSource implements DataSource {
+public final class AesCipherDataSource implements DataSource, ByteBufferDataReader {
 
   private final DataSource upstream;
   private final byte[] secretKey;
 
   @Nullable private AesFlushingCipher cipher;
+  private byte[] byteBufferScratch;
 
   public AesCipherDataSource(byte[] secretKey, DataSource upstream) {
     this.upstream = upstream;
@@ -73,6 +76,29 @@ public final class AesCipherDataSource implements DataSource {
   }
 
   @Override
+  public boolean supportsByteBufferRead() {
+    return upstream instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) upstream).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    if (length == 0) {
+      return 0;
+    }
+    int startPosition = buffer.position();
+    int read = ((ByteBufferDataReader) upstream).read(buffer, length);
+    if (read == C.RESULT_END_OF_INPUT) {
+      return C.RESULT_END_OF_INPUT;
+    }
+    updateInPlace(buffer, startPosition, read);
+    return read;
+  }
+
+  @Override
   @Nullable
   public Uri getUri() {
     return upstream.getUri();
@@ -87,5 +113,35 @@ public final class AesCipherDataSource implements DataSource {
   public void close() throws IOException {
     cipher = null;
     upstream.close();
+  }
+
+  private void updateInPlace(ByteBuffer buffer, int offset, int length) {
+    if (buffer.hasArray()) {
+      castNonNull(cipher)
+          .updateInPlace(buffer.array(), buffer.arrayOffset() + offset, length);
+      return;
+    }
+    byte[] scratch = getByteBufferScratch(length);
+    int remaining = length;
+    int scratchOffset = offset;
+    while (remaining > 0) {
+      int toUpdate = Math.min(remaining, scratch.length);
+      ByteBuffer duplicate = buffer.duplicate();
+      duplicate.position(scratchOffset);
+      duplicate.get(scratch, 0, toUpdate);
+      castNonNull(cipher).updateInPlace(scratch, 0, toUpdate);
+      duplicate.position(scratchOffset);
+      duplicate.put(scratch, 0, toUpdate);
+      scratchOffset += toUpdate;
+      remaining -= toUpdate;
+    }
+  }
+
+  private byte[] getByteBufferScratch(int length) {
+    int scratchLength = Math.min(length, 16 * 1024);
+    if (byteBufferScratch == null || byteBufferScratch.length < scratchLength) {
+      byteBufferScratch = new byte[scratchLength];
+    }
+    return byteBufferScratch;
   }
 }
