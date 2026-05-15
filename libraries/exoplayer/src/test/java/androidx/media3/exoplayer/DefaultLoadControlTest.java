@@ -31,6 +31,7 @@ import androidx.media3.exoplayer.source.SinglePeriodTimeline;
 import androidx.media3.exoplayer.source.TrackGroupArray;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.media3.exoplayer.trackselection.FixedTrackSelection;
+import androidx.media3.exoplayer.upstream.Allocation;
 import androidx.media3.exoplayer.upstream.DefaultAllocator;
 import androidx.media3.test.utils.FakeTimeline;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -70,6 +71,16 @@ public class DefaultLoadControlTest {
     mediaPeriodId =
         new MediaSource.MediaPeriodId(
             timeline.getPeriod(/* periodIndex= */ 0, new Timeline.Period()));
+  }
+
+  @Test
+  public void allocator_releaseAfterReset_trimsReleasedAllocation() {
+    Allocation allocation = allocator.allocate();
+
+    allocator.reset();
+    allocator.release(allocation);
+
+    assertThat(allocator.getMemoryFootprint()).isEqualTo(0);
   }
 
   @Test

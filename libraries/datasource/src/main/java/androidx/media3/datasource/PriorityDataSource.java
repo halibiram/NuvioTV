@@ -17,11 +17,13 @@ package androidx.media3.datasource;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
 import androidx.media3.common.PriorityTaskManager;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 
@@ -39,7 +41,7 @@ import java.util.Map;
  * themselves.
  */
 @UnstableApi
-public final class PriorityDataSource implements DataSource {
+public final class PriorityDataSource implements DataSource, ByteBufferDataReader {
 
   /** {@link DataSource.Factory} for {@link PriorityDataSource} instances. */
   public static final class Factory implements DataSource.Factory {
@@ -106,6 +108,21 @@ public final class PriorityDataSource implements DataSource {
   public int read(byte[] buffer, int offset, int length) throws IOException {
     priorityTaskManager.proceedOrThrow(priority);
     return upstream.read(buffer, offset, length);
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return upstream instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) upstream).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    priorityTaskManager.proceedOrThrow(priority);
+    return ((ByteBufferDataReader) upstream).read(buffer, length);
   }
 
   @Override

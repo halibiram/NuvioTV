@@ -21,7 +21,9 @@ import static java.lang.Math.min;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Assertions;
@@ -42,6 +44,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -57,6 +60,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okio.BufferedSource;
 
 /**
  * An {@link HttpDataSource} that delegates to Square's {@link Call.Factory}.
@@ -65,7 +69,7 @@ import okhttp3.ResponseBody;
  * priority) the {@code dataSpec}, {@link #setRequestProperty} and the default parameters used to
  * construct the instance.
  */
-public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
+public class OkHttpDataSource extends BaseDataSource implements HttpDataSource, ByteBufferDataReader {
 
   static {
     MediaLibraryInfo.registerModule("media3.datasource.okhttp");
@@ -191,6 +195,7 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
   @Nullable private DataSpec dataSpec;
   @Nullable private Response response;
   @Nullable private InputStream responseByteStream;
+  @Nullable private BufferedSource responseByteSource;
   private boolean connectionEstablished;
   private long bytesToRead;
   private long bytesRead;
@@ -272,7 +277,8 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
       this.response = executeCall(call);
       response = this.response;
       responseBody = Assertions.checkNotNull(response.body());
-      responseByteStream = responseBody.byteStream();
+      responseByteSource = responseBody.source();
+      responseByteStream = responseByteSource.inputStream();
     } catch (IOException e) {
       throw HttpDataSourceException.createForIOException(
           e, dataSpec, HttpDataSourceException.TYPE_OPEN);
@@ -348,6 +354,21 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
   public int read(byte[] buffer, int offset, int length) throws HttpDataSourceException {
     try {
       return readInternal(buffer, offset, length);
+    } catch (IOException e) {
+      throw HttpDataSourceException.createForIOException(
+          e, castNonNull(dataSpec), HttpDataSourceException.TYPE_READ);
+    }
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws HttpDataSourceException {
+    try {
+      return readInternal(buffer, length);
     } catch (IOException e) {
       throw HttpDataSourceException.createForIOException(
           e, castNonNull(dataSpec), HttpDataSourceException.TYPE_READ);
@@ -527,11 +548,42 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
     return read;
   }
 
+  private int readInternal(ByteBuffer buffer, int readLength) throws IOException {
+    if (readLength == 0) {
+      return 0;
+    }
+    readLength = min(readLength, buffer.remaining());
+    if (bytesToRead != C.LENGTH_UNSET) {
+      long bytesRemaining = bytesToRead - bytesRead;
+      if (bytesRemaining == 0) {
+        return C.RESULT_END_OF_INPUT;
+      }
+      readLength = (int) min(readLength, bytesRemaining);
+    }
+
+    int originalLimit = buffer.limit();
+    int read;
+    try {
+      buffer.limit(buffer.position() + readLength);
+      read = castNonNull(responseByteSource).read(buffer);
+    } finally {
+      buffer.limit(originalLimit);
+    }
+    if (read == -1) {
+      return C.RESULT_END_OF_INPUT;
+    }
+
+    bytesRead += read;
+    bytesTransferred(read);
+    return read;
+  }
+
   /** Closes the current connection quietly, if there is one. */
   private void closeConnectionQuietly() {
     if (response != null) {
       Assertions.checkNotNull(response.body()).close();
     }
     responseByteStream = null;
+    responseByteSource = null;
   }
 }

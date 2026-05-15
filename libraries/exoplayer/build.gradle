@@ -15,12 +15,18 @@ apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 
 android {
     namespace 'androidx.media3.exoplayer'
+    ndkVersion '28.2.13676358'
 
     defaultConfig {
         // The following argument makes the Android Test Orchestrator run its
         // "pm clear" command after each test invocation. This command ensures
         // that the app's state is completely cleared between tests.
         testInstrumentationRunnerArguments clearPackageData: 'true'
+        externalNativeBuild {
+            cmake {
+                targets "media3_exoplayer_jni"
+            }
+        }
     }
 
     buildTypes {
@@ -37,6 +43,19 @@ android {
     publishing {
         singleVariant('release') {
             withSourcesJar()
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = 'src/main/jni/CMakeLists.txt'
+            version = '3.21.0+'
+            if (project.hasProperty('externalNativeBuildDir')) {
+                if (!new File(externalNativeBuildDir).isAbsolute()) {
+                    ext.externalNativeBuildDir = new File(rootDir, externalNativeBuildDir)
+                }
+                buildStagingDirectory = "${externalNativeBuildDir}/${project.name}"
+            }
         }
     }
 }

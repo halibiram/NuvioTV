@@ -23,7 +23,9 @@ import static java.lang.Math.min;
 import android.net.Uri;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
@@ -44,6 +46,9 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.NoRouteToHostException;
 import java.net.URL;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +66,8 @@ import java.util.zip.GZIPInputStream;
  * priority) the {@code dataSpec}, {@link #setRequestProperty} and the default properties that can
  * be passed to {@link HttpDataSource.Factory#setDefaultRequestProperties(Map)}.
  */
-public class DefaultHttpDataSource extends BaseDataSource implements HttpDataSource {
+public class DefaultHttpDataSource extends BaseDataSource
+    implements HttpDataSource, ByteBufferDataReader {
 
   /** {@link DataSource.Factory} for {@link DefaultHttpDataSource} instances. */
   public static final class Factory implements HttpDataSource.Factory {
@@ -260,6 +266,7 @@ public class DefaultHttpDataSource extends BaseDataSource implements HttpDataSou
   @Nullable private DataSpec dataSpec;
   @Nullable private HttpURLConnection connection;
   @Nullable private InputStream inputStream;
+  @Nullable private ReadableByteChannel inputChannel;
   private boolean transferStarted;
   private int responseCode;
   private long bytesToRead;
@@ -438,6 +445,7 @@ public class DefaultHttpDataSource extends BaseDataSource implements HttpDataSou
       if (isCompressed) {
         inputStream = new GZIPInputStream(inputStream);
       }
+      inputChannel = Channels.newChannel(inputStream);
     } catch (IOException e) {
       closeConnectionQuietly();
       throw new HttpDataSourceException(
@@ -479,6 +487,21 @@ public class DefaultHttpDataSource extends BaseDataSource implements HttpDataSou
     }
   }
 
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws HttpDataSourceException {
+    try {
+      return readInternal(buffer, length);
+    } catch (IOException e) {
+      throw HttpDataSourceException.createForIOException(
+          e, castNonNull(dataSpec), HttpDataSourceException.TYPE_READ);
+    }
+  }
+
   @UnstableApi
   @Override
   public void close() throws HttpDataSourceException {
@@ -497,6 +520,7 @@ public class DefaultHttpDataSource extends BaseDataSource implements HttpDataSou
       }
     } finally {
       inputStream = null;
+      inputChannel = null;
       closeConnectionQuietly();
       if (transferStarted) {
         transferStarted = false;
@@ -777,6 +801,36 @@ public class DefaultHttpDataSource extends BaseDataSource implements HttpDataSou
     }
 
     int read = castNonNull(inputStream).read(buffer, offset, readLength);
+    if (read == -1) {
+      return C.RESULT_END_OF_INPUT;
+    }
+
+    bytesRead += read;
+    bytesTransferred(read);
+    return read;
+  }
+
+  private int readInternal(ByteBuffer buffer, int readLength) throws IOException {
+    if (readLength == 0) {
+      return 0;
+    }
+    readLength = min(readLength, buffer.remaining());
+    if (bytesToRead != C.LENGTH_UNSET) {
+      long bytesRemaining = bytesToRead - bytesRead;
+      if (bytesRemaining == 0) {
+        return C.RESULT_END_OF_INPUT;
+      }
+      readLength = (int) min(readLength, bytesRemaining);
+    }
+
+    int originalLimit = buffer.limit();
+    int read;
+    try {
+      buffer.limit(buffer.position() + readLength);
+      read = castNonNull(inputChannel).read(buffer);
+    } finally {
+      buffer.limit(originalLimit);
+    }
     if (read == -1) {
       return C.RESULT_END_OF_INPUT;
     }

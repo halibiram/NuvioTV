@@ -23,7 +23,9 @@ import android.system.ErrnoException;
 import android.system.OsConstants;
 import android.text.TextUtils;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
@@ -31,10 +33,11 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 
 /** A {@link DataSource} for reading local files. */
 @UnstableApi
-public final class FileDataSource extends BaseDataSource {
+public final class FileDataSource extends BaseDataSource implements ByteBufferDataReader {
 
   /** Thrown when a {@link FileDataSource} encounters an error reading a file. */
   public static class FileDataSourceException extends DataSourceException {
@@ -143,6 +146,39 @@ public final class FileDataSource extends BaseDataSource {
         bytesRead = castNonNull(file).read(buffer, offset, (int) min(bytesRemaining, length));
       } catch (IOException e) {
         throw new FileDataSourceException(e, PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
+      }
+
+      if (bytesRead > 0) {
+        bytesRemaining -= bytesRead;
+        bytesTransferred(bytesRead);
+      }
+
+      return bytesRead;
+    }
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws FileDataSourceException {
+    if (length == 0) {
+      return 0;
+    } else if (bytesRemaining == 0) {
+      return C.RESULT_END_OF_INPUT;
+    } else {
+      int originalLimit = buffer.limit();
+      int bytesRead;
+      try {
+        int bytesToRead = (int) min(bytesRemaining, min(length, buffer.remaining()));
+        buffer.limit(buffer.position() + bytesToRead);
+        bytesRead = castNonNull(file).getChannel().read(buffer);
+      } catch (IOException e) {
+        throw new FileDataSourceException(e, PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
+      } finally {
+        buffer.limit(originalLimit);
       }
 
       if (bytesRead > 0) {

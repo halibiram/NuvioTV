@@ -31,7 +31,9 @@ import android.text.TextUtils;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresExtension;
 import androidx.annotation.VisibleForTesting;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Clock;
@@ -67,7 +69,8 @@ import java.util.concurrent.Executor;
  */
 @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
 @UnstableApi
-public final class HttpEngineDataSource extends BaseDataSource implements HttpDataSource {
+public final class HttpEngineDataSource extends BaseDataSource
+    implements HttpDataSource, ByteBufferDataReader {
 
   /** {@link DataSource.Factory} for {@link HttpEngineDataSource} instances. */
   public static final class Factory implements HttpDataSource.Factory {
@@ -614,6 +617,22 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
     }
     bytesTransferred(bytesRead);
     return bytesRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws HttpDataSourceException {
+    int originalLimit = buffer.limit();
+    try {
+      buffer.limit(buffer.position() + Math.min(length, buffer.remaining()));
+      return read(buffer);
+    } finally {
+      buffer.limit(originalLimit);
+    }
   }
 
   /**

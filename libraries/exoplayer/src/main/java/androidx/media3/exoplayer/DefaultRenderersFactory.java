@@ -114,6 +114,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
   private boolean enableAudioTrackPlaybackParams;
   private boolean enableMediaCodecVideoRendererPrewarming;
   private boolean parseAv1SampleDependencies;
+  private boolean mapDV7ToHevc;
   private long lateThresholdToDropDecoderInputUs;
   private boolean enableMediaCodecBufferDecodeOnlyFlag;
 
@@ -143,6 +144,12 @@ public class DefaultRenderersFactory implements RenderersFactory {
   public final DefaultRenderersFactory setExtensionRendererMode(
       @ExtensionRendererMode int extensionRendererMode) {
     this.extensionRendererMode = extensionRendererMode;
+    return this;
+  }
+
+  @CanIgnoreReturnValue
+  public final DefaultRenderersFactory setMapDV7ToHevc(boolean mapDV7ToHevc) {
+    this.mapDV7ToHevc = mapDV7ToHevc;
     return this;
   }
 
@@ -441,7 +448,8 @@ public class DefaultRenderersFactory implements RenderersFactory {
             .setEventListener(eventListener)
             .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
             .experimentalSetParseAv1SampleDependencies(parseAv1SampleDependencies)
-            .experimentalSetLateThresholdToDropDecoderInputUs(lateThresholdToDropDecoderInputUs);
+            .experimentalSetLateThresholdToDropDecoderInputUs(lateThresholdToDropDecoderInputUs)
+            .setMapDV7ToHevc(mapDV7ToHevc);
     if (SDK_INT >= 34) {
       videoRendererBuilder =
           videoRendererBuilder.experimentalSetEnableMediaCodecBufferDecodeOnlyFlag(
@@ -899,7 +907,8 @@ public class DefaultRenderersFactory implements RenderersFactory {
               .setEventListener(eventListener)
               .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
               .experimentalSetParseAv1SampleDependencies(parseAv1SampleDependencies)
-              .experimentalSetLateThresholdToDropDecoderInputUs(lateThresholdToDropDecoderInputUs);
+              .experimentalSetLateThresholdToDropDecoderInputUs(lateThresholdToDropDecoderInputUs)
+            .setMapDV7ToHevc(mapDV7ToHevc);
       if (SDK_INT >= 34) {
         builder =
             builder.experimentalSetEnableMediaCodecBufferDecodeOnlyFlag(

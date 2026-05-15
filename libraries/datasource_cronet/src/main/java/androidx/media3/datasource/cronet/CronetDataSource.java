@@ -23,7 +23,9 @@ import android.net.Uri;
 import android.text.TextUtils;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Assertions;
@@ -75,7 +77,7 @@ import org.chromium.net.UrlResponseInfo;
  * priority) the {@code dataSpec}, {@link #setRequestProperty} and the default parameters used to
  * construct the instance.
  */
-public class CronetDataSource extends BaseDataSource implements HttpDataSource {
+public class CronetDataSource extends BaseDataSource implements HttpDataSource, ByteBufferDataReader {
 
   private static final String TAG = "CronetDataSource";
 
@@ -744,6 +746,22 @@ public class CronetDataSource extends BaseDataSource implements HttpDataSource {
     }
     bytesTransferred(bytesRead);
     return bytesRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws HttpDataSourceException {
+    int originalLimit = buffer.limit();
+    try {
+      buffer.limit(buffer.position() + Math.min(length, buffer.remaining()));
+      return read(buffer);
+    } finally {
+      buffer.limit(originalLimit);
+    }
   }
 
   /**

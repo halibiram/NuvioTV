@@ -15,12 +15,14 @@
  */
 package androidx.media3.extractor;
 
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /** An overridable {@link ExtractorInput} implementation forwarding all methods to another input. */
 @UnstableApi
-public class ForwardingExtractorInput implements ExtractorInput {
+public class ForwardingExtractorInput implements ExtractorInput, ByteBufferDataReader {
 
   private final ExtractorInput input;
 
@@ -31,6 +33,20 @@ public class ForwardingExtractorInput implements ExtractorInput {
   @Override
   public int read(byte[] buffer, int offset, int length) throws IOException {
     return input.read(buffer, offset, length);
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return input instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) input).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (!supportsByteBufferRead()) {
+      throw new UnsupportedOperationException();
+    }
+    return ((ByteBufferDataReader) input).read(buffer, length);
   }
 
   @Override

@@ -20,7 +20,9 @@ import static java.lang.Math.min;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
@@ -30,10 +32,11 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
 
 /** A UDP {@link DataSource}. */
 @UnstableApi
-public final class UdpDataSource extends BaseDataSource {
+public final class UdpDataSource extends BaseDataSource implements ByteBufferDataReader {
 
   /** Thrown when an error is encountered when trying to read from a {@link UdpDataSource}. */
   public static final class UdpDataSourceException extends DataSourceException {
@@ -150,6 +153,38 @@ public final class UdpDataSource extends BaseDataSource {
     int packetOffset = packet.getLength() - packetRemaining;
     int bytesToRead = min(packetRemaining, length);
     System.arraycopy(packetBuffer, packetOffset, buffer, offset, bytesToRead);
+    packetRemaining -= bytesToRead;
+    return bytesToRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws UdpDataSourceException {
+    if (length == 0) {
+      return 0;
+    }
+
+    if (packetRemaining == 0) {
+      try {
+        checkNotNull(socket).receive(packet);
+      } catch (SocketTimeoutException e) {
+        throw new UdpDataSourceException(
+            e, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT);
+      } catch (IOException e) {
+        throw new UdpDataSourceException(
+            e, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED);
+      }
+      packetRemaining = packet.getLength();
+      bytesTransferred(packetRemaining);
+    }
+
+    int packetOffset = packet.getLength() - packetRemaining;
+    int bytesToRead = min(packetRemaining, min(length, buffer.remaining()));
+    buffer.put(packetBuffer, packetOffset, bytesToRead);
     packetRemaining -= bytesToRead;
     return bytesToRead;
   }

@@ -22,14 +22,17 @@ import static java.lang.Math.min;
 
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.UnstableApi;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /** A {@link DataSource} for reading from a byte array. */
 @UnstableApi
-public final class ByteArrayDataSource extends BaseDataSource {
+public final class ByteArrayDataSource extends BaseDataSource implements ByteBufferDataReader {
 
   /** Functional interface to resolve from {@link Uri} to {@code byte[]}. */
   public interface UriResolver {
@@ -103,6 +106,27 @@ public final class ByteArrayDataSource extends BaseDataSource {
 
     length = min(length, bytesRemaining);
     System.arraycopy(checkStateNotNull(data), readPosition, buffer, offset, length);
+    readPosition += length;
+    bytesRemaining -= length;
+    bytesTransferred(length);
+    return length;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) {
+    if (length == 0) {
+      return 0;
+    } else if (bytesRemaining == 0) {
+      return C.RESULT_END_OF_INPUT;
+    }
+
+    length = min(min(length, buffer.remaining()), bytesRemaining);
+    buffer.put(checkStateNotNull(data), readPosition, length);
     readPosition += length;
     bytesRemaining -= length;
     bytesTransferred(length);

@@ -18,6 +18,7 @@ package androidx.media3.exoplayer.upstream;
 import static java.lang.Math.max;
 
 import androidx.annotation.Nullable;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
@@ -71,10 +72,9 @@ public final class DefaultAllocator implements Allocator {
     this.availableCount = initialAllocationCount;
     this.availableAllocations = new Allocation[initialAllocationCount + AVAILABLE_EXTRA_CAPACITY];
     if (initialAllocationCount > 0) {
-      initialAllocationBlock = new byte[initialAllocationCount * individualAllocationSize];
+      initialAllocationBlock = null;
       for (int i = 0; i < initialAllocationCount; i++) {
-        int allocationOffset = i * individualAllocationSize;
-        availableAllocations[i] = new Allocation(initialAllocationBlock, allocationOffset);
+        availableAllocations[i] = createAllocation(individualAllocationSize);
       }
     } else {
       initialAllocationBlock = null;
@@ -103,7 +103,7 @@ public final class DefaultAllocator implements Allocator {
       allocation = Assertions.checkNotNull(availableAllocations[--availableCount]);
       availableAllocations[availableCount] = null;
     } else {
-      allocation = new Allocation(new byte[individualAllocationSize], 0);
+      allocation = createAllocation(individualAllocationSize);
       if (allocatedCount > availableAllocations.length) {
         // Make availableAllocations be large enough to contain all allocations made by this
         // allocator so that release() does not need to grow the availableAllocations array. See
@@ -118,6 +118,9 @@ public final class DefaultAllocator implements Allocator {
   public synchronized void release(Allocation allocation) {
     availableAllocations[availableCount++] = allocation;
     allocatedCount--;
+    if (NuvioEngineConfig.get().isNativeAllocationEnabled() && shouldTrim()) {
+      trim();
+    }
     // Wake up threads waiting for the allocated size to drop.
     notifyAll();
   }
@@ -128,6 +131,9 @@ public final class DefaultAllocator implements Allocator {
       availableAllocations[availableCount++] = allocationNode.getAllocation();
       allocatedCount--;
       allocationNode = allocationNode.next();
+    }
+    if (NuvioEngineConfig.get().isNativeAllocationEnabled() && shouldTrim()) {
+      trim();
     }
     // Wake up threads waiting for the allocated size to drop.
     notifyAll();
@@ -171,6 +177,12 @@ public final class DefaultAllocator implements Allocator {
     }
 
     // Discard allocations beyond the target.
+    for (int i = targetAvailableCount; i < availableCount; i++) {
+      Allocation allocation = availableAllocations[i];
+      if (allocation != null && allocation.buffer != null) {
+        freeAllocation(allocation);
+      }
+    }
     Arrays.fill(availableAllocations, targetAvailableCount, availableCount, null);
     availableCount = targetAvailableCount;
   }
@@ -180,8 +192,39 @@ public final class DefaultAllocator implements Allocator {
     return allocatedCount * individualAllocationSize;
   }
 
+  public synchronized int getAvailableBytes() {
+    return availableCount * individualAllocationSize;
+  }
+
+  public synchronized int getMemoryFootprint() {
+    return (allocatedCount + availableCount) * individualAllocationSize;
+  }
+
   @Override
   public int getIndividualAllocationLength() {
     return individualAllocationSize;
   }
+
+  private static Allocation createAllocation(int size) {
+    if (!NuvioEngineConfig.get().isNativeAllocationEnabled()) {
+      return new Allocation(new byte[size], 0);
+    }
+    @Nullable Allocation allocation = DefaultAllocatorNative.createAllocation(size);
+    return allocation != null
+        ? allocation
+        : new Allocation(java.nio.ByteBuffer.allocateDirect(size), 0);
+  }
+
+  private static void freeAllocation(Allocation allocation) {
+    if (allocation.nativeHandle != 0) {
+      DefaultAllocatorNative.freeAllocation(allocation);
+    }
+  }
+
+  private boolean shouldTrim() {
+    int targetAllocationCount = Util.ceilDivide(targetBufferSize, individualAllocationSize);
+    int targetAvailableCount = max(0, targetAllocationCount - allocatedCount);
+    return availableCount > targetAvailableCount;
+  }
+
 }

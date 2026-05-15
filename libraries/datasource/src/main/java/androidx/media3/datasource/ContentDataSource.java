@@ -25,18 +25,21 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import androidx.annotation.Nullable;
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.UnstableApi;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Objects;
 
 /** A {@link DataSource} for reading from a content URI. */
 @UnstableApi
-public final class ContentDataSource extends BaseDataSource {
+public final class ContentDataSource extends BaseDataSource implements ByteBufferDataReader {
 
   /** Thrown when an {@link IOException} is encountered reading from a content URI. */
   public static class ContentDataSourceException extends DataSourceException {
@@ -182,6 +185,44 @@ public final class ContentDataSource extends BaseDataSource {
       bytesRead = castNonNull(inputStream).read(buffer, offset, bytesToRead);
     } catch (IOException e) {
       throw new ContentDataSourceException(e, PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
+    }
+
+    if (bytesRead == -1) {
+      return C.RESULT_END_OF_INPUT;
+    }
+    if (bytesRemaining != C.LENGTH_UNSET) {
+      bytesRemaining -= bytesRead;
+    }
+    bytesTransferred(bytesRead);
+    return bytesRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return NuvioEngineConfig.get().isZeroCopyEnabled();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws ContentDataSourceException {
+    if (length == 0) {
+      return 0;
+    } else if (bytesRemaining == 0) {
+      return C.RESULT_END_OF_INPUT;
+    }
+
+    int originalLimit = buffer.limit();
+    int bytesRead;
+    try {
+      int bytesToRead =
+          bytesRemaining == C.LENGTH_UNSET
+              ? min(length, buffer.remaining())
+              : (int) min(bytesRemaining, min(length, buffer.remaining()));
+      buffer.limit(buffer.position() + bytesToRead);
+      bytesRead = castNonNull(inputStream).getChannel().read(buffer);
+    } catch (IOException e) {
+      throw new ContentDataSourceException(e, PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
+    } finally {
+      buffer.limit(originalLimit);
     }
 
     if (bytesRead == -1) {

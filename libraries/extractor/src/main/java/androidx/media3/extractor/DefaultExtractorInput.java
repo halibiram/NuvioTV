@@ -17,20 +17,23 @@ package androidx.media3.extractor;
 
 import static java.lang.Math.min;
 
+import androidx.media3.common.ByteBufferDataReader;
 import androidx.media3.common.C;
 import androidx.media3.common.DataReader;
 import androidx.media3.common.MediaLibraryInfo;
+import androidx.media3.common.NuvioEngineConfig;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 /** An {@link ExtractorInput} that wraps a {@link DataReader}. */
 @UnstableApi
-public final class DefaultExtractorInput implements ExtractorInput {
+public final class DefaultExtractorInput implements ExtractorInput, ByteBufferDataReader {
 
   static {
     MediaLibraryInfo.registerModule("media3.extractor");
@@ -38,7 +41,7 @@ public final class DefaultExtractorInput implements ExtractorInput {
 
   private static final int PEEK_MIN_FREE_SPACE_AFTER_RESIZE = 64 * 1024;
   private static final int PEEK_MAX_FREE_SPACE = 512 * 1024;
-  private static final int SCRATCH_SPACE_SIZE = 4096;
+  private static final int SCRATCH_SPACE_SIZE = NuvioEngineConfig.get().getExtractorScratchSize();
 
   private final byte[] scratchSpace;
   private final DataReader dataReader;
@@ -69,6 +72,29 @@ public final class DefaultExtractorInput implements ExtractorInput {
       bytesRead =
           readFromUpstream(
               buffer, offset, length, /* bytesAlreadyRead= */ 0, /* allowEndOfInput= */ true);
+    }
+    commitBytesRead(bytesRead);
+    return bytesRead;
+  }
+
+  @Override
+  public boolean supportsByteBufferRead() {
+    return dataReader instanceof ByteBufferDataReader
+        && ((ByteBufferDataReader) dataReader).supportsByteBufferRead();
+  }
+
+  @Override
+  public int read(ByteBuffer buffer, int length) throws IOException {
+    if (length == 0) {
+      return 0;
+    }
+    int bytesRead = readFromPeekBuffer(buffer, length);
+    if (bytesRead == 0) {
+      if (!supportsByteBufferRead()) {
+        throw new UnsupportedOperationException();
+      }
+      bytesRead =
+          readFromUpstream(buffer, length, /* bytesAlreadyRead= */ 0, /* allowEndOfInput= */ true);
     }
     commitBytesRead(bytesRead);
     return bytesRead;
@@ -256,6 +282,16 @@ public final class DefaultExtractorInput implements ExtractorInput {
     return peekBytes;
   }
 
+  private int readFromPeekBuffer(ByteBuffer target, int length) {
+    if (peekBufferLength == 0) {
+      return 0;
+    }
+    int peekBytes = min(peekBufferLength, min(length, target.remaining()));
+    target.put(peekBuffer, 0, peekBytes);
+    updatePeekBuffer(peekBytes);
+    return peekBytes;
+  }
+
   /**
    * Updates the peek buffer's length, position and contents after consuming data.
    *
@@ -296,6 +332,23 @@ public final class DefaultExtractorInput implements ExtractorInput {
       throw new InterruptedIOException();
     }
     int bytesRead = dataReader.read(target, offset + bytesAlreadyRead, length - bytesAlreadyRead);
+    if (bytesRead == C.RESULT_END_OF_INPUT) {
+      if (bytesAlreadyRead == 0 && allowEndOfInput) {
+        return C.RESULT_END_OF_INPUT;
+      }
+      throw new EOFException();
+    }
+    return bytesAlreadyRead + bytesRead;
+  }
+
+  private int readFromUpstream(
+      ByteBuffer target, int length, int bytesAlreadyRead, boolean allowEndOfInput)
+      throws IOException {
+    if (Thread.interrupted()) {
+      throw new InterruptedIOException();
+    }
+    int bytesRead =
+        ((ByteBufferDataReader) dataReader).read(target, length - bytesAlreadyRead);
     if (bytesRead == C.RESULT_END_OF_INPUT) {
       if (bytesAlreadyRead == 0 && allowEndOfInput) {
         return C.RESULT_END_OF_INPUT;
