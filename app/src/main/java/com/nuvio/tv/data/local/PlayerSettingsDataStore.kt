@@ -207,7 +207,7 @@ data class PlayerSettings(
     val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES,
     val resizeMode: Int = 0,
     // Nuvio ExoPlayer Performance Mode
-    val nuvioPerformanceModeEnabled: Boolean = false
+    val nuvioPerformanceModeEnabled: Boolean = true
 ) {
     companion object {
         const val DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD = 3
@@ -575,7 +575,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 subtitleOrganizationMode = parseSubtitleOrganizationMode(prefs[subtitleOrganizationModeKey]),
                 addonSubtitleStartupMode = parseAddonSubtitleStartupMode(prefs[addonSubtitleStartupModeKey]),
                 resizeMode = (prefs[resizeModeKey] ?: 0).coerceIn(0, 4),
-                nuvioPerformanceModeEnabled = prefs[nuvioPerformanceModeEnabledKey] ?: false,
+                nuvioPerformanceModeEnabled = prefs[nuvioPerformanceModeEnabledKey] ?: true,
                 subtitleStyle = SubtitleStyleSettings(
                     preferredLanguage = normalizeSubtitlePreferredLanguageForRead(
                         prefs[subtitlePreferredLanguageKey],
@@ -1152,7 +1152,7 @@ class PlayerSettingsDataStore @Inject constructor(
 
     val nuvioPerformanceModeEnabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
-            prefs[nuvioPerformanceModeEnabledKey] ?: false
+            prefs[nuvioPerformanceModeEnabledKey] ?: true
         }
     }
 

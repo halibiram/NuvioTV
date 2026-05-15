@@ -18,7 +18,7 @@ data class AdvancedSettingsUiState(
     val smoothBringIntoViewEnabled: Boolean = true,
     val memoryOnlyVerticalScroll: Boolean = true,
     val composeHighlighterEnabled: Boolean = false,
-    val nuvioPerformanceModeEnabled: Boolean = false
+    val nuvioPerformanceModeEnabled: Boolean = true
 )
 
 sealed class AdvancedSettingsEvent {
