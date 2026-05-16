@@ -1,0 +1,3 @@
+## 2024-05-16 - Eliminate Overdraw and Node Overhead in Compose UI
+**Learning:** In highly complex Compose layouts on resource-constrained platforms (like Android TV), overlapping elements with visual effects (like drawing a media layer and a separate gradient layer above it) causes severe overdraw and node overhead (increasing tree depth and width).
+**Action:** Instead of stacking separate Box components for overlapping effects, consolidate them. Use `Modifier.drawWithCache { onDrawWithContent { ... } }` to draw directly onto the media layer, which completely eliminates an entire Compose node layer and reduces the layout penalty.
