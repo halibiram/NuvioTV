@@ -1,0 +1,3 @@
+## 2024-05-18 - Consolidating Compose Nodes on Android TV
+**Learning:** In Android TV layouts (like ModernHome), relying on multiple overlapping `Box` elements with backgrounds or gradients to compose scenes causes severe overdraw and node overhead, degrading performance. We can consolidate overlapping visual layers.
+**Action:** When drawing gradients or semi-transparent overlays on top of media, use `Modifier.drawWithCache` and `onDrawWithContent { drawContent(); drawRect(...) }` to combine them onto a single `Box` or layout node instead of wrapping or adding a separate visual node. We can access parameters like `layoutDirection` directly inside the draw scope, further minimizing boilerplate.
