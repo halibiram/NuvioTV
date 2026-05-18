@@ -27,6 +27,8 @@ class TorrServerBinary @Inject constructor(
         const val PORT = 8091
         private const val STARTUP_TIMEOUT_MS = 15_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 200L
+        private const val ORPHAN_SHUTDOWN_WAIT_MS = 1000L
+        private const val FORCE_KILL_TIMEOUT_MS = 3000L
     }
 
     private var process: Process? = null
@@ -122,7 +124,7 @@ class TorrServerBinary @Inject constructor(
             // Try graceful shutdown in case an old instance is still responding
             val request = Request.Builder().url("$baseUrl/shutdown").build()
             healthClient.newCall(request).execute().close()
-            Thread.sleep(1000)
+            Thread.sleep(ORPHAN_SHUTDOWN_WAIT_MS)
             Log.d(TAG, "Shut down orphaned TorrServer instance")
         } catch (_: Exception) {
             // No orphan responding — nothing to do
@@ -139,7 +141,7 @@ class TorrServerBinary @Inject constructor(
         // Force kill after 3 seconds
         process?.let { proc ->
             try {
-                Thread.sleep(3000)
+                Thread.sleep(FORCE_KILL_TIMEOUT_MS)
                 if (isProcessAlive(proc)) {
                     proc.destroyForcibly()
                 }
