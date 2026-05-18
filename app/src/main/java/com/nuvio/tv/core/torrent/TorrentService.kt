@@ -26,6 +26,10 @@ class TorrentService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "TorrentService"
+        private const val STATS_POLLING_INTERVAL_MS = 1000L
+        private const val METADATA_TIMEOUT_MS = 15_000L
+        private const val METADATA_POLLING_INTERVAL_MS = 1000L
+
         private val DEFAULT_TRACKERS = listOf(
             "udp://tracker.opentrackr.org:1337/announce",
             "udp://open.stealth.si:80/announce",
@@ -118,14 +122,14 @@ class TorrentService @Inject constructor(
 
     private suspend fun resolveFileIndex(hash: String, requestedIdx: Int?, filename: String?): Int {
         // Poll for metadata — magnet links may not have it immediately
-        val deadline = System.currentTimeMillis() + 15_000L
+        val deadline = System.currentTimeMillis() + METADATA_TIMEOUT_MS
         var files: List<TorrServerFile> = emptyList()
 
         while (System.currentTimeMillis() < deadline) {
             files = api.getTorrentStats(hash)?.files ?: emptyList()
             if (files.isNotEmpty()) break
             Log.d(TAG, "Waiting for torrent metadata...")
-            delay(1_000L)
+            delay(METADATA_POLLING_INTERVAL_MS)
         }
 
         if (files.isEmpty()) {
@@ -206,7 +210,7 @@ class TorrentService @Inject constructor(
                 } catch (e: Exception) {
                     Log.w(TAG, "Stats polling error", e)
                 }
-                delay(1000)
+                delay(STATS_POLLING_INTERVAL_MS)
             }
         }
     }
