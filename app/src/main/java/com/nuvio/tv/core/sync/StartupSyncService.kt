@@ -25,6 +25,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "StartupSyncService"
+private const val RETRY_DELAY_MS = 3000L
 
 @Singleton
 class StartupSyncService @Inject constructor(
@@ -150,7 +151,7 @@ class StartupSyncService @Inject constructor(
 
                 Log.w(TAG, "Startup sync attempt $attempt failed for key=$key", result.exceptionOrNull())
                 if (attempt < maxAttempts) {
-                    delay(3000)
+                    delay(RETRY_DELAY_MS)
                 }
             }
             
