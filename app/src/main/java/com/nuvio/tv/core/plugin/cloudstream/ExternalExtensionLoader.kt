@@ -292,7 +292,9 @@ class ExternalExtensionLoader @Inject constructor(
                 if (criticalShadows.isNotEmpty()) {
                     Log.w(TAG, "Extension $scraperId shadows critical classes: $criticalShadows")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to inspect dex file for critical class shadowing", e)
+            }
 
             // Find and instantiate the plugin class
             val plugin = findAndLoadPlugin(classLoader, dexFile)
