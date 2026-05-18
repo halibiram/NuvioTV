@@ -91,7 +91,9 @@ class TorrServerBinary @Inject constructor(
                 proc.inputStream.bufferedReader().forEachLine { line ->
                     Log.d(TAG, "[server] $line")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reading TorrServer output", e)
+            }
         }.apply {
             isDaemon = true
             start()
