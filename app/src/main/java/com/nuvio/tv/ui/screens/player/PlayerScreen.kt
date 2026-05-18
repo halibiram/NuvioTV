@@ -1725,7 +1725,7 @@ private fun ControlButton(
                     keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP
                 ) {
-                    try { upFocusRequester.requestFocus() } catch (_: Exception) {}
+                    try { upFocusRequester.requestFocus() } catch (e: Exception) { Log.w("PlayerScreen", "Failed to request focus", e) }
                     true
                 } else if (
                     onDownKey != null &&
