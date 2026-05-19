@@ -1,0 +1,3 @@
+## 2024-05-19 - ModernHomeHero Gradient Overdraw Optimization
+**Learning:** Found a critical performance bottleneck in `ModernHomeHero.kt` where a `Box` modifier was applying `drawWithCache` to create complex gradient overlays, while `AsyncImage` and `TrailerPlayer` also rendered within their own layers below it, causing severe overdraw issues and Compose node overhead (tree depth/width) on Android TV.
+**Action:** Replaced the separate `ModernHeroGradientLayer` Box with a modifier on the parent `Box` or the `AsyncImage` itself, using `drawWithCache` and `onDrawWithContent` to draw the gradients directly on top of the media, eliminating an entire node layer.
