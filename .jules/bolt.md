@@ -1,0 +1,3 @@
+## 2026-05-20 - Compose Node Consolidation via drawWithCache
+**Learning:** In Compose on lower-power devices (like Android TV), multiple overlapping `Box` elements used to stack media and gradients cause significant overdraw and increased node overhead (tree depth/width).
+**Action:** Instead of creating separate composable layers (e.g., `ModernHeroGradientLayer` overlaid on `ModernHeroMediaLayer`), consolidate them. Use `Modifier.drawWithCache` combined with `onDrawWithContent` (calling `drawContent()`) on the innermost container. This applies the gradients directly onto the same drawing layer, eliminating an entire composable node and avoiding unnecessary composition overhead.
