@@ -166,12 +166,20 @@ private class AudioDelaySampleStream(
     ): Int {
         val result = childStream.readData(formatHolder, buffer, readFlags)
         if (result == C.RESULT_BUFFER_READ) {
-            buffer.timeUs -= audioDelayUsProvider()
+            val delayUs = audioDelayUsProvider()
+            if (delayUs != 0L) {
+                buffer.timeUs -= delayUs
+            }
         }
         return result
     }
 
     override fun skipData(positionUs: Long): Int {
-        return childStream.skipData((positionUs + audioDelayUsProvider()).coerceAtLeast(0L))
+        val delayUs = audioDelayUsProvider()
+        return if (delayUs != 0L) {
+            childStream.skipData((positionUs + delayUs).coerceAtLeast(0L))
+        } else {
+            childStream.skipData(positionUs)
+        }
     }
 }

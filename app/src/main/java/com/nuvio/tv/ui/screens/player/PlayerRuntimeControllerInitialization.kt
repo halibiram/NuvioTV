@@ -888,6 +888,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                 message = context.getString(R.string.player_loading_building)
             )
             // ── Build ExoPlayer ──
+            val videoChangeFrameRateStrategy = if (playerSettings.frameRateMatchingMode == FrameRateMatchingMode.OFF) {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+            } else {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+            }
             val buildDefaultPlayer = {
                 // The actual MediaSource is built by mediaSourceFactory.createMediaSource()
                 // (setMediaSource below), NOT the DefaultMediaSourceFactory on the builder.
@@ -907,7 +912,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .setReleaseTimeoutMs(PLAYER_RELEASE_TIMEOUT_MS)
-                    .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
+                    .setVideoChangeFrameRateStrategy(videoChangeFrameRateStrategy)
                     .build()
             }
 
@@ -922,7 +927,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setTrackSelector(trackSelector!!)
                     .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, effectiveExtractorsFactory))
                     .setReleaseTimeoutMs(PLAYER_RELEASE_TIMEOUT_MS)
-                    .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
+                    .setVideoChangeFrameRateStrategy(videoChangeFrameRateStrategy)
                     .buildWithAssSupportCompat(
                         context = context,
                         renderType = libassRenderType,
