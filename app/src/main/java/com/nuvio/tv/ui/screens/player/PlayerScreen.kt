@@ -1605,7 +1605,7 @@ private fun PlayerView.enableComposeSurfaceSyncWorkaroundIfAvailable() {
     runCatching {
         javaClass
             .getMethod("setEnableComposeSurfaceSyncWorkaround", java.lang.Boolean.TYPE)
-            .invoke(this, false)
+            .invoke(this, true)
     }
 }
 
