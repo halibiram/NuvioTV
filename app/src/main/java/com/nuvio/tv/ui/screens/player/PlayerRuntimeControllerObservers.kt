@@ -252,6 +252,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
     scope.launch {
         playerSettingsDataStore.playerSettings.collect { settings ->
             currentPlayerSettingsForReport = settings
+            playbackAnalyticsDiagnostics.setCaptureEnabled(settings.playbackIssueReportsEnabled)
             val currentState = _uiState.value
             val showOnlyPreferredLanguagesChanged =
                 currentState.subtitleStyle.showOnlyPreferredLanguages != settings.subtitleStyle.showOnlyPreferredLanguages

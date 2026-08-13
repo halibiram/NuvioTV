@@ -266,12 +266,14 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     duration = playerDuration.coerceAtLeast(0L),
                     bufferedPosition = player.bufferedPosition.coerceAtLeast(displayPosition)
                 )
-                playbackAnalyticsDiagnostics.recordProgressSnapshot(
-                    player = player,
-                    hasRenderedFirstFrame = hasRenderedFirstFrame,
-                    rebufferCount = rebufferCount,
-                    rebufferTotalMs = rebufferTotalMs
-                )
+                if (playbackAnalyticsDiagnostics.captureEnabled) {
+                    playbackAnalyticsDiagnostics.recordProgressSnapshot(
+                        player = player,
+                        hasRenderedFirstFrame = hasRenderedFirstFrame,
+                        rebufferCount = rebufferCount,
+                        rebufferTotalMs = rebufferTotalMs
+                    )
+                }
                 // Update torrent rebuffer progress from ExoPlayer's buffer state
                 if (isTorrentStream && _uiState.value.isBuffering && hasRenderedFirstFrame) {
                     val bufferedAheadMs = (player.bufferedPosition - pos).coerceAtLeast(0)

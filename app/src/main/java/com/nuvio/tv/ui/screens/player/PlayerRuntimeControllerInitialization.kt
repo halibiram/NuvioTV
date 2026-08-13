@@ -199,6 +199,7 @@ internal fun PlayerRuntimeController.initializePlayer(
 
             val playerSettings = playerSettingsDataStore.playerSettings.first()
             currentPlayerSettingsForReport = playerSettings
+            playbackAnalyticsDiagnostics.setCaptureEnabled(playerSettings.playbackIssueReportsEnabled)
             rememberAudioDelayPerDeviceEnabled = playerSettings.rememberAudioDelayPerDevice
             // Always watch output-device changes so Bluetooth connect/disconnect can switch
             // between PCM-only and passthrough sink policies (Media3 1.8.0 BT semantics).

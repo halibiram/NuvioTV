@@ -95,6 +95,14 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     private var startPositionMs: Long? = null
     private var lastHealthSnapshotAtElapsedMs: Long = 0L
 
+    @Volatile
+    var captureEnabled: Boolean = false
+        private set
+
+    fun setCaptureEnabled(enabled: Boolean) {
+        captureEnabled = enabled
+    }
+
     fun setTraceContext(host: String?, engine: String?) {
         traceHost = host?.takeIf { it.isNotBlank() } ?: "unknown"
         traceEngine = engine?.takeIf { it.isNotBlank() } ?: "unknown"
@@ -175,6 +183,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun recordRawEventLine(line: String) {
+        if (!captureEnabled) return
         rawEventLines.addLast(line.rawPlaybackLine())
         while (rawEventLines.size > PLAYBACK_RAW_EVENT_LIMIT) {
             rawEventLines.removeFirst()
@@ -187,6 +196,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         rebufferCount: Int = 0,
         rebufferTotalMs: Long = 0L
     ) {
+        if (!captureEnabled) return
         val now = SystemClock.elapsedRealtime()
         val position = player.currentPosition.coerceAtLeast(0L)
         playbackState = player.playbackState
@@ -256,6 +266,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
+        if (!captureEnabled) return
         playbackState = state
         playbackStateName = state.playbackStateName()
         positionMs = eventTime.currentPlaybackPositionMs.safeTimeMs()
@@ -268,6 +279,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onPlayWhenReadyChanged(eventTime: AnalyticsListener.EventTime, ready: Boolean, reason: Int) {
+        if (!captureEnabled) return
         playWhenReady = ready
         record(
             name = "play_when_ready",
@@ -277,6 +289,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onIsPlayingChanged(eventTime: AnalyticsListener.EventTime, playing: Boolean) {
+        if (!captureEnabled) return
         isPlaying = playing
         record(
             name = "is_playing",
@@ -286,6 +299,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onIsLoadingChanged(eventTime: AnalyticsListener.EventTime, loading: Boolean) {
+        if (!captureEnabled) return
         isLoading = loading
         record(
             name = "is_loading",
@@ -298,6 +312,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         eventTime: AnalyticsListener.EventTime,
         playbackParameters: PlaybackParameters
     ) {
+        if (!captureEnabled) return
         playbackSpeed = playbackParameters.speed
         playbackPitch = playbackParameters.pitch
         record(
@@ -311,6 +326,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onRenderedFirstFrame(eventTime: AnalyticsListener.EventTime) {
+        if (!captureEnabled) return
         renderedFirstFrameCount += 1
         if (firstFrameElapsedMs == null) {
             firstFrameElapsedMs = (SystemClock.elapsedRealtime() - sessionStartedAtElapsedMs).coerceAtLeast(0L)
@@ -319,6 +335,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onSyntheticFirstFrame(player: Player?) {
+        if (!captureEnabled) return
         renderedFirstFrameCount += 1
         if (firstFrameElapsedMs == null) {
             firstFrameElapsedMs = (SystemClock.elapsedRealtime() - sessionStartedAtElapsedMs).coerceAtLeast(0L)
@@ -332,6 +349,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onRebufferStarted(player: Player?, count: Int) {
+        if (!captureEnabled) return
         player?.let { recordProgressSnapshot(it, hasRenderedFirstFrame = true) }
         record(
             name = "rebuffer_start",
@@ -344,6 +362,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onRebufferEnded(player: Player?, totalMs: Long, lastDurationMs: Long) {
+        if (!captureEnabled) return
         player?.let { recordProgressSnapshot(it, hasRenderedFirstFrame = true) }
         record(
             name = "rebuffer_end",
@@ -360,6 +379,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         decoderName: String,
         initializationDurationMs: Long
     ) {
+        if (!captureEnabled) return
         videoDecoderName = decoderName
         videoDecoderInitMs = initializationDurationMs.coerceAtLeast(0L)
         record(
@@ -370,6 +390,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onVideoDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) {
+        if (!captureEnabled) return
         videoDecoderReleaseCount += 1
         record(
             name = "video_decoder_released",
@@ -383,6 +404,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         format: Format,
         reuseEvaluation: DecoderReuseEvaluation?
     ) {
+        if (!captureEnabled) return
         videoFormat = format.toPlaybackFormat(
             trackType = C.TRACK_TYPE_VIDEO.trackTypeName(),
             support = videoFormat?.support,
@@ -396,6 +418,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onVideoTrackSnapshot(format: Format, support: String?, selected: Boolean) {
+        if (!captureEnabled) return
         videoFormat = format.toPlaybackFormat(
             trackType = C.TRACK_TYPE_VIDEO.trackTypeName(),
             support = support,
@@ -412,6 +435,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onVideoSizeChanged(eventTime: AnalyticsListener.EventTime, videoSize: VideoSize) {
+        if (!captureEnabled) return
         record(
             name = "video_size",
             eventTime = eventTime,
@@ -423,6 +447,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, count: Int, elapsedMs: Long) {
+        if (!captureEnabled) return
         droppedFrames += count.coerceAtLeast(0)
         maxDroppedFramesInEvent = maxOf(maxDroppedFramesInEvent, count.coerceAtLeast(0))
         record(
@@ -441,6 +466,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         totalProcessingOffsetUs: Long,
         frameCount: Int
     ) {
+        if (!captureEnabled) return
         if (frameCount > 0) {
             videoFrameProcessingOffsetTotalUs += totalProcessingOffsetUs
             videoFrameProcessingOffsetCount += frameCount
@@ -456,6 +482,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onVideoDisabled(eventTime: AnalyticsListener.EventTime, counters: DecoderCounters) {
+        if (!captureEnabled) return
         counters.ensureUpdated()
         videoRenderedOutputBuffers = counters.renderedOutputBufferCount
         videoDroppedBuffers = counters.droppedBufferCount
@@ -480,6 +507,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         decoderName: String,
         initializationDurationMs: Long
     ) {
+        if (!captureEnabled) return
         audioDecoderName = decoderName
         audioDecoderInitMs = initializationDurationMs.coerceAtLeast(0L)
         record(
@@ -490,6 +518,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onAudioDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) {
+        if (!captureEnabled) return
         audioDecoderReleaseCount += 1
         record(
             name = "audio_decoder_released",
@@ -503,6 +532,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         format: Format,
         reuseEvaluation: DecoderReuseEvaluation?
     ) {
+        if (!captureEnabled) return
         audioFormat = format.toPlaybackFormat(
             trackType = C.TRACK_TYPE_AUDIO.trackTypeName(),
             support = null,
@@ -521,6 +551,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         bufferSizeMs: Long,
         elapsedSinceLastFeedMs: Long
     ) {
+        if (!captureEnabled) return
         audioUnderrunCount += 1
         audioUnderrunBufferSize = bufferSize.takeIf { it >= 0 }
         audioUnderrunBufferSizeMs = bufferSizeMs.coerceAtLeast(0L)
@@ -543,6 +574,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         totalBytesLoaded: Long,
         bitrateEstimate: Long
     ) {
+        if (!captureEnabled) return
         bandwidthTransferDurationMs = totalLoadTimeMs.takeIf { it >= 0 }
         bandwidthBytesTransferred = totalBytesLoaded.coerceAtLeast(0L)
         bandwidthEstimateBps = bitrateEstimate.takeIf { it > 0L }
@@ -562,6 +594,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         loadEventInfo: LoadEventInfo,
         mediaLoadData: MediaLoadData
     ) {
+        if (!captureEnabled) return
         loadStartedCount += 1
         lastLoad = loadEventInfo.toPlaybackLoad(mediaLoadData)
         record(
@@ -576,6 +609,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         loadEventInfo: LoadEventInfo,
         mediaLoadData: MediaLoadData
     ) {
+        if (!captureEnabled) return
         loadCompletedCount += 1
         totalBytesLoaded += loadEventInfo.bytesLoaded.coerceAtLeast(0L)
         lastLoad = loadEventInfo.toPlaybackLoad(mediaLoadData)
@@ -591,6 +625,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         loadEventInfo: LoadEventInfo,
         mediaLoadData: MediaLoadData
     ) {
+        if (!captureEnabled) return
         loadCanceledCount += 1
         lastLoad = loadEventInfo.toPlaybackLoad(mediaLoadData)
         record(
@@ -607,6 +642,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         error: java.io.IOException,
         wasCanceled: Boolean
     ) {
+        if (!captureEnabled) return
         loadErrorCount += 1
         val load = loadEventInfo.toPlaybackLoad(mediaLoadData)
         lastLoad = load
@@ -634,6 +670,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     }
 
     fun onPlayerError(eventTime: AnalyticsListener.EventTime, error: PlaybackException) {
+        if (!captureEnabled) return
         record(
             name = "player_error",
             eventTime = eventTime,
@@ -654,13 +691,15 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         rebufferTotalMs: Long,
         rebufferStartedAtMs: Long
     ): PlaybackIssuePlaybackAnalyticsInput {
-        player?.let {
-            recordProgressSnapshot(
-                player = it,
-                hasRenderedFirstFrame = hasRenderedFirstFrame,
-                rebufferCount = rebufferCount,
-                rebufferTotalMs = rebufferTotalMs
-            )
+        if (captureEnabled) {
+            player?.let {
+                recordProgressSnapshot(
+                    player = it,
+                    hasRenderedFirstFrame = hasRenderedFirstFrame,
+                    rebufferCount = rebufferCount,
+                    rebufferTotalMs = rebufferTotalMs
+                )
+            }
         }
         val now = SystemClock.elapsedRealtime()
         val capturedAtMs = System.currentTimeMillis()
@@ -754,6 +793,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         rebufferTotalMs: Long,
         force: Boolean
     ) {
+        if (!captureEnabled) return
         if (!force && lastHealthSnapshotAtElapsedMs > 0L &&
             now - lastHealthSnapshotAtElapsedMs < PLAYBACK_HEALTH_SNAPSHOT_INTERVAL_MS
         ) {
@@ -803,6 +843,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         eventTime: AnalyticsListener.EventTime? = null,
         details: Map<String, String> = emptyMap()
     ) {
+        if (!captureEnabled) return
         val now = SystemClock.elapsedRealtime()
         val timeMs = System.currentTimeMillis()
         eventCount += 1
