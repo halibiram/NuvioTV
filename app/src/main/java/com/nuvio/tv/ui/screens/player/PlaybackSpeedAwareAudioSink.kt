@@ -1,22 +1,31 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.media.AudioTrack
+import android.os.Handler
+import android.util.Log
+import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import java.lang.reflect.Field
+import java.lang.reflect.Method
 
 /**
- * Audio sink wrapper that forces a decode-to-PCM path when:
- * - Playback speed != 1x for bitstream formats that cannot be tempo-adjusted in passthrough, or
- * - Bluetooth media output is active (Media3 policy: Bluetooth only supports PCM).
+ * Thin wrapper over [DefaultAudioSink].
  *
- * Bluetooth cannot carry TrueHD / Atmos / DTS-HD passthrough. Forcing PCM lets MediaCodec/FFmpeg
- * decode to the format the BT stack actually accepts; the system then encodes to SBC/AAC/aptX/LDAC.
+ * - speed != 1x → force PCM for bitstream (can't stretch TrueHD/etc).
+ * - flush/seek: keep the AudioTrack for passthrough *or* tunnel sessions. Media3 always
+ *   releases it; that's a slow handshake and the usual seek desync.
+ * - pause/rebuffer on passthrough: [handleDiscontinuity] so the media clock re-anchors.
+ *
+ * Flush-reuse is reflection on Media3 1.8. If fields move we fall through to stock flush.
  */
 internal class PlaybackSpeedAwareAudioSink(
-    sink: AudioSink,
+    private val sink: AudioSink,
     initialForcePcm: Boolean = false,
     forcePcmForBluetooth: Boolean = false
 ) : ForwardingAudioSink(sink) {
@@ -39,24 +48,51 @@ internal class PlaybackSpeedAwareAudioSink(
     @Volatile
     private var listener: AudioSink.Listener? = null
 
-    fun setInitialPlaybackSpeed(speed: Float) {
-        playbackSpeed = normalizeSpeed(speed)
-        markPcmFallbackIfNeeded(currentInputFormat, playbackSpeed)
-    }
+    // Format looks like bitstream and we didn't force PCM. Updated from real sink outputMode
+    // when we can read it after configure/flush.
+    @Volatile
+    private var isCurrentlyPassthrough: Boolean = false
+
+    // Armed only for user pause (armPassthroughResyncForNextPlay), never for rebuffer pause.
+    @Volatile
+    private var passthroughPauseCompensationPending: Boolean = false
+
+    // First play after entering passthrough → one-shot clock nudge.
+    @Volatile
+    private var passthroughStartupCompensationPending: Boolean = false
 
     /**
-     * Update Bluetooth policy without rebuilding the player when possible.
-     * Call [notifyAudioProcessingRequirementChanged] after flipping from false → true mid-session
-     * if the sink is already configured for passthrough.
+     * After a mid-mutate reuse failure we stop trying for this sink instance.
+     * Half-applied private state + another reuse attempt is worse than stock flush.
      */
+    @Volatile
+    private var trackReuseDisabled: Boolean = false
+
+    /** Optional: controller wires this into bug-report raw event lines. */
+    @Volatile
+    private var trackReuseOutcomeListener: ((AudioTrackReuseOutcome) -> Unit)? = null
+
+    fun setTrackReuseOutcomeListener(listener: ((AudioTrackReuseOutcome) -> Unit)?) {
+        trackReuseOutcomeListener = listener
+    }
+
+    fun currentSampleMimeType(): String? = currentInputFormat?.sampleMimeType
+
     fun setBluetoothForcePcm(enabled: Boolean) {
         bluetoothForcePcm = enabled
         if (enabled) {
             forcePcmForCurrentSession = true
+        } else if (!startedWithForcedPcm && playbackSpeed == 1f) {
+            forcePcmForCurrentSession = false
         }
     }
 
     fun isBluetoothForcePcm(): Boolean = bluetoothForcePcm
+
+    fun setInitialPlaybackSpeed(speed: Float) {
+        playbackSpeed = normalizeSpeed(speed)
+        markPcmFallbackIfNeeded(currentInputFormat, playbackSpeed)
+    }
 
     override fun setListener(listener: AudioSink.Listener) {
         this.listener = listener
@@ -66,15 +102,376 @@ internal class PlaybackSpeedAwareAudioSink(
     override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
         currentInputFormat = inputFormat
         markPcmFallbackIfNeeded(inputFormat, playbackSpeed)
+        val wasPassthrough = isCurrentlyPassthrough
+        isCurrentlyPassthrough = isBitstreamFormat(inputFormat) && !shouldRejectDirectPlayback(inputFormat)
+        if (isCurrentlyPassthrough && !wasPassthrough) {
+            passthroughStartupCompensationPending = true
+        }
+        if (!isCurrentlyPassthrough) {
+            passthroughStartupCompensationPending = false
+            passthroughPauseCompensationPending = false
+        }
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
+        // Prefer what DefaultAudioSink actually picked (may stay PCM if device can't do direct).
+        refreshPassthroughFromSinkConfiguration()
+    }
+
+    override fun flush() {
+        passthroughPauseCompensationPending = false
+        passthroughStartupCompensationPending = false
+        val result = tryReuseAudioTrackOnFlush()
+        notifyTrackReuseOutcome(result)
+        when (result) {
+            AudioTrackReuseOutcome.REUSED_PASSTHROUGH,
+            AudioTrackReuseOutcome.REUSED_TUNNEL -> {
+                Log.i(TAG, "AudioTrack reused on flush (${result.name})")
+                return
+            }
+            AudioTrackReuseOutcome.SKIPPED_NOT_ELIGIBLE -> {
+                // Normal PCM non-tunnel seek — stock flush is fine.
+            }
+            AudioTrackReuseOutcome.SKIPPED_NO_TRACK,
+            AudioTrackReuseOutcome.SKIPPED_CONFIG_MISMATCH,
+            AudioTrackReuseOutcome.FAILED_REFLECTION,
+            AudioTrackReuseOutcome.DISABLED -> {
+                Log.w(TAG, "AudioTrack reuse skipped (${result.name}); Media3 release path")
+            }
+        }
+        super.flush()
+        refreshPassthroughFromSinkConfiguration()
+    }
+
+    private fun notifyTrackReuseOutcome(outcome: AudioTrackReuseOutcome) {
+        runCatching { trackReuseOutcomeListener?.invoke(outcome) }
+    }
+
+    /**
+     * Media3 flush always releases the track. For passthrough *and* tunnel we keep it.
+     *
+     * Two phases so we don't leave DefaultAudioSink half-mutated:
+     * 1) read-only probe (eligibility + values)
+     * 2) mutate (only after probe succeeds)
+     * On mutate failure we disable further reuse on this sink and fall back to stock flush
+     * (track is still owned by the sink so super.flush() can release it).
+     */
+    private fun tryReuseAudioTrackOnFlush(): AudioTrackReuseOutcome {
+        if (trackReuseDisabled) return AudioTrackReuseOutcome.DISABLED
+        val defaultSink = sink as? DefaultAudioSink ?: return AudioTrackReuseOutcome.SKIPPED_NOT_ELIGIBLE
+        val accessors = DefaultAudioSinkAccessors.getOrNull()
+            ?: return AudioTrackReuseOutcome.FAILED_REFLECTION
+
+        val plan = try {
+            prepareTrackReuse(defaultSink, accessors) ?: return AudioTrackReuseOutcome.SKIPPED_NO_TRACK
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioTrack reuse probe failed", e)
+            return AudioTrackReuseOutcome.FAILED_REFLECTION
+        }
+
+        if (plan is TrackReusePlan.Skip) return plan.result
+
+        val ready = plan as TrackReusePlan.Ready
+        return try {
+            applyTrackReuse(defaultSink, accessors, ready)
+            if (ready.isPassthroughMode) {
+                isCurrentlyPassthrough = true
+                AudioTrackReuseOutcome.REUSED_PASSTHROUGH
+            } else {
+                AudioTrackReuseOutcome.REUSED_TUNNEL
+            }
+        } catch (e: Exception) {
+            // Private state may be partially updated — stop reusing this instance.
+            trackReuseDisabled = true
+            Log.w(TAG, "AudioTrack reuse mutate failed; disabling reuse for this sink", e)
+            AudioTrackReuseOutcome.FAILED_REFLECTION
+        }
+    }
+
+    private sealed class TrackReusePlan {
+        data class Skip(val result: AudioTrackReuseOutcome) : TrackReusePlan()
+        data class Ready(
+            val audioTrack: AudioTrack,
+            val positionTracker: Any,
+            val configuration: Any,
+            val pendingConfiguration: Any?,
+            val isOffloaded: Boolean,
+            val offloadCallback: Any?,
+            val isPassthroughMode: Boolean,
+            val outputEncoding: Int,
+            val outputPcmFrameSize: Int,
+            val bufferSize: Int,
+            val enableOnAudioPositionAdvancingFix: Boolean,
+            val trackerPlaying: Boolean,
+            val writeExceptionHolder: Any,
+            val initExceptionHolder: Any,
+            val reportSkippedSilenceHandler: Handler?
+        ) : TrackReusePlan()
+    }
+
+    /** Read-only: no DefaultAudioSink field writes. */
+    private fun prepareTrackReuse(
+        defaultSink: DefaultAudioSink,
+        accessors: DefaultAudioSinkAccessors
+    ): TrackReusePlan? {
+        val audioTrack = accessors.audioTrackField.get(defaultSink) as? AudioTrack
+            ?: return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_NO_TRACK)
+
+        val configuration = accessors.configurationField.get(defaultSink)
+            ?: return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_NO_TRACK)
+        val pendingConfiguration = accessors.pendingConfigurationField.get(defaultSink)
+
+        if (pendingConfiguration != null) {
+            val canReuse = accessors.canReuseAudioTrackMethod.invoke(
+                configuration,
+                pendingConfiguration
+            ) as Boolean
+            if (!canReuse) {
+                return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_CONFIG_MISMATCH)
+            }
+        }
+
+        val configForMode = pendingConfiguration ?: configuration
+        val modeForReuse = accessors.outputModeField.get(configForMode) as Int
+        val tunnelingForReuse = accessors.configurationTunnelingField.get(configForMode) as Boolean
+        val isPassthroughMode = modeForReuse == OUTPUT_MODE_PASSTHROUGH
+        if (!isPassthroughMode && !tunnelingForReuse) {
+            return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_NOT_ELIGIBLE)
+        }
+
+        val positionTracker = accessors.positionTrackerField.get(defaultSink)
+            ?: return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_NO_TRACK)
+
+        val effectiveConfig = pendingConfiguration ?: configuration
+        val isOffloaded = accessors.isOffloadedPlaybackMethod.invoke(null, audioTrack) as Boolean
+        val offloadCallback = if (isOffloaded) {
+            accessors.offloadCallbackField.get(defaultSink)
+        } else {
+            null
+        }
+
+        return TrackReusePlan.Ready(
+            audioTrack = audioTrack,
+            positionTracker = positionTracker,
+            configuration = effectiveConfig,
+            pendingConfiguration = pendingConfiguration,
+            isOffloaded = isOffloaded,
+            offloadCallback = offloadCallback,
+            isPassthroughMode = isPassthroughMode,
+            outputEncoding = accessors.outputEncodingField.get(effectiveConfig) as Int,
+            outputPcmFrameSize = accessors.outputPcmFrameSizeField.get(effectiveConfig) as Int,
+            bufferSize = accessors.bufferSizeField.get(effectiveConfig) as Int,
+            enableOnAudioPositionAdvancingFix =
+                accessors.enableOnAudioPositionAdvancingFixField.get(defaultSink) as Boolean,
+            trackerPlaying = accessors.positionTrackerIsPlayingMethod.invoke(positionTracker) as Boolean,
+            writeExceptionHolder = accessors.writeExceptionHolderField.get(defaultSink)
+                ?: return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_NO_TRACK),
+            initExceptionHolder = accessors.initExceptionHolderField.get(defaultSink)
+                ?: return TrackReusePlan.Skip(AudioTrackReuseOutcome.SKIPPED_NO_TRACK),
+            reportSkippedSilenceHandler =
+                accessors.reportSkippedSilenceHandlerField.get(defaultSink) as? Handler
+        )
+    }
+
+    /** Mutate phase — only called after [prepareTrackReuse] succeeds. */
+    private fun applyTrackReuse(
+        defaultSink: DefaultAudioSink,
+        accessors: DefaultAudioSinkAccessors,
+        plan: TrackReusePlan.Ready
+    ) {
+        accessors.resetSinkStateForFlushMethod.invoke(defaultSink)
+
+        if (plan.trackerPlaying) {
+            plan.audioTrack.pause()
+        }
+
+        if (plan.isOffloaded && plan.offloadCallback != null) {
+            accessors.offloadUnregisterMethod.invoke(plan.offloadCallback, plan.audioTrack)
+        }
+
+        if (plan.pendingConfiguration != null) {
+            accessors.configurationField.set(defaultSink, plan.pendingConfiguration)
+            accessors.pendingConfigurationField.set(defaultSink, null)
+        }
+
+        plan.audioTrack.flush()
+
+        accessors.positionTrackerSetAudioTrackMethod.invoke(
+            plan.positionTracker,
+            plan.audioTrack,
+            plan.isPassthroughMode,
+            plan.outputEncoding,
+            plan.outputPcmFrameSize,
+            plan.bufferSize,
+            plan.enableOnAudioPositionAdvancingFix
+        )
+
+        accessors.positionTrackerExpectRawHeadResetMethod?.invoke(plan.positionTracker)
+
+        // Media3 full flush calls positionTracker.reset() which runs resetSyncParams().
+        // setAudioTrack alone leaves lastSystemTimeUs/lastPositionUs from before the seek,
+        // so getCurrentPositionUs smooths toward the old clock (~10%/step → ~1s desync).
+        clearPositionTrackerSmoothing(plan.positionTracker, accessors)
+
+        // Prefer playback-head clock over HW timestamps that stay WOULD_BLOCK after flush
+        // (Realtek offtunnel often needs ~0.5–1s in AudioTimestampPoller INITIALIZING).
+        preferPlaybackHeadClock(plan.positionTracker, accessors, "after_reuse")
+
+        // Match initializeAudioTrack so the next buffer re-anchors startMediaTimeUs.
+        accessors.startMediaTimeUsNeedsInitField.set(defaultSink, true)
+        accessors.startMediaTimeUsNeedsSyncField.set(defaultSink, false)
+
+        accessors.lastTunnelingAvSyncPtsField?.set(defaultSink, C.TIME_UNSET)
+
+        accessors.pendingExceptionClearMethod.invoke(plan.writeExceptionHolder)
+        accessors.pendingExceptionClearMethod.invoke(plan.initExceptionHolder)
+        accessors.skippedOutputFrameCountField.set(defaultSink, 0L)
+        accessors.accumulatedSkippedSilenceField.set(defaultSink, 0L)
+        plan.reportSkippedSilenceHandler?.removeCallbacksAndMessages(null)
+
+        if (plan.isOffloaded && plan.offloadCallback != null) {
+            accessors.offloadRegisterMethod.invoke(plan.offloadCallback, plan.audioTrack)
+        }
+    }
+
+    /**
+     * Drop position-smoothing history so post-seek position can jump immediately.
+     * Mirrors [AudioTrackPositionTracker.reset] / resetSyncParams after Media3 flush.
+     */
+    private fun clearPositionTrackerSmoothing(
+        positionTracker: Any,
+        accessors: DefaultAudioSinkAccessors
+    ) {
+        accessors.resetSyncParamsMethod?.let { reset ->
+            try {
+                reset.invoke(positionTracker)
+                return
+            } catch (_: Exception) {
+                // fall through to field clear
+            }
+        }
+        runCatching {
+            val timeUnset = C.TIME_UNSET
+            accessors.lastSystemTimeUsField?.set(positionTracker, timeUnset)
+            accessors.lastPositionUsField?.set(positionTracker, timeUnset)
+            accessors.smoothedPlayheadOffsetUsField?.set(positionTracker, 0L)
+            accessors.playheadOffsetCountField?.set(positionTracker, 0)
+        }.onFailure {
+            Log.d(TAG, "clearPositionTrackerSmoothing skipped: ${it.message}")
+        }
+    }
+
+    /**
+     * Skip HW timestamp INITIALIZING/TIMESTAMP wait so video can latch to playback head ASAP.
+     * AudioTimestampPoller.STATE_NO_TIMESTAMP = 3.
+     */
+    private fun preferPlaybackHeadClock(
+        positionTracker: Any,
+        accessors: DefaultAudioSinkAccessors,
+        reason: String
+    ) {
+        runCatching {
+            val poller = accessors.audioTimestampPollerField?.get(positionTracker) ?: return
+            accessors.pollerStateField?.setInt(poller, STATE_NO_TIMESTAMP)
+            accessors.pollerSampleIntervalUsField?.setLong(poller, SLOW_POLL_INTERVAL_US)
+            Log.d(TAG, "Prefer playback-head clock ($reason)")
+        }.onFailure {
+            Log.d(TAG, "preferPlaybackHeadClock skipped: ${it.message}")
+        }
+    }
+
+    private fun preferPlaybackHeadClockOnLiveTracker(reason: String) {
+        val defaultSink = sink as? DefaultAudioSink ?: return
+        val accessors = DefaultAudioSinkAccessors.getOrNull() ?: return
+        runCatching {
+            val tracker = accessors.positionTrackerField.get(defaultSink) ?: return
+            preferPlaybackHeadClock(tracker, accessors, reason)
+        }
+    }
+
+    private fun refreshPassthroughFromSinkConfiguration() {
+        val mode = readSinkOutputMode() ?: return
+        val direct = mode == OUTPUT_MODE_PASSTHROUGH
+        if (!direct) {
+            isCurrentlyPassthrough = false
+            passthroughStartupCompensationPending = false
+            passthroughPauseCompensationPending = false
+        } else if (!isCurrentlyPassthrough) {
+            isCurrentlyPassthrough = true
+            passthroughStartupCompensationPending = true
+        }
+    }
+
+    private fun readSinkOutputMode(): Int? {
+        val defaultSink = sink as? DefaultAudioSink ?: return null
+        val accessors = DefaultAudioSinkAccessors.getOrNull() ?: return null
+        return try {
+            val configuration = accessors.configurationField.get(defaultSink) ?: return null
+            accessors.outputModeField.get(configuration) as Int
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Explicit resync (e.g. after a long user pause). Prefer [armPassthroughResyncForNextPlay]
+     * when a play() will follow; use this only when play() will not re-enter.
+     */
+    fun requestPassthroughResync(reason: String = "manual") {
+        if (!isCurrentlyPassthrough) return
+        handleDiscontinuity()
+        Log.d(TAG, "Audio clock resync ($reason)")
+    }
+
+    /**
+     * User paused: on the next [play] force media-time resync for HDMI buffer drain.
+     * Do not call for rebuffer — Exo pauses the sink automatically then.
+     */
+    fun armPassthroughResyncForNextPlay() {
+        if (!isCurrentlyPassthrough) return
+        passthroughPauseCompensationPending = true
+        Log.d(TAG, "Passthrough user-pause: resume resync armed (${currentInputFormat?.sampleMimeType})")
+    }
+
+    /** @deprecated Use [armPassthroughResyncForNextPlay] for user pause. */
+    fun armPassthroughResync() = armPassthroughResyncForNextPlay()
+
+    override fun pause() {
+        // Do not arm resync here. ExoPlayer pauses the sink on every rebuffer; arming
+        // would force handleDiscontinuity on each resume and stall tunnel A/V.
+        super.pause()
+    }
+
+    override fun play() {
+        if (passthroughPauseCompensationPending || passthroughStartupCompensationPending) {
+            val isStartup = passthroughStartupCompensationPending
+            passthroughPauseCompensationPending = false
+            passthroughStartupCompensationPending = false
+            // Sets startMediaTimeUsNeedsSync on DefaultAudioSink.
+            handleDiscontinuity()
+            Log.d(TAG, "Passthrough ${if (isStartup) "startup" else "user-resume"} resync")
+        }
+        super.play()
+        // positionTracker.start() resets the timestamp poller to INITIALIZING — undo that for
+        // passthrough/tunnel so we do not wait ~0.5–1s for HW timestamps after seek/resume.
+        if (isCurrentlyPassthrough || isSinkTunnelingLive()) {
+            preferPlaybackHeadClockOnLiveTracker("after_play")
+        }
+    }
+
+    private fun isSinkTunnelingLive(): Boolean {
+        val defaultSink = sink as? DefaultAudioSink ?: return false
+        val accessors = DefaultAudioSinkAccessors.getOrNull() ?: return false
+        return try {
+            val configuration = accessors.configurationField.get(defaultSink) ?: return false
+            accessors.configurationTunnelingField.get(configuration) as Boolean
+        } catch (_: Exception) {
+            false
+        }
     }
 
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
         playbackSpeed = normalizeSpeed(playbackParameters.speed)
         var shouldNotify = markPcmFallbackIfNeeded(currentInputFormat, playbackSpeed)
-        // Going above 1x latches forcePcm for the session. Clear it when back at 1.0x
-        // so passthrough can recover (unless recovery built us with forcePcm).
-        if (playbackSpeed == 1f && forcePcmForCurrentSession && !startedWithForcedPcm) {
+        if (playbackSpeed == 1f && forcePcmForCurrentSession && !startedWithForcedPcm && !bluetoothForcePcm) {
             forcePcmForCurrentSession = false
             shouldNotify = true
         }
@@ -106,20 +503,23 @@ internal class PlaybackSpeedAwareAudioSink(
         return shouldRejectDirectPlayback(format)
     }
 
+    fun isDirectPlaybackActive(): Boolean {
+        val format = currentInputFormat ?: return false
+        return isBitstreamFormat(format) && !shouldRejectDirectPlayback(format)
+    }
+
     private fun shouldRejectDirectPlayback(format: Format): Boolean {
-        if (!isEncodedPassthroughCandidate(format)) {
+        if (!isBitstreamFormat(format)) {
             return false
         }
-        // Bluetooth: always decode to PCM (Media3 DEFAULT_AUDIO_CAPABILITIES policy).
         if (bluetoothForcePcm || forcePcmForCurrentSession) {
             return true
         }
-        // Non-1x speed cannot be applied to bitstream passthrough tracks.
         return playbackSpeed != 1f
     }
 
     private fun markPcmFallbackIfNeeded(format: Format?, speed: Float): Boolean {
-        if (format == null || !isEncodedPassthroughCandidate(format)) {
+        if (format == null || !isBitstreamFormat(format)) {
             return false
         }
         if (bluetoothForcePcm) {
@@ -139,35 +539,200 @@ internal class PlaybackSpeedAwareAudioSink(
         return speed.takeIf { it > 0f } ?: 1f
     }
 
-    /**
-     * Formats that devices may try to play via passthrough/offload and that Bluetooth cannot carry.
-     * Matches Media3 surround encodings that need decode-to-PCM on A2DP/LE Audio.
-     */
-    private fun isEncodedPassthroughCandidate(format: Format): Boolean {
-        val mimeType = format.sampleMimeType
-        if (mimeType != null && (
-                mimeType == MimeTypes.AUDIO_E_AC3 ||
-                    mimeType == MimeTypes.AUDIO_E_AC3_JOC ||
-                    mimeType == MimeTypes.AUDIO_AC3 ||
-                    mimeType == MimeTypes.AUDIO_AC4 ||
-                    mimeType == MimeTypes.AUDIO_TRUEHD ||
-                    mimeType == MimeTypes.AUDIO_DTS ||
-                    mimeType == MimeTypes.AUDIO_DTS_HD ||
-                    mimeType == MimeTypes.AUDIO_DTS_EXPRESS ||
-                    mimeType.startsWith("audio/vnd.dts")
+    private fun isBitstreamFormat(format: Format): Boolean {
+        return isBitstreamAudioMimeOrCodecs(format.sampleMimeType, format.codecs)
+    }
+
+    companion object {
+        private const val TAG = "PassthroughAudioSink"
+        // DefaultAudioSink.OUTPUT_MODE_PASSTHROUGH (package-private).
+        private const val OUTPUT_MODE_PASSTHROUGH = 2
+        /** AudioTimestampPoller.STATE_NO_TIMESTAMP */
+        private const val STATE_NO_TIMESTAMP = 3
+        /** AudioTimestampPoller.SLOW_POLL_INTERVAL_US */
+        private const val SLOW_POLL_INTERVAL_US = 10_000_000L
+    }
+
+    /** One-time lookup of Media3 1.8 flush/init bits we need. */
+    private class DefaultAudioSinkAccessors private constructor(
+        val audioTrackField: Field,
+        val configurationField: Field,
+        val pendingConfigurationField: Field,
+        val positionTrackerField: Field,
+        val offloadCallbackField: Field,
+        val enableOnAudioPositionAdvancingFixField: Field,
+        val startMediaTimeUsNeedsInitField: Field,
+        val startMediaTimeUsNeedsSyncField: Field,
+        val writeExceptionHolderField: Field,
+        val initExceptionHolderField: Field,
+        val skippedOutputFrameCountField: Field,
+        val accumulatedSkippedSilenceField: Field,
+        val reportSkippedSilenceHandlerField: Field,
+        val outputModeField: Field,
+        val configurationTunnelingField: Field,
+        val outputEncodingField: Field,
+        val outputPcmFrameSizeField: Field,
+        val bufferSizeField: Field,
+        val lastTunnelingAvSyncPtsField: Field?,
+        val resetSinkStateForFlushMethod: Method,
+        val isOffloadedPlaybackMethod: Method,
+        val canReuseAudioTrackMethod: Method,
+        val positionTrackerIsPlayingMethod: Method,
+        val positionTrackerSetAudioTrackMethod: Method,
+        val positionTrackerExpectRawHeadResetMethod: Method?,
+        val resetSyncParamsMethod: Method?,
+        val lastSystemTimeUsField: Field?,
+        val lastPositionUsField: Field?,
+        val smoothedPlayheadOffsetUsField: Field?,
+        val playheadOffsetCountField: Field?,
+        val audioTimestampPollerField: Field?,
+        val pollerStateField: Field?,
+        val pollerSampleIntervalUsField: Field?,
+        val offloadUnregisterMethod: Method,
+        val offloadRegisterMethod: Method,
+        val pendingExceptionClearMethod: Method
+    ) {
+        companion object {
+            @Volatile
+            private var cached: DefaultAudioSinkAccessors? = null
+
+            @Volatile
+            private var failed: Boolean = false
+
+            fun getOrNull(): DefaultAudioSinkAccessors? {
+                cached?.let { return it }
+                if (failed) return null
+                return synchronized(this) {
+                    cached?.let { return it }
+                    if (failed) return null
+                    try {
+                        build().also { cached = it }
+                    } catch (e: Exception) {
+                        failed = true
+                        Log.w(TAG, "DefaultAudioSink reflection unavailable; track reuse off", e)
+                        null
+                    }
+                }
+            }
+
+            private fun build(): DefaultAudioSinkAccessors {
+                val sinkClass = DefaultAudioSink::class.java
+
+                val configurationField = sinkClass.getDeclaredField("configuration").accessible()
+                val configurationClass = configurationField.type
+
+                val positionTrackerField = sinkClass.getDeclaredField("audioTrackPositionTracker").accessible()
+                val positionTrackerClass = positionTrackerField.type
+
+                val offloadCallbackField =
+                    sinkClass.getDeclaredField("offloadStreamEventCallbackV29").accessible()
+                val offloadCallbackClass = offloadCallbackField.type
+
+                val writeExceptionHolderField =
+                    sinkClass.getDeclaredField("writeExceptionPendingExceptionHolder").accessible()
+                val pendingExceptionHolderClass = writeExceptionHolderField.type
+
+                val expectRawHeadReset = runCatching {
+                    positionTrackerClass.getDeclaredMethod("expectRawPlaybackHeadReset").accessible()
+                }.getOrNull()
+
+                val resetSyncParams = runCatching {
+                    positionTrackerClass.getDeclaredMethod("resetSyncParams").accessible()
+                }.getOrNull()
+
+                val lastSystemTimeUs = runCatching {
+                    positionTrackerClass.getDeclaredField("lastSystemTimeUs").accessible()
+                }.getOrNull()
+                val lastPositionUs = runCatching {
+                    positionTrackerClass.getDeclaredField("lastPositionUs").accessible()
+                }.getOrNull()
+                val smoothedPlayheadOffsetUs = runCatching {
+                    positionTrackerClass.getDeclaredField("smoothedPlayheadOffsetUs").accessible()
+                }.getOrNull()
+                val playheadOffsetCount = runCatching {
+                    positionTrackerClass.getDeclaredField("playheadOffsetCount").accessible()
+                }.getOrNull()
+
+                val audioTimestampPoller = runCatching {
+                    positionTrackerClass.getDeclaredField("audioTimestampPoller").accessible()
+                }.getOrNull()
+                val pollerClass = audioTimestampPoller?.type
+                val pollerState = runCatching {
+                    pollerClass?.getDeclaredField("state")?.accessible()
+                }.getOrNull()
+                val pollerSampleIntervalUs = runCatching {
+                    pollerClass?.getDeclaredField("sampleIntervalUs")?.accessible()
+                }.getOrNull()
+
+                val lastTunnelPts = runCatching {
+                    sinkClass.getDeclaredField("lastTunnelingAvSyncPresentationTimeUs").accessible()
+                }.getOrNull()
+
+                return DefaultAudioSinkAccessors(
+                    audioTrackField = sinkClass.getDeclaredField("audioTrack").accessible(),
+                    configurationField = configurationField,
+                    pendingConfigurationField = sinkClass.getDeclaredField("pendingConfiguration").accessible(),
+                    positionTrackerField = positionTrackerField,
+                    offloadCallbackField = offloadCallbackField,
+                    enableOnAudioPositionAdvancingFixField =
+                        sinkClass.getDeclaredField("enableOnAudioPositionAdvancingFix").accessible(),
+                    startMediaTimeUsNeedsInitField =
+                        sinkClass.getDeclaredField("startMediaTimeUsNeedsInit").accessible(),
+                    startMediaTimeUsNeedsSyncField =
+                        sinkClass.getDeclaredField("startMediaTimeUsNeedsSync").accessible(),
+                    writeExceptionHolderField = writeExceptionHolderField,
+                    initExceptionHolderField =
+                        sinkClass.getDeclaredField("initializationExceptionPendingExceptionHolder").accessible(),
+                    skippedOutputFrameCountField =
+                        sinkClass.getDeclaredField("skippedOutputFrameCountAtLastPosition").accessible(),
+                    accumulatedSkippedSilenceField =
+                        sinkClass.getDeclaredField("accumulatedSkippedSilenceDurationUs").accessible(),
+                    reportSkippedSilenceHandlerField =
+                        sinkClass.getDeclaredField("reportSkippedSilenceHandler").accessible(),
+                    outputModeField = configurationClass.getDeclaredField("outputMode").accessible(),
+                    configurationTunnelingField = configurationClass.getDeclaredField("tunneling").accessible(),
+                    outputEncodingField = configurationClass.getDeclaredField("outputEncoding").accessible(),
+                    outputPcmFrameSizeField = configurationClass.getDeclaredField("outputPcmFrameSize").accessible(),
+                    bufferSizeField = configurationClass.getDeclaredField("bufferSize").accessible(),
+                    lastTunnelingAvSyncPtsField = lastTunnelPts,
+                    resetSinkStateForFlushMethod =
+                        sinkClass.getDeclaredMethod("resetSinkStateForFlush").accessible(),
+                    isOffloadedPlaybackMethod =
+                        sinkClass.getDeclaredMethod("isOffloadedPlayback", AudioTrack::class.java).accessible(),
+                    canReuseAudioTrackMethod =
+                        configurationClass.getDeclaredMethod("canReuseAudioTrack", configurationClass).accessible(),
+                    positionTrackerIsPlayingMethod =
+                        positionTrackerClass.getDeclaredMethod("isPlaying").accessible(),
+                    positionTrackerSetAudioTrackMethod =
+                        positionTrackerClass.getDeclaredMethod(
+                            "setAudioTrack",
+                            AudioTrack::class.java,
+                            Boolean::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType,
+                            Boolean::class.javaPrimitiveType
+                        ).accessible(),
+                    positionTrackerExpectRawHeadResetMethod = expectRawHeadReset,
+                    resetSyncParamsMethod = resetSyncParams,
+                    lastSystemTimeUsField = lastSystemTimeUs,
+                    lastPositionUsField = lastPositionUs,
+                    smoothedPlayheadOffsetUsField = smoothedPlayheadOffsetUs,
+                    playheadOffsetCountField = playheadOffsetCount,
+                    audioTimestampPollerField = audioTimestampPoller,
+                    pollerStateField = pollerState,
+                    pollerSampleIntervalUsField = pollerSampleIntervalUs,
+                    offloadUnregisterMethod =
+                        offloadCallbackClass.getDeclaredMethod("unregister", AudioTrack::class.java).accessible(),
+                    offloadRegisterMethod =
+                        offloadCallbackClass.getDeclaredMethod("register", AudioTrack::class.java).accessible(),
+                    pendingExceptionClearMethod =
+                        pendingExceptionHolderClass.getDeclaredMethod("clear").accessible()
                 )
-        ) {
-            return true
+            }
+
+            private fun Field.accessible(): Field = apply { isAccessible = true }
+            private fun Method.accessible(): Method = apply { isAccessible = true }
         }
-        val codecs = format.codecs
-        if (codecs != null) {
-            return codecs.contains("ac-3", ignoreCase = true) ||
-                codecs.contains("ac-4", ignoreCase = true) ||
-                codecs.contains("ec-3", ignoreCase = true) ||
-                codecs.contains("dts", ignoreCase = true) ||
-                codecs.contains("truehd", ignoreCase = true) ||
-                codecs.contains("dtshd", ignoreCase = true)
-        }
-        return false
     }
 }
