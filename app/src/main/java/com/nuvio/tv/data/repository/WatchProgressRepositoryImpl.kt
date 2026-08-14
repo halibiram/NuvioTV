@@ -98,7 +98,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     )
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val hydratedProgressIds = mutableSetOf<String>()
+    private val hydratedProgressIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var syncJob: Job? = null
     private var watchedItemsSyncJob: Job? = null
     private val pendingWatchedItemsLock = Any()
@@ -170,11 +170,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
             val contentId = progress.contentId
             if (contentId.isBlank()) return@forEach
             if (metadataState.value.containsKey(contentId)) return@forEach
+            if (hydratedProgressIds.contains(contentId)) return@forEach
 
             syncScope.launch {
                 val shouldFetch = metadataMutex.withLock {
                     if (metadataState.value.containsKey(contentId)) return@withLock false
                     if (inFlightMetadataKeys.contains(contentId)) return@withLock false
+                    if (hydratedProgressIds.contains(contentId)) return@withLock false
                     inFlightMetadataKeys.add(contentId)
                     true
                 }
@@ -184,10 +186,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     val metadata = fetchContentMetadata(
                         contentId = contentId,
                         contentType = progress.contentType
-                    ) ?: return@launch
-                    metadataState.update { current ->
-                        current + (contentId to metadata)
+                    )
+                    if (metadata != null) {
+                        metadataState.update { current ->
+                            current + (contentId to metadata)
+                        }
                     }
+                    hydratedProgressIds.add(contentId)
                 } finally {
                     metadataMutex.withLock {
                         inFlightMetadataKeys.remove(contentId)
@@ -282,11 +287,18 @@ class WatchProgressRepositoryImpl @Inject constructor(
     }
 
     @OptIn(FlowPreview::class)
-    private val progressProviderConnections = combine(
-        trackingProgressProviders.providers().map { provider ->
-            provider.isAuthenticated.map { authenticated -> provider.providerId to authenticated }
+    private val progressProviderConnections = run {
+        val providers = trackingProgressProviders.providers()
+        if (providers.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(
+                providers.map { provider ->
+                    provider.isAuthenticated.map { authenticated -> provider.providerId to authenticated }
+                }
+            ) { states -> states.toMap() }
         }
-    ) { states -> states.toMap() }
+    }
     @Volatile private var activeProgressProviderId: TrackingProviderId? = null
 
     @OptIn(FlowPreview::class)
