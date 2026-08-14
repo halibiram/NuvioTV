@@ -120,6 +120,7 @@ class SearchViewModelConcurrencyTest {
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            metaRepository = mockk<com.nuvio.tv.domain.repository.MetaRepository>(relaxed = true),
             context = mockk<Context>(relaxed = true)
         )
     }

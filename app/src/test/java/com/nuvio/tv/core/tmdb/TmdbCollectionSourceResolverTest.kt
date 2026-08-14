@@ -32,7 +32,7 @@ import retrofit2.http.Query
 class TmdbCollectionSourceResolverTest {
     private val context = mockk<Context>(relaxed = true)
     private val settings = mockk<TmdbSettingsDataStore> {
-        every { this@mockk.settings } returns flowOf(TmdbSettings(language = "en"))
+        every { this@mockk.settings } returns kotlinx.coroutines.flow.MutableStateFlow(TmdbSettings(language = "en"))
     }
 
     @Test
