@@ -341,13 +341,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .flatMapLatest { provider ->
                 if (provider != null) {
                     val subscriptionProfileId = profileManager.activeProfileId.value
-                    metadataState.value = emptyMap()
-                    hydratedProgressIds.clear()
                     profileManager.activeProfileId
                         .map { it == subscriptionProfileId }
                         .distinctUntilChanged()
                         .flatMapLatest { sameProfile ->
                             if (!sameProfile) {
+                                metadataState.value = emptyMap()
+                                hydratedProgressIds.clear()
                                 flowOf(emptyList())
                             } else {
                                 combine(
@@ -363,8 +363,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
                                         .sortedByDescending(WatchProgress::lastWatched)
                                 }.onEach { items ->
                                     val needsMetadata = items.filter { progress ->
+                                        val isSeries = progress.contentType.equals("series", ignoreCase = true) ||
+                                            progress.contentType.equals("tv", ignoreCase = true)
                                         (progress.poster == null || progress.backdrop == null ||
-                                            progress.episodeTitle == null) &&
+                                            (isSeries && progress.episodeTitle == null)) &&
                                             progress.contentId !in hydratedProgressIds
                                     }
                                     if (needsMetadata.isNotEmpty()) hydrateMetadata(needsMetadata)

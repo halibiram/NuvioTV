@@ -2260,22 +2260,26 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
     val startedAtMs = SystemClock.elapsedRealtime()
     val cacheKey = "${progress.contentType}:${progress.contentId}"
     synchronized(metaCache) {
-        if (metaCache.containsKey(cacheKey)) {
-            val cached = metaCache[cacheKey]
-            if (cached != null) {
-                debug?.recordMetaCacheHit(progress)
-                return cached
-            }
-            val negativeCachedAt = cwMetaNegativeCacheTimestamps[cacheKey]
-            if (negativeCachedAt != null &&
-                SystemClock.elapsedRealtime() - negativeCachedAt < CW_META_NEGATIVE_CACHE_TTL_MS
-            ) {
-                debug?.recordMetaCacheHit(progress)
-                return null
-            }
-            metaCache.remove(cacheKey)
-            cwMetaNegativeCacheTimestamps.remove(cacheKey)
+        val cached = metaCache[cacheKey]
+            ?: metaCache["series:${progress.contentId}"]
+            ?: metaCache["tv:${progress.contentId}"]
+            ?: metaCache["movie:${progress.contentId}"]
+        if (cached != null) {
+            debug?.recordMetaCacheHit(progress)
+            return cached
         }
+        val negativeCachedAt = cwMetaNegativeCacheTimestamps[cacheKey]
+            ?: cwMetaNegativeCacheTimestamps["series:${progress.contentId}"]
+            ?: cwMetaNegativeCacheTimestamps["tv:${progress.contentId}"]
+            ?: cwMetaNegativeCacheTimestamps["movie:${progress.contentId}"]
+        if (negativeCachedAt != null &&
+            SystemClock.elapsedRealtime() - negativeCachedAt < CW_META_NEGATIVE_CACHE_TTL_MS
+        ) {
+            debug?.recordMetaCacheHit(progress)
+            return null
+        }
+        metaCache.remove(cacheKey)
+        cwMetaNegativeCacheTimestamps.remove(cacheKey)
     }
 
     val idCandidates = buildList {
@@ -2372,6 +2376,13 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
 
     synchronized(metaCache) {
         metaCache[cacheKey] = resolved
+        metaCache["${progress.contentType}:${progress.contentId}"] = resolved
+        if (progress.contentType.lowercase() in listOf("series", "tv")) {
+            metaCache["series:${progress.contentId}"] = resolved
+            metaCache["tv:${progress.contentId}"] = resolved
+        } else {
+            metaCache["movie:${progress.contentId}"] = resolved
+        }
         if (resolved == null) {
             cwMetaNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
         } else {

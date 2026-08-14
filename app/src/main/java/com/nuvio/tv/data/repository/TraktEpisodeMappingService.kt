@@ -34,10 +34,10 @@ class TraktEpisodeMappingService @Inject constructor(
         traktAuthService.getCurrentAuthState().isAuthenticated
 
     private val cacheMutex = Mutex()
-    private val mappingCache = mutableMapOf<String, EpisodeMappingEntry>()
+    private val mappingCache = mutableMapOf<String, EpisodeMappingEntry?>()
     private val addonEpisodesCache = mutableMapOf<String, List<EpisodeMappingEntry>>()
     private val traktEpisodesCache = mutableMapOf<String, List<EpisodeMappingEntry>>()
-    private val reverseMappingCache = mutableMapOf<String, EpisodeMappingEntry>()
+    private val reverseMappingCache = mutableMapOf<String, EpisodeMappingEntry?>()
     // In-flight dedup: prevents multiple concurrent coroutines from fetching
     // the same show's addon episodes simultaneously.
     private val addonEpisodesInFlight = mutableMapOf<String, CompletableDeferred<List<EpisodeMappingEntry>>>()
@@ -101,21 +101,33 @@ class TraktEpisodeMappingService @Inject constructor(
             title = episodeTitle
         )
         cacheMutex.withLock {
-            reverseMappingCache[reverseKey]?.let { return it }
+            if (reverseMappingCache.containsKey(reverseKey)) {
+                return reverseMappingCache[reverseKey]
+            }
         }
 
         val addonEpisodes = getAddonEpisodes(resolvedContentId, resolvedContentType)
-        if (addonEpisodes.isEmpty()) return null
+        if (addonEpisodes.isEmpty()) {
+            cacheMutex.withLock { reverseMappingCache[reverseKey] = null }
+            return null
+        }
 
-        val showLookupId = resolveShowLookupId(contentId = resolvedContentId, videoId = null) ?: return null
+        val showLookupId = resolveShowLookupId(contentId = resolvedContentId, videoId = null) ?: run {
+            cacheMutex.withLock { reverseMappingCache[reverseKey] = null }
+            return null
+        }
         val traktEpisodes = getTraktEpisodes(showLookupId)
-        if (traktEpisodes.isEmpty()) return null
+        if (traktEpisodes.isEmpty()) {
+            cacheMutex.withLock { reverseMappingCache[reverseKey] = null }
+            return null
+        }
 
         val addonHasEpisode = addonEpisodes.any {
             it.season == requestedSeason && it.episode == requestedEpisode
         }
         val sameStructure = hasSameSeasonStructure(addonEpisodes, traktEpisodes)
         if (addonHasEpisode && sameStructure) {
+            cacheMutex.withLock { reverseMappingCache[reverseKey] = null }
             return null
         }
 
@@ -125,7 +137,7 @@ class TraktEpisodeMappingService @Inject constructor(
             requestedTitle = episodeTitle,
             addonEpisodes = addonEpisodes,
             traktEpisodes = traktEpisodes
-        ) ?: return null
+        )
 
         cacheMutex.withLock {
             reverseMappingCache[reverseKey] = mapped
@@ -168,7 +180,9 @@ class TraktEpisodeMappingService @Inject constructor(
 
         val key = cacheKey(contentId, contentType, videoId, season, episode) ?: return null
         cacheMutex.withLock {
-            mappingCache[key]?.let { return it }
+            if (mappingCache.containsKey(key)) {
+                return mappingCache[key]
+            }
         }
 
         val requestedSeason = season ?: return null
@@ -177,13 +191,23 @@ class TraktEpisodeMappingService @Inject constructor(
         val resolvedContentType = contentType?.takeIf { it.isNotBlank() } ?: return null
 
         val addonEpisodes = getAddonEpisodes(resolvedContentId, resolvedContentType)
-        if (addonEpisodes.isEmpty()) return null
+        if (addonEpisodes.isEmpty()) {
+            cacheMutex.withLock { mappingCache[key] = null }
+            return null
+        }
 
-        val showLookupId = resolveShowLookupId(contentId = resolvedContentId, videoId = videoId) ?: return null
+        val showLookupId = resolveShowLookupId(contentId = resolvedContentId, videoId = videoId) ?: run {
+            cacheMutex.withLock { mappingCache[key] = null }
+            return null
+        }
         val traktEpisodes = getTraktEpisodes(showLookupId)
-        if (traktEpisodes.isEmpty()) return null
+        if (traktEpisodes.isEmpty()) {
+            cacheMutex.withLock { mappingCache[key] = null }
+            return null
+        }
 
         if (hasSameSeasonStructure(addonEpisodes, traktEpisodes)) {
+            cacheMutex.withLock { mappingCache[key] = null }
             return null
         }
 
@@ -194,7 +218,7 @@ class TraktEpisodeMappingService @Inject constructor(
             requestedTitle = episodeTitle,
             addonEpisodes = addonEpisodes,
             traktEpisodes = traktEpisodes
-        ) ?: return null
+        )
 
         cacheMutex.withLock {
             mappingCache[key] = mapped
@@ -239,9 +263,7 @@ class TraktEpisodeMappingService @Inject constructor(
         return try {
             val meta = fetchSeriesMeta(contentId, contentType)
             val addonEpisodes = meta?.videos?.toEpisodeMappingEntries() ?: emptyList()
-            if (addonEpisodes.isNotEmpty()) {
-                cacheMutex.withLock { addonEpisodesCache[cacheKey] = addonEpisodes }
-            }
+            cacheMutex.withLock { addonEpisodesCache[cacheKey] = addonEpisodes }
             deferred.complete(addonEpisodes)
             addonEpisodes
         } catch (e: Exception) {
@@ -292,6 +314,8 @@ class TraktEpisodeMappingService @Inject constructor(
                 TAG,
                 "getTraktEpisodes: seasons request failed code=${seasonsResponse.code()} id=$showLookupId"
             )
+            cacheMutex.withLock { traktEpisodesCache[showLookupId] = emptyList() }
+            deferred.complete(emptyList())
             cleanupTraktFlight(showLookupId)
             return emptyList()
         }
@@ -315,10 +339,8 @@ class TraktEpisodeMappingService @Inject constructor(
             }
             .toList()
 
-        if (traktEpisodes.isNotEmpty()) {
-            cacheMutex.withLock {
-                traktEpisodesCache[showLookupId] = traktEpisodes
-            }
+        cacheMutex.withLock {
+            traktEpisodesCache[showLookupId] = traktEpisodes
         }
         deferred.complete(traktEpisodes)
         cleanupTraktFlight(showLookupId)
