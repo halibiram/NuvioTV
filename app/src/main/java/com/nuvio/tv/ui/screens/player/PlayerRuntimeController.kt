@@ -101,6 +101,8 @@ class PlayerRuntimeController(
         internal const val SWITCH_TRACE_ENABLED = false
         internal const val TRACK_FRAME_RATE_GRACE_MS = 1500L
         internal const val FIRST_FRAME_TIMEOUT_MS = 12_000L
+        // Tunnel first-frame callback is flaky on some boxes; don't wait the full 12s.
+        internal const val TUNNEL_FIRST_FRAME_FALLBACK_MS = 2_500L
         // Stall watchdog: re-seeks past the buffered edge if bufferedPosition stops
         // advancing during STATE_BUFFERING. Fires before OkHttp's readTimeout.
         internal const val STALL_WATCHDOG_THRESHOLD_MS = 15_000L
@@ -327,6 +329,8 @@ class PlayerRuntimeController(
     internal var lastPlaybackIssueError: PlaybackIssueErrorInput? = null
     internal val playbackIssueReportRequestVersion = AtomicLong(0L)
     internal val playbackAnalyticsDiagnostics = PlayerPlaybackAnalyticsDiagnostics()
+    /** AudioTrack flush-reuse counters for playback issue reports (rawEventLines). */
+    internal val audioTrackReuseTelemetry = AudioTrackReuseTelemetry()
     internal val loadingDiagnosticEvents: ArrayDeque<PlayerLoadingDiagnosticEvent> = ArrayDeque()
     internal val loadingDiagnosticRawEventLines: ArrayDeque<String> = ArrayDeque()
     internal val pendingPlaybackRawEventLines: ArrayDeque<String> = ArrayDeque()
@@ -346,6 +350,10 @@ class PlayerRuntimeController(
     internal var playbackStartedForParentalGuide = false
     internal var hasRenderedFirstFrame = false
     internal var shouldEnforceAutoplayOnFirstReady = true
+    /** Captured at prepare — first-frame watchdogs need this after the init lambda is gone. */
+    internal var startupStartPaused: Boolean = false
+    /** Tunnel actually enabled for this session (setting && !safeAudio && not MPV). */
+    internal var effectiveTunnelingEnabled: Boolean = false
 
     internal var rebufferCount: Int = 0
     internal var rebufferTotalMs: Long = 0L

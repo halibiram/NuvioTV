@@ -831,7 +831,18 @@ internal fun PlayerRuntimeController.initializePlayer(
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 initialForcePcm = hasTriedAudioPcmFallback || isBluetoothAudioOutput,
                 preferSoftwareAudioOnly = isBluetoothAudioOutput && !vc1SoftwareFallbackActive,
-                onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
+                onPlaybackSpeedAwareAudioSinkCreated = { sink ->
+                    playbackSpeedAwareAudioSink = sink
+                    sink.setTrackReuseOutcomeListener { outcome ->
+                        val line = audioTrackReuseTelemetry.record(
+                            outcome = outcome,
+                            sampleMimeType = sink.currentSampleMimeType()
+                        )
+                        if (line != null) {
+                            playbackAnalyticsDiagnostics.recordRawEventLine(line)
+                        }
+                    }
+                },
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
                     renderer?.applyDownmixSettings(
@@ -1010,13 +1021,17 @@ internal fun PlayerRuntimeController.initializePlayer(
                     phase = "starting_stream",
                     message = context.getString(R.string.player_loading_starting)
                 )
-                val isTunneledPlayback = playerSettings.tunnelingEnabled
+                val isTunneledPlayback = resolveEffectiveTunneling(
+                    tunnelingSettingEnabled = playerSettings.tunnelingEnabled,
+                    safeAudioMode = isSafeAudioModeActiveForCurrentPlayback,
+                    engine = currentInternalPlayerEngine
+                )
+                startupStartPaused = startPaused
+                effectiveTunnelingEnabled = isTunneledPlayback
                 // Hold playWhenReady=false through prepare() so audio does not race ahead
                 // while the video decoder is still opening. The first STATE_READY primes the
-                // pipeline (ColdStartPrime); synchronized play() begins in onRenderedFirstFrame().
-                //
-                // Exception: tunneled playback bypasses the normal video rendering pipeline
-                // so onRenderedFirstFrame() never fires — TunneledFirstReady starts on READY.
+                // pipeline; synchronized play() begins in onRenderedFirstFrame() (surface path)
+                // or after a short delay for tunneled playback if OEM frame callbacks are silent.
                 playWhenReady = false
                 prepare()
 
@@ -1123,70 +1138,58 @@ internal fun PlayerRuntimeController.initializePlayer(
                                 pendingSeekTelemetryReadyAtMs = System.currentTimeMillis()
                                 pendingSeekTelemetryReadyLatencyMs = latencyMs
                             }
-                            // Don't auto-play on the initial STATE_READY — wait
-                            // for onRenderedFirstFrame() to ensure A/V sync.
-                            // Exception: tunneled playback never fires
-                            // onRenderedFirstFrame(), so we must start here.
-                            val readyTransition = PlayerStartupPlaybackPolicy.onStateReady(
-                                PlayerStartupPlaybackPolicy.ReadyState(
-                                    shouldEnforceAutoplayOnFirstReady = shouldEnforceAutoplayOnFirstReady,
-                                    hasRenderedFirstFrame = hasRenderedFirstFrame,
-                                    userPausedManually = userPausedManually,
-                                    startPaused = startPaused,
-                                    isTunneledPlayback = isTunneledPlayback,
-                                )
-                            )
-                            shouldEnforceAutoplayOnFirstReady =
-                                readyTransition.nextState.shouldEnforceAutoplayOnFirstReady
-                            if (readyTransition.nextState.hasRenderedFirstFrame && isTunneledPlayback) {
-                                hasRenderedFirstFrame = true
-                            }
-                            when (val action = readyTransition.action) {
-                                is PlayerStartupPlaybackPolicy.ReadyAction.TunneledFirstReady -> {
-                                    mediaSourceFactory.unlockStartupPrefetch()
-                                    playbackAnalyticsDiagnostics.onSyntheticFirstFrame(this@apply)
-                                    if (_uiState.value.postPlayDismissedForCurrentEpisode) {
-                                        _uiState.update { it.copy(postPlayDismissedForCurrentEpisode = false) }
+                            // Prefer onRenderedFirstFrame for A/V sync. READY alone is only
+                            // enough for audio-only, or as a delayed tunnel fallback when the
+                            // OEM never fires the frame callback (Media3 does fire it on API 23+
+                            // when the device cooperates).
+                            if (shouldEnforceAutoplayOnFirstReady) {
+                                shouldEnforceAutoplayOnFirstReady = false
+                                val hasVideo = currentStreamHasVideoTrack ||
+                                    currentTracks.groups.any { it.type == C.TRACK_TYPE_VIDEO && it.length > 0 }
+                                when (
+                                    resolveStartupPlaybackPlan(
+                                        hasVideoTrack = hasVideo,
+                                        effectiveTunneling = isTunneledPlayback
+                                    )
+                                ) {
+                                    StartupPlaybackPlan.READY_NO_VIDEO -> {
+                                        if (beginPlaybackAtStartupGate(
+                                                player = this@apply,
+                                                startPaused = startPaused,
+                                                reason = "ready_no_video",
+                                                syntheticFirstFrame = true
+                                            )
+                                        ) {
+                                            currentDiagnostics = recordFirstFrameDiagnostics(
+                                                this@apply,
+                                                currentDiagnostics,
+                                                playerSettings
+                                            )
+                                        }
                                     }
-                                    if (action.setPlayWhenReady) {
-                                        playWhenReady = true
+                                    StartupPlaybackPlan.TUNNEL_WAIT_THEN_FALLBACK -> {
+                                        maybeScheduleTunnelFirstFrameFallback(startPaused) { p ->
+                                            currentDiagnostics = recordFirstFrameDiagnostics(
+                                                p,
+                                                currentDiagnostics,
+                                                playerSettings
+                                            )
+                                        }
                                     }
-                                    if (action.callPlay) {
-                                        play()
-                                    }
-                                    finishLoadingDiagnostics("first_frame_ready")
-                                    currentDiagnostics = recordFirstFrameDiagnostics(this@apply, currentDiagnostics, playerSettings)
-                                    _uiState.update {
-                                        it.copy(
-                                            showLoadingOverlay = false,
-                                            loadingMessage = null,
-                                            loadingProgress = if (it.loadingProgress != null) 1f else null,
-                                            showPlayerEngineSwitchInfo = false
-                                        )
-                                    }
-                                }
-                                is PlayerStartupPlaybackPolicy.ReadyAction.ColdStartPrime -> {
-                                    if (action.setPlayWhenReady) {
-                                        playWhenReady = true
-                                    }
-                                    if (action.callPlay) {
-                                        play()
+                                    StartupPlaybackPlan.WAIT_FIRST_FRAME -> {
+                                        // surface path: onRenderedFirstFrame starts us
                                     }
                                 }
-                                is PlayerStartupPlaybackPolicy.ReadyAction.PreFirstFrameResume -> {
-                                    if (action.setPlayWhenReady) {
-                                        playWhenReady = true
-                                    }
-                                    if (action.callPlay) {
-                                        play()
-                                    }
+                            } else if (!hasRenderedFirstFrame && isTunneledPlayback) {
+                                maybeScheduleTunnelFirstFrameFallback(startPaused) { p ->
+                                    currentDiagnostics = recordFirstFrameDiagnostics(
+                                        p,
+                                        currentDiagnostics,
+                                        playerSettings
+                                    )
                                 }
-                                is PlayerStartupPlaybackPolicy.ReadyAction.PostFirstFrameResume -> {
-                                    if (action.callPlay) {
-                                        play()
-                                    }
-                                }
-                                PlayerStartupPlaybackPolicy.ReadyAction.None -> Unit
+                            } else if (!userPausedManually && hasRenderedFirstFrame) {
+                                play()
                             }
                             tryApplyPendingResumeProgress(this@apply)
                             _uiState.value.pendingSeekPosition?.let { position ->
@@ -1288,36 +1291,22 @@ internal fun PlayerRuntimeController.initializePlayer(
                     }
 
                     override fun onRenderedFirstFrame() {
-                        val isFirstFrame = !hasRenderedFirstFrame  // capture BEFORE flipping
-                        hasRenderedFirstFrame = true
-                        mediaSourceFactory.unlockStartupPrefetch()
-                        if (isFirstFrame && _uiState.value.postPlayDismissedForCurrentEpisode) {
-                            _uiState.update { it.copy(postPlayDismissedForCurrentEpisode = false) }
-                        }
                         updateAudioControlAvailability()
-                        // Start playback now that the first video frame is
-                        // visible: audio and video begin in sync.
-                        if (!startPaused && !userPausedManually) {
-                            playWhenReady = true
-                            play()
-                        }
-                        refreshStableProgressResetGate()
-                        cancelFirstFrameWatchdog()
-                        _uiState.update {
-                            it.copy(
-                                showLoadingOverlay = false,
-                                loadingMessage = null,
-                                loadingProgress = if (it.loadingProgress != null) 1f else null,
-                                loadingIssueReportVisible = false,
-                                loadingIssueElapsedMs = 0L,
-                                showPlayerEngineSwitchInfo = false
+                        // Real frame from the surface (or tunnel OnFrameRenderedListener).
+                        if (beginPlaybackAtStartupGate(
+                                player = this@apply,
+                                startPaused = startPaused,
+                                reason = "rendered_first_frame",
+                                syntheticFirstFrame = false
+                            )
+                        ) {
+                            currentDiagnostics = recordFirstFrameDiagnostics(
+                                this@apply,
+                                currentDiagnostics,
+                                playerSettings
                             )
                         }
-                        finishLoadingDiagnostics("first_frame_rendered")
-
-                        if (isFirstFrame) {
-                            currentDiagnostics = recordFirstFrameDiagnostics(this@apply, currentDiagnostics, playerSettings)
-                        }
+                        refreshStableProgressResetGate()
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -1958,6 +1947,8 @@ internal fun PlayerRuntimeController.resetLoadingOverlayForNewStream() {
     hasRenderedFirstFrame = false
     hasMarkedCurrentEpisodeCompleted = false
     shouldEnforceAutoplayOnFirstReady = true
+    startupStartPaused = false
+    effectiveTunnelingEnabled = false
     userPausedManually = false
     timeoutRecoveryAttempts = 0
     hasRetriedCurrentStreamAfterUnexpectedNpe = false

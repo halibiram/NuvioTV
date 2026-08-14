@@ -307,7 +307,12 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                     osdClockEnabled = settings.osdClockEnabled,
                     internalPlayerEngine = resolvedInternalPlayerEngine,
                     frameRateMatchingMode = settings.frameRateMatchingMode,
-                    tunnelingEnabled = settings.tunnelingEnabled,
+                    // Prefer live effective flag (safe-audio / MPV may force tunnel off).
+                    tunnelingEnabled = resolveEffectiveTunneling(
+                        tunnelingSettingEnabled = settings.tunnelingEnabled,
+                        safeAudioMode = isSafeAudioModeActiveForCurrentPlayback,
+                        engine = resolvedInternalPlayerEngine
+                    ),
                     persistAudioAmplification = settings.persistAudioAmplification,
                     audioAmplificationDb = resolvedAudioAmplificationDb,
                     centerMixLevelDb = resolvedCenterMixLevelDb
@@ -667,13 +672,99 @@ internal fun PlayerRuntimeController.retryCurrentStreamWithVc1TrackSelectionBypa
 }
 
 internal fun PlayerRuntimeController.cancelFirstFrameWatchdog() {
-    firstFrameWatchdogJob?.cancel()
-    firstFrameWatchdogJob = null
+    firstFrameWatchdogJob = cancelAndClearWatchdogJob(firstFrameWatchdogJob)
+}
+
+/**
+ * Kick playback once we're past the first-frame gate.
+ * Returns true the first time we cross that gate (caller can record diagnostics).
+ *
+ * [syntheticFirstFrame] is for audio-only / tunnel boxes that never fire
+ * onRenderedFirstFrame — still need to drop the loading overlay.
+ */
+internal fun PlayerRuntimeController.beginPlaybackAtStartupGate(
+    player: androidx.media3.exoplayer.ExoPlayer,
+    startPaused: Boolean,
+    reason: String,
+    syntheticFirstFrame: Boolean
+): Boolean {
+    if (hasRenderedFirstFrame) {
+        // Real first-frame callback already won (e.g. vs tunnel fallback timer).
+        if (!startPaused && !userPausedManually && !player.playWhenReady) {
+            player.playWhenReady = true
+            player.play()
+        }
+        return false
+    }
+
+    hasRenderedFirstFrame = true
+    mediaSourceFactory.unlockStartupPrefetch()
+    if (syntheticFirstFrame) {
+        playbackAnalyticsDiagnostics.onSyntheticFirstFrame(player)
+        Log.i(PlayerRuntimeController.TAG, "Startup gate ($reason): synthetic first frame")
+    }
+    if (_uiState.value.postPlayDismissedForCurrentEpisode) {
+        _uiState.update { it.copy(postPlayDismissedForCurrentEpisode = false) }
+    }
+    if (!startPaused && !userPausedManually) {
+        player.playWhenReady = true
+        player.play()
+    }
+    cancelFirstFrameWatchdog()
+    finishLoadingDiagnostics(
+        if (syntheticFirstFrame) "first_frame_ready" else "first_frame_rendered"
+    )
+    _uiState.update {
+        it.copy(
+            showLoadingOverlay = false,
+            loadingMessage = null,
+            loadingProgress = if (it.loadingProgress != null) 1f else null,
+            loadingIssueReportVisible = false,
+            loadingIssueElapsedMs = 0L,
+            showPlayerEngineSwitchInfo = false
+        )
+    }
+    return true
+}
+
+/**
+ * Tunnel: prefer onRenderedFirstFrame; if the OEM never fires it, unstick after a short wait.
+ * [onFirstFrame] runs only when this fallback actually opens the gate (diagnostics).
+ */
+internal fun PlayerRuntimeController.maybeScheduleTunnelFirstFrameFallback(
+    startPaused: Boolean,
+    onFirstFrame: (androidx.media3.exoplayer.ExoPlayer) -> Unit
+) {
+    if (hasRenderedFirstFrame) return
+    if (firstFrameWatchdogJob?.isActive == true) return
+    val player = _exoPlayer ?: return
+
+    firstFrameWatchdogJob = scope.launch {
+        delay(PlayerRuntimeController.TUNNEL_FIRST_FRAME_FALLBACK_MS)
+        val live = _exoPlayer ?: return@launch
+        if (!shouldRunFirstFrameWatchdogAction(
+                capturedPlayer = player,
+                livePlayer = live,
+                hasRenderedFirstFrame = hasRenderedFirstFrame,
+                userPausedManually = userPausedManually,
+                isReleasingPlayer = isReleasingPlayer
+            )
+        ) {
+            return@launch
+        }
+        if (live.playbackState != Player.STATE_READY) return@launch
+        val opened = beginPlaybackAtStartupGate(
+            player = live,
+            startPaused = startPaused,
+            reason = "tunnel_ready_fallback",
+            syntheticFirstFrame = true
+        )
+        if (opened) onFirstFrame(live)
+    }
 }
 
 internal fun PlayerRuntimeController.cancelStallWatchdog() {
-    stallWatchdogJob?.cancel()
-    stallWatchdogJob = null
+    stallWatchdogJob = cancelAndClearWatchdogJob(stallWatchdogJob)
 }
 
 /** Tiny skip past the buffered edge to force Media3 to cancel the in-flight Range request. */
@@ -692,6 +783,14 @@ internal fun PlayerRuntimeController.maybeScheduleStallWatchdog() {
         while (isActive) {
             delay(PlayerRuntimeController.STALL_WATCHDOG_POLL_INTERVAL_MS)
             val livePlayer = _exoPlayer ?: return@launch
+            if (!shouldRunStallWatchdogIteration(
+                    capturedPlayer = player,
+                    livePlayer = livePlayer,
+                    isReleasingPlayer = isReleasingPlayer
+                )
+            ) {
+                return@launch
+            }
             if (livePlayer.playbackState != Player.STATE_BUFFERING) {
                 // Buffering resolved on its own.
                 return@launch
@@ -764,58 +863,72 @@ internal fun PlayerRuntimeController.maybeScheduleFirstFrameWatchdog() {
     if (hasRenderedFirstFrame || !currentStreamHasVideoTrack) return
     val player = _exoPlayer ?: return
     if (player.playbackState != Player.STATE_READY) return
+    // Tunnel already armed a short READY fallback on the same job slot.
     if (firstFrameWatchdogJob?.isActive == true) return
 
     firstFrameWatchdogJob = scope.launch {
         delay(PlayerRuntimeController.FIRST_FRAME_TIMEOUT_MS)
 
         val livePlayer = _exoPlayer ?: return@launch
-        if (hasRenderedFirstFrame) return@launch
-        if (livePlayer.playbackState != Player.STATE_READY) return@launch
-
-        if (PlayerFirstFrameWatchdogPolicy.evaluate(
-                PlayerFirstFrameWatchdogPolicy.Input(
-                    hasRenderedFirstFrame = hasRenderedFirstFrame,
-                    currentStreamHasVideoTrack = currentStreamHasVideoTrack,
-                    playbackState = livePlayer.playbackState,
-                    playWhenReady = livePlayer.playWhenReady,
-                    userPausedManually = userPausedManually,
-                )
-            ) == PlayerFirstFrameWatchdogPolicy.RecoveryAction.ForcePlayWhenReady
-        ) {
-            livePlayer.playWhenReady = true
-            livePlayer.play()
-            return@launch
-        }
-        if (!livePlayer.playWhenReady) return@launch
-
-        val currentPosition = livePlayer.currentPosition
-        when (
-            PlayerFirstFrameCodecRecoveryPolicy.evaluateAfterWatchdogTimeout(
-                PlayerFirstFrameCodecRecoveryPolicy.Input(
-                    playWhenReady = livePlayer.playWhenReady,
-                    isManualDv81Mode2Active = isManualDv81Mode2ActiveForCurrentPlayback,
-                    dv7Mode1AlreadyForced = dv7Mode1ForcedStreamUrls.contains(currentStreamUrl),
-                    currentVideoTrackIsLikelyVc1 = currentVideoTrackIsLikelyVc1,
-                    isVc1SoftwareFallbackActive = isVc1SoftwareFallbackActiveForCurrentPlayback,
-                    currentVideoTrackSelected = currentVideoTrackSelected,
-                    isVc1TrackSelectionBypassActive = isVc1TrackSelectionBypassActiveForCurrentPlayback,
-                )
+        if (!shouldRunFirstFrameWatchdogAction(
+                capturedPlayer = player,
+                livePlayer = livePlayer,
+                hasRenderedFirstFrame = hasRenderedFirstFrame,
+                userPausedManually = userPausedManually,
+                isReleasingPlayer = isReleasingPlayer
             )
         ) {
-            PlayerFirstFrameCodecRecoveryPolicy.RecoveryAction.RetryDv7Mode1 -> {
-                dv7Mode1ForcedStreamUrls.add(currentStreamUrl)
-                retryCurrentStreamWithDv7Mode1Fallback(currentPosition)
-            }
-            PlayerFirstFrameCodecRecoveryPolicy.RecoveryAction.RetryVc1Software -> {
-                vc1SoftwarePreferredStreamUrls.add(currentStreamUrl)
-                retryCurrentStreamWithVc1SoftwareFallback(currentPosition)
-            }
-            PlayerFirstFrameCodecRecoveryPolicy.RecoveryAction.RetryVc1TrackBypass -> {
-                vc1TrackSelectionBypassStreamUrls.add(currentStreamUrl)
-                retryCurrentStreamWithVc1TrackSelectionBypass(currentPosition)
-            }
-            PlayerFirstFrameCodecRecoveryPolicy.RecoveryAction.None -> Unit
+            return@launch
+        }
+        if (livePlayer.playbackState != Player.STATE_READY) return@launch
+
+        // Play + clear loading overlay. Old path only flipped playWhenReady and left the spinner up.
+        val opened = beginPlaybackAtStartupGate(
+            player = livePlayer,
+            startPaused = startupStartPaused,
+            reason = "first_frame_watchdog",
+            syntheticFirstFrame = true
+        )
+        if (opened) {
+            Log.w(
+                PlayerRuntimeController.TAG,
+                "First-frame watchdog: no onRenderedFirstFrame after " +
+                    "${PlayerRuntimeController.FIRST_FRAME_TIMEOUT_MS}ms — forced startup gate"
+            )
+        }
+
+        // Brief settle, then codec fallbacks if we're still stuck.
+        delay(1_500L)
+        val live = _exoPlayer ?: return@launch
+        if (isReleasingPlayer) return@launch
+        if (!shouldApplyDelayedWatchdogToPlayer(capturedPlayer = player, livePlayer = live)) {
+            return@launch
+        }
+        if (live.playbackState != Player.STATE_READY && live.playbackState != Player.STATE_BUFFERING) {
+            return@launch
+        }
+
+        val currentPosition = live.currentPosition
+        if (isManualDv81Mode2ActiveForCurrentPlayback &&
+            !dv7Mode1ForcedStreamUrls.contains(currentStreamUrl)
+        ) {
+            dv7Mode1ForcedStreamUrls.add(currentStreamUrl)
+            retryCurrentStreamWithDv7Mode1Fallback(currentPosition)
+            return@launch
+        }
+        if (currentVideoTrackIsLikelyVc1 && !isVc1SoftwareFallbackActiveForCurrentPlayback) {
+            vc1SoftwarePreferredStreamUrls.add(currentStreamUrl)
+            retryCurrentStreamWithVc1SoftwareFallback(currentPosition)
+            return@launch
+        }
+
+        if (currentVideoTrackIsLikelyVc1 &&
+            !currentVideoTrackSelected &&
+            isVc1SoftwareFallbackActiveForCurrentPlayback &&
+            !isVc1TrackSelectionBypassActiveForCurrentPlayback
+        ) {
+            vc1TrackSelectionBypassStreamUrls.add(currentStreamUrl)
+            retryCurrentStreamWithVc1TrackSelectionBypass(currentPosition)
         }
     }
 }

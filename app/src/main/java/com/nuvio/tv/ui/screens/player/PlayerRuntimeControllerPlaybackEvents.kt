@@ -395,6 +395,8 @@ internal fun PlayerRuntimeController.submitPlaybackIssueReport() {
         error = state.error,
     )
     val loadingInput = buildPlaybackIssueLoadingInput(reportReason)
+    // Session totals for AudioTrack reuse — visible in rawEventLines without API schema changes.
+    playbackAnalyticsDiagnostics.recordRawEventLine(audioTrackReuseTelemetry.summaryLine())
     val playbackAnalyticsInput = playbackAnalyticsDiagnostics.snapshot(
         player = _exoPlayer,
         hasRenderedFirstFrame = hasRenderedFirstFrame,
@@ -1115,6 +1117,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 _exoPlayer?.let { player ->
                     if (player.isPlaying) {
                         userPausedManually = true
+                        // HDMI passthrough: only user pause should arm resume clock resync
+                        // (rebuffer pause must not — see PassthroughAudioSink.pause).
+                        playbackSpeedAwareAudioSink?.armPassthroughResyncForNextPlay()
                         player.pause()
                         schedulePauseOverlay()
                     } else {

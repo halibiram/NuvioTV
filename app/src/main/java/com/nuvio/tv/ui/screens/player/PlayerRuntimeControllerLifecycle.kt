@@ -26,20 +26,34 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     } catch (e: Exception) {
         e.printStackTrace()
     }
+    // Playback-session jobs: cancel before releasing ExoPlayer so delayed work
+    // cannot touch a dead/rebuilt instance.
     progressJob?.cancel()
+    progressJob = null
     mpvTrackRefreshJob?.cancel()
     mpvTrackRefreshJob = null
     mpvTrackRefreshInProgress = false
     hideControlsJob?.cancel()
+    hideControlsJob = null
+    hideSeekOverlayJob?.cancel()
+    hideSeekOverlayJob = null
+    hideAspectRatioIndicatorJob?.cancel()
+    hideAspectRatioIndicatorJob = null
     watchProgressSaveJob?.cancel()
+    watchProgressSaveJob = null
     seekProgressSyncJob?.cancel()
+    seekProgressSyncJob = null
     frameRateProbeJob?.cancel()
+    frameRateProbeJob = null
     hideStreamSourceIndicatorJob?.cancel()
     hideStreamSourceIndicatorJob = null
     _uiState.update { it.copy(showStreamSourceIndicator = false) }
     hidePlayerEngineSwitchInfoJob?.cancel()
+    hidePlayerEngineSwitchInfoJob = null
     hideSubtitleDelayOverlayJob?.cancel()
+    hideSubtitleDelayOverlayJob = null
     subtitleAutoSyncLoadJob?.cancel()
+    subtitleAutoSyncLoadJob = null
     stopSidecarAddonSubtitle(clearView = true)
     subtitleTimingRefreshJob?.cancel()
     subtitleTimingRefreshJob = null
@@ -58,6 +72,16 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     errorRetryJob = null
     stableProgressResetJob?.cancel()
     stableProgressResetJob = null
+    pauseOverlayJob?.cancel()
+    pauseOverlayJob = null
+    seekBufferingUiJob?.cancel()
+    seekBufferingUiJob = null
+    bufferLogJob?.cancel()
+    bufferLogJob = null
+    // Delayed first-frame / stall jobs capture player-era state; drop them before
+    // nulling _exoPlayer so they cannot act on a later rebuild.
+    cancelFirstFrameWatchdog()
+    cancelStallWatchdog()
     releaseMpvPlayer()
     _exoPlayer?.let { player ->
         runCatching { player.playWhenReady = false }
@@ -70,6 +94,7 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     _exoPlayer = null
     ffmpegAudioRenderer = null
     updateAudioControlAvailability()
+    playbackSpeedAwareAudioSink?.setTrackReuseOutcomeListener(null)
     playbackSpeedAwareAudioSink = null
     resetPlaybackTimeline()
     isReleasingPlayer = false
