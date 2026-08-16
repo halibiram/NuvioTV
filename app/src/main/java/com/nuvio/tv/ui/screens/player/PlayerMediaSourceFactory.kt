@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.datasource.DataSource
@@ -55,12 +56,25 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
     var parallelConnectionCount: Int = PlayerSettings.DEFAULT_PARALLEL_CONNECTION_COUNT
     var parallelChunkSizeKb: Int = PlayerSettings.DEFAULT_PARALLEL_CHUNK_SIZE_KB
     var nuvioPerformanceModeEnabled: Boolean = PlayerSettings.DEFAULT_NUVIO_PERFORMANCE_MODE_ENABLED
+
+    private fun computePrefetchDepthChunks(
+        connections: Int,
+        chunkBytes: Long,
+        mp4SessionMode: Boolean
+    ): Int {
+        if (mp4SessionMode || !nuvioPerformanceModeEnabled) return connections + 1
+        val chunkMb = (chunkBytes / (1024L * 1024L)).toInt().coerceAtLeast(1)
+        val safeNativeMb = NuvioExoPlayerPerformanceHelper.getSafeNativeMemoryLimitMb(context)
+        val reserveMb = NuvioExoPlayerPerformanceHelper.targetBufferSizeMb.coerceAtLeast(0)
+        return com.nuvio.tv.ui.screens.settings.MemoryBudget.prefetchDepthChunks(
+            connections, chunkMb, safeNativeMb, reserveMb
+        )
+    }
     var vodCacheEnabled: Boolean = PlayerSettings.DEFAULT_VOD_CACHE_ENABLED
     var vodCacheSizeMode: VodCacheSizeMode = PlayerSettings.DEFAULT_VOD_CACHE_SIZE_MODE
     var vodCacheSizeMb: Int = PlayerSettings.DEFAULT_VOD_CACHE_SIZE_MB
 
-    // OkHttp client used only by the opt-in parallel-connections path.
-    private val playbackHttpClient by lazy {
+    private val chunkSessionHttpClient by lazy {
         PlayerPlaybackNetworking.playbackHttpClient.newBuilder()
             .cookieJar(NuvioApplication.extensionCookieJar)
             .let { NuvioExoPlayerPerformanceHelper.applyNetworkOptimizations(it) }
@@ -73,6 +87,76 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
     ) {
         customExtractorsFactory = extractorsFactory
         customSubtitleParserFactory = subtitleParserFactory
+    }
+
+    private data class ChunkSessionShape(
+        val resolvedMimeType: String?,
+        val isHls: Boolean,
+        val isDash: Boolean,
+        val mp4SessionMode: Boolean,
+        val useChunkSessionSource: Boolean,
+        val effectiveConnections: Int,
+        val effectiveChunkBytes: Long
+    )
+
+    private fun resolveChunkSessionShape(
+        url: String,
+        filename: String?,
+        responseHeaders: Map<String, String>,
+        mimeTypeOverride: String?
+    ): ChunkSessionShape {
+        val resolvedMimeType = mimeTypeOverride ?: inferMimeType(
+            url = url,
+            filename = filename,
+            responseHeaders = responseHeaders
+        )
+        val isHls = resolvedMimeType == MimeTypes.APPLICATION_M3U8
+        val isDash = resolvedMimeType == MimeTypes.APPLICATION_MPD
+        val mp4SessionMode = !useParallelConnections && !isHls && !isDash &&
+            resolvedMimeType == MimeTypes.VIDEO_MP4
+        val useChunkSessionSource = (useParallelConnections || mp4SessionMode) && !isHls && !isDash
+        return ChunkSessionShape(
+            resolvedMimeType = resolvedMimeType,
+            isHls = isHls,
+            isDash = isDash,
+            mp4SessionMode = mp4SessionMode,
+            useChunkSessionSource = useChunkSessionSource,
+            effectiveConnections = if (mp4SessionMode) 1 else parallelConnectionCount,
+            effectiveChunkBytes =
+                if (mp4SessionMode) MP4_SESSION_CHUNK_BYTES else parallelChunkSizeKb.toLong() * 1024L
+        )
+    }
+
+    fun prestartChunk0(
+        url: String,
+        headers: Map<String, String>,
+        filename: String? = null,
+        responseHeaders: Map<String, String> = emptyMap(),
+        mimeTypeOverride: String? = null
+    ) {
+        val shape = resolveChunkSessionShape(
+            url = url,
+            filename = filename,
+            responseHeaders = responseHeaders,
+            mimeTypeOverride = mimeTypeOverride
+        )
+        if (!shape.useChunkSessionSource || shape.mp4SessionMode) return
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+        val okHttpFactory = OkHttpDataSource.Factory(chunkSessionHttpClient).apply {
+            setDefaultRequestProperties(sanitizeHeaders(headers))
+            setUserAgent(DEFAULT_USER_AGENT)
+        }
+        ParallelRangeDataSource.Factory(
+            okHttpFactory,
+            shape.effectiveConnections,
+            shape.effectiveChunkBytes,
+            useNativeMemory = nuvioPerformanceModeEnabled,
+            prefetchDepthChunks = computePrefetchDepthChunks(
+                shape.effectiveConnections,
+                shape.effectiveChunkBytes,
+                shape.mp4SessionMode
+            )
+        ).prestartChunk0(uri)
     }
 
     fun createMediaSource(
@@ -89,13 +173,15 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         val sanitizedHeaders = sanitizeHeaders(headers)
         val httpDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
 
-        val resolvedMimeType = mimeTypeOverride ?: inferMimeType(
+        val chunkSessionShape = resolveChunkSessionShape(
             url = url,
             filename = filename,
-            responseHeaders = responseHeaders
+            responseHeaders = responseHeaders,
+            mimeTypeOverride = mimeTypeOverride
         )
-        val isHls = resolvedMimeType == MimeTypes.APPLICATION_M3U8
-        val isDash = resolvedMimeType == MimeTypes.APPLICATION_MPD
+        val resolvedMimeType = chunkSessionShape.resolvedMimeType
+        val isHls = chunkSessionShape.isHls
+        val isDash = chunkSessionShape.isDash
 
         val mediaItemBuilder = MediaItem.Builder().setUri(url)
         resolvedMimeType?.let(mediaItemBuilder::setMimeType)
@@ -108,32 +194,48 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
 
         val mediaItem = mediaItemBuilder.build()
 
-        // 1. Parallel connections (opt-in). ParallelRangeDataSource needs a concrete
-        // OkHttpDataSource.Factory, so build one only on this path.
-        parallelStartupPrefetchUnlocked.set(!(useParallelConnections && !isHls && !isDash))
-        val progressiveUpstreamFactory: DataSource.Factory = if (useParallelConnections && !isHls && !isDash) {
-            val okHttpFactory = OkHttpDataSource.Factory(playbackHttpClient).apply {
+        val mp4SessionMode = chunkSessionShape.mp4SessionMode
+        val useChunkSessionSource = chunkSessionShape.useChunkSessionSource
+        parallelStartupPrefetchUnlocked.set(!useChunkSessionSource)
+        val progressiveUpstreamFactory: DataSource.Factory = if (useChunkSessionSource) {
+            if (mp4SessionMode) {
+                Log.i(
+                    "PlayerMediaSourceFactory",
+                    "MP4_SESSION engaged: single-connection chunk session " +
+                        "(${MP4_SESSION_CHUNK_BYTES / (1024L * 1024L)} MB chunks) " +
+                        "for progressive MP4 with parallel connections off"
+                )
+            }
+            val okHttpFactory = OkHttpDataSource.Factory(chunkSessionHttpClient).apply {
                 setDefaultRequestProperties(sanitizedHeaders)
                 setUserAgent(DEFAULT_USER_AGENT)
             }
-            ParallelRangeDataSource.Factory(
-                okHttpFactory,
-                parallelConnectionCount,
-                parallelChunkSizeKb.toLong() * 1024L,
-                useNativeMemory = nuvioPerformanceModeEnabled,
-                shouldAllowBackgroundPrefetch = { true },
-                onResolvedUri = { resolved -> currentVodCacheResolvedUrl = resolved?.toString() }
-            )
+            run {
+                val effectiveConnections = chunkSessionShape.effectiveConnections
+                val effectiveChunkBytes = chunkSessionShape.effectiveChunkBytes
+                ParallelRangeDataSource.Factory(
+                    okHttpFactory,
+                    effectiveConnections,
+                    effectiveChunkBytes,
+                    useNativeMemory = nuvioPerformanceModeEnabled,
+                    prefetchDepthChunks = computePrefetchDepthChunks(
+                        effectiveConnections,
+                        effectiveChunkBytes,
+                        mp4SessionMode
+                    ),
+                    shouldAllowBackgroundPrefetch = { true },
+                    allowContinuationReopen = !mp4SessionMode,
+                    onResolvedUri = { resolved -> currentVodCacheResolvedUrl = resolved?.toString() }
+                )
+            }
         } else {
             httpDataSourceFactory
         }
 
-        // 2. VOD disk cache (opt-in).
         val useVodCache = ENABLE_VOD_CACHE && vodCacheEnabled && !isHls && !isDash && shouldUseVodCache(url)
         val previousVodCacheActive = currentVodCacheActive
         currentVodCacheUrl = url
         currentVodCacheResolvedUrl = null
-        // Size the cache only when used; 0 means off or not enough free space (skip, stream direct).
         val vodCacheMaxBytes = if (useVodCache && !isVodCacheDisabled) resolveVodCacheMaxBytes() else 0L
         val vodCacheActive = vodCacheMaxBytes > 0L
 
@@ -156,7 +258,10 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         }
 
         val extractorsFactory = customExtractorsFactory ?: DefaultExtractorsFactory()
-        val defaultFactory = DefaultMediaSourceFactory(progressiveFactory, extractorsFactory).apply {
+        val defaultFactory = DefaultMediaSourceFactory(
+            LoggingDataSourceFactory(progressiveFactory, "PMSF"),
+            extractorsFactory
+        ).apply {
             setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             customSubtitleParserFactory?.let { parserFactory ->
                 setSubtitleParserFactory(parserFactory)
@@ -164,7 +269,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         }
         val forceDefaultFactory = customExtractorsFactory != null || customSubtitleParserFactory != null
 
-        // Sidecar subtitles are more reliable through DefaultMediaSourceFactory.
         if (subtitleConfigurations.isNotEmpty()) {
             return wrapAudioDelay(
                 mediaSource = defaultFactory.createMediaSource(mediaItem),
@@ -185,7 +289,9 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         return wrapAudioDelay(mediaSource = mediaSource, audioDelayUsProvider = audioDelayUsProvider)
     }
 
-    fun shutdown() = Unit
+    fun shutdown() {
+        ParallelRangeDataSource.releaseRetainedSession()
+    }
 
     private fun buildVodCacheDataSourceFactory(upstreamFactory: DataSource.Factory, cache: SimpleCache): DataSource.Factory {
         val dataSinkFactory = CacheDataSink.Factory().setCache(cache).setFragmentSize(2L * 1024L * 1024L)
@@ -232,6 +338,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
 
     companion object {
         private const val MIME_VIDEO_QUICK_TIME = "video/quicktime"
+        private const val MP4_SESSION_CHUNK_BYTES = 8L * 1024L * 1024L
         private const val ENABLE_VOD_CACHE = true
         private const val VOD_CACHE_FREE_SPACE_RESERVE_BYTES = 1024L * 1024L * 1024L
         internal const val DEFAULT_USER_AGENT =
@@ -321,7 +428,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
             if (headers.isNullOrEmpty()) return emptyMap()
 
             return try {
-                // Try JSON format first (new)
                 if (headers.trimStart().startsWith("{")) {
                     val json = org.json.JSONObject(headers)
                     val result = LinkedHashMap<String, String>()
@@ -334,7 +440,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
                     return sanitizeHeaders(result)
                 }
 
-                // Legacy key=value&key=value format (backward compat)
                 val parsed = headers.split("&").associate { pair ->
                     val parts = pair.split("=", limit = 2)
                     if (parts.size == 2) {
@@ -361,8 +466,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
             requestedMaxBytes: Long,
             allowLiveReconfigure: Boolean
         ) {
-            // Live cache reconfiguration is not yet implemented; the shared cache is
-            // created lazily elsewhere. Kept as the integration point for the VOD cache.
         }
 
         private fun inferAdaptiveMimeTypeFromPath(path: String?): String? {
@@ -579,7 +682,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
             }
         }
 
-
         private fun wrapAudioDelay(
             mediaSource: MediaSource,
             audioDelayUsProvider: (() -> Long)?
@@ -599,13 +701,6 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         private val DELIMITED_MPD_PATTERN = Regex("(^|[=/_.?&-])mpd($|[=/_.?&-])")
         private val DELIMITED_SS_PATTERN = Regex("(^|[=/_.?&-])(ism|isml)($|[=/_.?&-])")
 
-        /**
-         * Extracts `user:pass` from a URL's userinfo component and converts it
-         * to a Basic Auth header. Returns the cleaned URL (without userinfo) and
-         * merged headers. If the URL has no userinfo, returns the original URL and headers unchanged.
-         *
-         * The returned URL has no userinfo, and the returned headers carry Basic auth.
-         */
         fun extractUserInfoAuth(
             url: String,
             headers: Map<String, String>
