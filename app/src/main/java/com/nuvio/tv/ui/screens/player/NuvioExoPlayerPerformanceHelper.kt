@@ -12,23 +12,9 @@ import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.nuvio.tv.data.local.PlayerSettings
 
-/**
- * Centralizes all Nuvio ExoPlayer performance enhancements behind a single toggle.
- *
- * When [enabled] is `true`, the helper applies:
- * - Large allocator segments (256 KB) with a 400 MB target buffer
- * - Extended buffer durations (200–280 s) with a 12 s back-buffer
- * - 50 Mbps initial bandwidth estimate
- * - Scrubbing mode for faster seeks (disables audio/metadata, boosts codec rate)
- * - In-buffer seek detection to suppress transient buffering UI
- * - HTTP/2 with an 8-connection pool for networking
- *
- * When [enabled] is `false`, stock ExoPlayer defaults are used everywhere.
- */
 @androidx.media3.common.util.UnstableApi
 object NuvioExoPlayerPerformanceHelper {
 
-    /** Whether Nuvio performance enhancements are active. Set from [PlayerSettingsDataStore]. */
     @Volatile
     var enabled: Boolean = false
         set(value) {
@@ -38,24 +24,22 @@ object NuvioExoPlayerPerformanceHelper {
             applyEngineConfig(newValue)
         }
 
-    @Volatile
-    var sharedConnectionPool: okhttp3.ConnectionPool = okhttp3.ConnectionPool(
-        DEFAULT_NUVIO_CONNECTION_POOL_SIZE,
+    val sharedConnectionPool: okhttp3.ConnectionPool = okhttp3.ConnectionPool(
+        NUVIO_SHARED_POOL_MAX_IDLE,
         3,
         java.util.concurrent.TimeUnit.MINUTES
     )
-        private set
 
-    // ─── Constants ────────────────────────────────────────────────────────────
-    const val DEFAULT_NUVIO_ALLOCATOR_SEGMENT_SIZE = 64 * 1024        // 64 KB
-    const val DEFAULT_NUVIO_TARGET_BUFFER_BYTES = 250 * 1024 * 1024    // 250 MB
+    const val DEFAULT_NUVIO_ALLOCATOR_SEGMENT_SIZE = 64 * 1024
+    const val DEFAULT_NUVIO_TARGET_BUFFER_BYTES = 250 * 1024 * 1024
     const val DEFAULT_NUVIO_MIN_BUFFER_MS = 40_000
     const val DEFAULT_NUVIO_MAX_BUFFER_MS = 120_000
     const val DEFAULT_NUVIO_BACK_BUFFER_MS = 1_500
-    const val DEFAULT_NUVIO_INITIAL_BITRATE_ESTIMATE = 50_000_000L     // 50 Mbps
+    const val DEFAULT_NUVIO_INITIAL_BITRATE_ESTIMATE = 50_000_000L
     const val DEFAULT_NUVIO_CONNECTION_POOL_SIZE = 8
 
-    // ─── Customization Variables ──────────────────────────────────────────────
+    const val NUVIO_SHARED_POOL_MAX_IDLE = 32
+
     @Volatile
     var minBufferMs: Int = DEFAULT_NUVIO_MIN_BUFFER_MS
 
@@ -80,9 +64,6 @@ object NuvioExoPlayerPerformanceHelper {
     @Volatile
     var enableHttp2: Boolean = false
 
-    /**
-     * Updates the performance helper with customized settings from PlayerSettings.
-     */
     fun updateSettings(settings: PlayerSettings, context: Context) {
         val customBuffers = settings.bufferEngineEnabled
         val bufferSettings = settings.bufferSettings
@@ -106,31 +87,17 @@ object NuvioExoPlayerPerformanceHelper {
             safeLimitMb
         }
 
-        val oldPoolSize = connectionPoolSize
         val customNetwork = settings.parallelNetworkEnabled
         connectionPoolSize = if (customNetwork && settings.useParallelConnections) {
             settings.parallelConnectionCount * 2
         } else {
             DEFAULT_NUVIO_CONNECTION_POOL_SIZE
         }
-        if (connectionPoolSize != oldPoolSize) {
-            sharedConnectionPool = okhttp3.ConnectionPool(
-                connectionPoolSize,
-                3,
-                java.util.concurrent.TimeUnit.MINUTES
-            )
-        }
     }
 
-    private const val SEEK_BACK_BUFFER_THRESHOLD_MS = 10_000L
     private const val SEEK_BACKWARD_TOLERANCE_MS = 2_000L
     const val SEEK_SUPPRESS_TIMEOUT_MS = 800L
 
-    // ─── LoadControl ──────────────────────────────────────────────────────────
-
-    /**
-     * Helper to read system memory directly from /proc/meminfo as a reliable fallback.
-     */
     private fun getRamFromMemInfo(): Long {
         return try {
             val file = java.io.File("/proc/meminfo")
@@ -155,16 +122,10 @@ object NuvioExoPlayerPerformanceHelper {
     @Volatile
     private var cachedDevicePhysicalRamBytes: Long = 0L
 
-    /**
-     * Clears the cached RAM size. Useful for testing.
-     */
     fun clearCache() {
         cachedDevicePhysicalRamBytes = 0L
     }
 
-    /**
-     * Gets the total physical memory of the device in bytes.
-     */
     fun getDevicePhysicalRamBytes(context: Context): Long {
         if (cachedDevicePhysicalRamBytes > 0L) {
             return cachedDevicePhysicalRamBytes
@@ -185,18 +146,11 @@ object NuvioExoPlayerPerformanceHelper {
         return ram
     }
 
-    /**
-     * Gets the total physical memory of the device in GB.
-     */
     fun getDevicePhysicalRamGb(context: Context): Double {
         val totalBytes = getDevicePhysicalRamBytes(context)
         return totalBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
     }
 
-    /**
-     * Gets a friendly, marketed description of the device physical memory.
-     * Uses mid-point boundaries adjusted for up to 20% hardware reservations.
-     */
     fun getFriendlyRamLabel(context: Context): String {
         val totalMem = getDevicePhysicalRamBytes(context)
         val gb = 1024L * 1024L * 1024L
@@ -214,14 +168,11 @@ object NuvioExoPlayerPerformanceHelper {
         }
     }
 
-    /**
-     * Calculates the safe ExoPlayer native target buffer size limit in MB based on RAM tier thresholds.
-     */
     fun getSafeNativeMemoryLimitMb(context: Context): Int {
         val totalMem = getDevicePhysicalRamBytes(context)
         val gb = 1024L * 1024L * 1024L
         return when {
-            totalMem <= 0L -> 250 // Safe default
+            totalMem <= 0L -> 250
             totalMem < 1.15 * gb -> 150
             totalMem < 1.45 * gb -> 200
             totalMem < 2.3 * gb -> 250
@@ -232,9 +183,6 @@ object NuvioExoPlayerPerformanceHelper {
         }
     }
 
-    /**
-     * Calculates the warning native target buffer size limit in MB based on RAM tier thresholds.
-     */
     fun getWarningNativeMemoryLimitMb(context: Context): Int {
         val totalMem = getDevicePhysicalRamBytes(context)
         val gb = 1024L * 1024L * 1024L
@@ -250,10 +198,6 @@ object NuvioExoPlayerPerformanceHelper {
         }
     }
 
-    /**
-     * Builds a [DefaultLoadControl] tuned for Nuvio performance when enabled,
-     * or a standard ExoPlayer [DefaultLoadControl] when disabled.
-     */
     fun buildLoadControl(context: Context? = null): DefaultLoadControl {
         return if (enabled) {
             val targetBufferBytes = (targetBufferSizeMb.toLong() * 1024L * 1024L)
@@ -283,12 +227,6 @@ object NuvioExoPlayerPerformanceHelper {
         }
     }
 
-    // ─── BandwidthMeter ───────────────────────────────────────────────────────
-
-    /**
-     * Builds a [DefaultBandwidthMeter] with an aggressive initial estimate when
-     * enabled, or the platform default when disabled.
-     */
     fun buildBandwidthMeter(context: Context): DefaultBandwidthMeter {
         return if (enabled) {
             DefaultBandwidthMeter.Builder(context)
@@ -299,13 +237,6 @@ object NuvioExoPlayerPerformanceHelper {
         }
     }
 
-    // ─── Seek / Scrubbing ─────────────────────────────────────────────────────
-
-    /**
-     * Returns [ScrubbingModeParameters] that disable audio/metadata decoding and
-     * boost codec operating rate for the fastest possible seek, or `null` when
-     * performance mode is off.
-     */
     fun buildScrubbingParams(): ScrubbingModeParameters? {
         if (!enabled) return null
         return ScrubbingModeParameters.Builder()
@@ -316,33 +247,15 @@ object NuvioExoPlayerPerformanceHelper {
             .build()
     }
 
-    /**
-     * Returns `true` when the seek target [positionMs] falls within the player's
-     * already-buffered window (forward into [Player.getBufferedPosition] or
-     * backward into the retained back-buffer).
-     *
-     * Only meaningful when performance mode is enabled; returns `false` otherwise.
-     */
     fun isSeekInBuffer(player: ExoPlayer, positionMs: Long): Boolean {
         if (!enabled) return false
         val bufferedPos = player.bufferedPosition
         val currentPos = player.currentPosition
-        val backBufferStart = (currentPos - SEEK_BACK_BUFFER_THRESHOLD_MS - SEEK_BACKWARD_TOLERANCE_MS)
+        val backBufferStart = (currentPos - backBufferMs.toLong() - SEEK_BACKWARD_TOLERANCE_MS)
             .coerceAtLeast(0L)
         return positionMs in backBufferStart..bufferedPos
     }
 
-    // ─── Buffering UI ─────────────────────────────────────────────────────────
-
-    /**
-     * Determines whether transient buffering UI should be suppressed during a
-     * seek operation. Returns `false` when performance mode is disabled so that
-     * the stock buffering indicator always shows.
-     *
-     * @param suppressBufferingUiForSeek  Flag set when an in-buffer seek is active.
-     * @param seekBufferingUiDeferred     Flag set during the 1 s grace window.
-     * @param isBuffering                 Current [Player.STATE_BUFFERING] state.
-     */
     fun shouldSuppressBufferingUi(
         suppressBufferingUiForSeek: Boolean,
         seekBufferingUiDeferred: Boolean,
@@ -353,12 +266,6 @@ object NuvioExoPlayerPerformanceHelper {
             (seekBufferingUiDeferred && isBuffering)
     }
 
-    // ─── Networking ───────────────────────────────────────────────────────────
-
-    /**
-     * Applies HTTP/2 and a connection pool to the given [builder] when
-     * performance mode is enabled. No-op otherwise.
-     */
     fun applyNetworkOptimizations(builder: okhttp3.OkHttpClient.Builder): okhttp3.OkHttpClient.Builder {
         val withPool = builder.connectionPool(sharedConnectionPool)
         return if (enableHttp2) {
@@ -368,45 +275,18 @@ object NuvioExoPlayerPerformanceHelper {
         }
     }
 
-    // ─── Audio Renderer ───────────────────────────────────────────────────────
-
-    /**
-     * Returns `true` when the audio renderer should bypass the codec for a
-     * non-PCM format that the sink supports directly. Only active when
-     * performance mode is enabled.
-     */
     fun shouldBypassForNonPcmFormat(): Boolean {
         return enabled
     }
 
-    // ─── Memory Logging ───────────────────────────────────────────────────────
-
-    /**
-     * Returns `true` when off-heap allocator memory logging should be active.
-     */
     fun shouldLogMemoryFootprint(): Boolean {
         return enabled
     }
 
-    // ─── Track Rebuild Guard ──────────────────────────────────────────────────
-
-    /**
-     * Returns `true` when track selection rebuild should be skipped after seeks
-     * (only allow on first ready). When disabled, always rebuilds (stock behaviour).
-     */
     fun shouldGuardTrackRebuild(): Boolean {
         return enabled
     }
 
-    // ─── Engine Config ───────────────────────────────────────────────────────
-
-    /**
-     * Applies [NuvioEngineConfig] based on the toggle state.
-     * When enabled: native off-heap allocation + zero-copy ByteBuffer pipeline + 64 KB scratch.
-     * When disabled: stock heap allocation + standard byte[] pipeline + 4 KB scratch.
-     *
-     * Must be called **before** building an ExoPlayer instance.
-     */
     private fun applyEngineConfig(performanceModeEnabled: Boolean) {
         if (performanceModeEnabled) {
             NuvioEngineConfig.set(NuvioEngineConfig.nuvioMode())
