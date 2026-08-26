@@ -628,6 +628,7 @@ fun MetaDetailsScreen(
                     },
                     showManualPlayOption = effectiveAutoplayEnabled,
                     onPlayButtonFocused = { viewModel.onEvent(MetaDetailsEvent.OnPlayButtonFocused) },
+                    onEpisodeFocusedForPrewarm = { episodeId -> viewModel.onEpisodeFocusedForPrewarm(episodeId) },
                     onToggleLibrary = { viewModel.onEvent(MetaDetailsEvent.OnToggleLibrary) },
                     onLibraryLongPress = { viewModel.onEvent(MetaDetailsEvent.OnLibraryLongPress) },
                     onToggleMovieWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleMovieWatched) },
@@ -904,6 +905,7 @@ private fun MetaDetailsContent(
     onPlayStartFromBeginningClick: (String) -> Unit = {},
     showManualPlayOption: Boolean,
     onPlayButtonFocused: () -> Unit,
+    onEpisodeFocusedForPrewarm: (String) -> Unit = {},
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
     onToggleMovieWatched: () -> Unit,
@@ -1784,6 +1786,7 @@ private fun MetaDetailsContent(
                             },
                             onEpisodeFocused = { episodeId ->
                                 lastFocusedEpisodeIdBySeason[selectedSeason] = episodeId
+                                onEpisodeFocusedForPrewarm(episodeId)
                             },
                             scrollToEpisodeId = if (lastFocusedEpisodeIdBySeason[selectedSeason] != null) {
                                 null

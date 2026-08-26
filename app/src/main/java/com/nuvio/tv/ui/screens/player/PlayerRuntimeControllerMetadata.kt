@@ -359,10 +359,26 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
         _uiState.update {
             it.copy(postPlayMode = PostPlayMode.AutoPlay(nextEpisode = state.nextEpisode))
         }
+        prewarmNextEpisodeStreams()
         if (state.nextEpisode.hasAired && streamAutoPlayNextEpisodeEnabledSetting) {
             playNextEpisode()
         }
     }
+}
+
+internal fun PlayerRuntimeController.prewarmNextEpisodeStreams() {
+    val nextVideo = nextEpisodeVideo ?: return
+    val type = contentType ?: return
+    playbackPrewarmCoordinator.warmStreams(
+        key = com.nuvio.tv.core.player.PlaybackPrewarmStreamKey(
+            type = type,
+            videoId = nextVideo.id,
+            season = nextVideo.season,
+            episode = nextVideo.episode,
+            contentId = contentId
+        ),
+        includeResolvedLastLink = false
+    )
 }
 
 internal fun PlayerRuntimeController.showStreamSourceIndicator(stream: Stream) {

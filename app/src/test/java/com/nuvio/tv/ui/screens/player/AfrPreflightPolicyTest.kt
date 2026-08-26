@@ -138,6 +138,20 @@ class AfrPreflightPolicyTest {
     }
 
     @Test
+    fun `cached frame rate skips a new OkHttp probe`() {
+        fun shouldProbe(cached: FrameRateUtils.FrameRateDetection?): Boolean = cached == null
+
+        val detection = FrameRateUtils.FrameRateDetection(
+            raw = 23.976f,
+            snapped = FrameRateUtils.snapToStandardRate(23.976f),
+            videoWidth = 1920,
+            videoHeight = 1080
+        )
+        assertTrue(shouldProbe(null))
+        assertFalse(shouldProbe(detection))
+    }
+
+    @Test
     fun `prefer23976ProbeBias window matches preflight bias gate`() {
         // Mirrors: prefer23976ProbeBias = detection.raw in 23.95f..23.999f
         fun prefer23976(raw: Float): Boolean = raw in 23.95f..23.999f

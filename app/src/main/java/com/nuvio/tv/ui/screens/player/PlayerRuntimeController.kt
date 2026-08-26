@@ -96,6 +96,7 @@ class PlayerRuntimeController(
     internal val streamBadgePresentation: com.nuvio.tv.core.streams.StreamBadgePresentation,
     internal val playbackIssueReportRepository: PlaybackIssueReportRepository,
     internal val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
+    internal val playbackPrewarmCoordinator: com.nuvio.tv.core.player.PlaybackPrewarmCoordinator,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
@@ -369,6 +370,8 @@ class PlayerRuntimeController(
     internal var initialPlaybackStarted: Boolean = false
     internal var lastPlaybackDiagnosticsForReport: LastPlaybackDiagnostics =
         LastPlaybackDiagnostics.EMPTY
+    internal var currentPlaybackDiagnostics: LastPlaybackDiagnostics =
+        LastPlaybackDiagnostics.EMPTY
     internal var lastPlaybackIssueError: PlaybackIssueErrorInput? = null
     internal val playbackIssueReportRequestVersion = AtomicLong(0L)
     internal val playbackAnalyticsDiagnostics = PlayerPlaybackAnalyticsDiagnostics()
@@ -641,7 +644,9 @@ class PlayerRuntimeController(
     }
 
     fun onCleared() {
+        playbackPrewarmCoordinator.abort("player_cleared")
         releasePlayer()
+        playbackPrewarmCoordinator.notifyPlaybackReleased()
         stopTorrentStream()
         startupLoadingReportJob?.cancel()
         vodTelemetryJob?.cancel()

@@ -98,6 +98,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val metaDetailsSessionState: MetaDetailsSessionState,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    private val playbackPrewarmCoordinator: com.nuvio.tv.core.player.PlaybackPrewarmCoordinator,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -2818,6 +2819,37 @@ class MetaDetailsViewModel @Inject constructor(
         if (isPlayButtonFocused) return
         isPlayButtonFocused = true
         startIdleTimer()
+        prewarmFocusedPlayback()
+    }
+
+    fun onEpisodeFocusedForPrewarm(episodeId: String) {
+        val meta = _uiState.value.meta ?: return
+        val video = meta.videos.firstOrNull { it.id == episodeId } ?: return
+        playbackPrewarmCoordinator.warmStreams(
+            com.nuvio.tv.core.player.PlaybackPrewarmStreamKey(
+                type = meta.rawType.ifBlank { itemType },
+                videoId = video.id,
+                season = video.season,
+                episode = video.episode,
+                contentId = meta.id
+            )
+        )
+    }
+
+    private fun prewarmFocusedPlayback() {
+        val state = _uiState.value
+        val meta = state.meta ?: return
+        val nextToWatch = state.nextToWatch
+        val videoId = nextToWatch?.nextVideoId ?: meta.id
+        playbackPrewarmCoordinator.warmStreams(
+            com.nuvio.tv.core.player.PlaybackPrewarmStreamKey(
+                type = meta.rawType.ifBlank { itemType },
+                videoId = videoId,
+                season = nextToWatch?.nextSeason,
+                episode = nextToWatch?.nextEpisode,
+                contentId = meta.id
+            )
+        )
     }
 
     private fun handleUserInteraction() {

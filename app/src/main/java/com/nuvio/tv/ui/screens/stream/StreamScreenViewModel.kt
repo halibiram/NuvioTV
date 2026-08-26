@@ -88,6 +88,7 @@ class StreamScreenViewModel @Inject constructor(
     private val subtitleRepository: com.nuvio.tv.domain.repository.SubtitleRepository,
     private val subtitleFileCache: com.nuvio.tv.core.player.SubtitleFileCache,
     private val torrentService: TorrentService,
+    private val playbackPrewarmCoordinator: com.nuvio.tv.core.player.PlaybackPrewarmCoordinator,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private var autoPlayHandledForSession = false
@@ -127,6 +128,9 @@ class StreamScreenViewModel @Inject constructor(
     private val contentName: String? = savedStateHandle.getOptionalString("contentName")
     private val contentLanguage: String? = savedStateHandle.getOptionalString("contentLanguage")
     private val manualSelection: Boolean = savedStateHandle.get<String>("manualSelection")
+        ?.toBooleanStrictOrNull()
+        ?: false
+    private val startFromBeginning: Boolean = savedStateHandle.get<String>("startFromBeginning")
         ?.toBooleanStrictOrNull()
         ?: false
     private val streamCacheKey: String = "${contentType.lowercase()}|$videoId"
@@ -438,6 +442,7 @@ class StreamScreenViewModel @Inject constructor(
                             isDirectAutoPlayFlow = showOverlay || it.isDirectAutoPlayFlow
                         )
                     }
+                    _uiState.value.autoPlayPlaybackInfo?.let(::startInternalPlaybackPrewarm)
                 }
             }
 
@@ -1209,9 +1214,31 @@ class StreamScreenViewModel @Inject constructor(
 
     fun onInternalPlayerLaunching() {
         streamRepository.setLocalPluginSearchPaused(true)
+        playbackPrewarmCoordinator.yieldForContentPlayback()
         updateUiStateIfChanged {
             it.copy(showDirectAutoPlayOverlay = false, directAutoPlayMessage = null)
         }
+    }
+
+    fun startInternalPlaybackPrewarm(playbackInfo: StreamPlaybackInfo) {
+        val url = playbackInfo.url?.takeIf { it.isNotBlank() } ?: return
+        playbackPrewarmCoordinator.warmResolvedPlayback(
+            com.nuvio.tv.core.player.PlaybackPrewarmMediaRequest(
+                url = url,
+                headers = playbackInfo.headers ?: emptyMap(),
+                filename = playbackInfo.filename,
+                contentId = playbackInfo.contentId,
+                videoId = playbackInfo.videoId,
+                season = playbackInfo.season,
+                episode = playbackInfo.episode,
+                startFromBeginning = startFromBeginning,
+                isTorrent = playbackInfo.isTorrent
+            )
+        )
+    }
+
+    fun abortPlaybackPrewarm(reason: String) {
+        playbackPrewarmCoordinator.abort(reason)
     }
 
     /**

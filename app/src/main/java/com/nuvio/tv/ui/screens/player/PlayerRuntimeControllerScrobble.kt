@@ -103,7 +103,10 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
         // callback fired before the DB read completed, causing the resume
         // seek to be silently skipped — the player would start from 0:00
         // or hang in buffering after a late seek.
-        if (loadSavedProgress) {
+        val warmedProgress = playbackPrewarmCoordinator.peekResumeProgress(playbackUrl)
+        if (warmedProgress != null) {
+            pendingResumeProgress = warmedProgress
+        } else if (loadSavedProgress) {
             recordLoadingDiagnosticEvent(
                 phase = "loading_saved_progress",
                 message = context.getString(com.nuvio.tv.R.string.player_loading_preparing)

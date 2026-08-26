@@ -40,7 +40,6 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.text.TextOutput
@@ -93,8 +92,6 @@ import androidx.media3.common.Tracks
 
 
 private const val MPV_AFR_SETTLE_DELAY_MS = 2_000L
-private const val AUDIO_DELAY_REFRESH_DEBOUNCE_MS = 120L
-private const val PLAYER_RELEASE_TIMEOUT_MS = 3000L
 private const val PLAYER_REBUILD_SETTLE_DELAY_MS = 120L
 private const val ADAPTIVE_QUALITY_INCREASE_MIN_DURATION_MS = 2_000
 private const val ADAPTIVE_INITIAL_BITRATE_ESTIMATE_BPS = 25_000_000L
@@ -269,6 +266,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                 )
             }
             if (effectiveInternalPlayerEngine == InternalPlayerEngine.MVP_PLAYER) {
+                playbackPrewarmCoordinator.claim(expectedUrl = url, adoptEngine = false)
+                playbackPrewarmCoordinator.abandonUnclaimedEngine()
                 mpvInitializationInProgress = true
                 try {
                     val awaitedAfr = withTimeoutOrNull(AFR_PREFLIGHT_TOTAL_TIMEOUT_MS) {
@@ -295,6 +294,72 @@ internal fun PlayerRuntimeController.initializePlayer(
             }
             mpvInitializationInProgress = false
 
+            val claimedPrewarm = playbackPrewarmCoordinator.claim(
+                expectedUrl = url,
+                adoptEngine = true
+            )
+            var adoptedSnapshot = when (claimedPrewarm) {
+                is com.nuvio.tv.core.player.PlaybackPrewarmClaimResult.Hit -> {
+                    claimedPrewarm.ticket.session.resumeProgress?.let { pendingResumeProgress = it }
+                    claimedPrewarm.ticket.session.mimeType?.let { mime ->
+                        if (currentStreamMimeType.isNullOrBlank()) {
+                            currentStreamMimeType = mime
+                        }
+                    }
+                    claimedPrewarm.ticket.engineSnapshot
+                }
+                else -> null
+            }
+            val skipMediaPrepare = adoptedSnapshot != null
+            if (!skipMediaPrepare) {
+                playbackPrewarmCoordinator.abandonUnclaimedEngine()
+            }
+            if (skipMediaPrepare) {
+                queuePlaybackRawEventLine(
+                    "PREWARM_CLAIM hit host=${url.safeHost()} " +
+                        "resumeMs=${adoptedSnapshot?.resumePositionMs ?: -1} " +
+                        "mime=${currentStreamMimeType ?: "unknown"}"
+                )
+            } else if (claimedPrewarm is com.nuvio.tv.core.player.PlaybackPrewarmClaimResult.Hit) {
+                queuePlaybackRawEventLine("PREWARM_CLAIM hit-metadata host=${url.safeHost()}")
+            } else if (claimedPrewarm is com.nuvio.tv.core.player.PlaybackPrewarmClaimResult.Mismatch) {
+                queuePlaybackRawEventLine("PREWARM_CLAIM mismatch host=${url.safeHost()}")
+            } else {
+                queuePlaybackRawEventLine("PREWARM_CLAIM miss host=${url.safeHost()}")
+            }
+
+            val startupSubtitlePreparation = prepareStreamStartSubtitles(playerSettings)
+
+            if (skipMediaPrepare && adoptedSnapshot != null) {
+                NuvioExoPlayerPerformanceHelper.updateSettings(playerSettings, context)
+                NuvioExoPlayerPerformanceHelper.enabled = playerSettings.nuvioPerformanceModeEnabled
+                val awaitedAfr = withTimeoutOrNull(AFR_PREFLIGHT_TOTAL_TIMEOUT_MS) {
+                    afrJob.await()
+                }
+                if (awaitedAfr == null) {
+                    Log.w(PlayerRuntimeController.TAG, "AFR preflight await timed out in prewarm claim branch; cancelling afrJob")
+                    afrJob.cancel()
+                }
+                currentPlaybackDiagnostics = LastPlaybackDiagnostics(
+                    timestampMs = System.currentTimeMillis(),
+                    host = url.safeHost(),
+                    streamUrl = url,
+                    headersJson = org.json.JSONObject(headers).toString(),
+                    firstFrameMs = -1L,
+                    result = "Pending"
+                )
+                lastPlaybackDiagnosticsForReport = currentPlaybackDiagnostics
+                requestedUseLibassByUser = playerSettings.useLibass
+                activePlayerUsesLibass = adoptedSnapshot.useLibass
+                adoptedSnapshot.trackSelector?.let { trackSelector = it }
+                _uiState.update {
+                    it.copy(
+                        useLibass = adoptedSnapshot.useLibass,
+                        libassRenderType = playerSettings.libassRenderType
+                    )
+                }
+                _exoPlayer = adoptedSnapshot.player
+            } else {
             // ── ExoPlayer Dolby Vision Logic (mode-driven via Dv7HandlingMode) ──
             DoviBridge.resetRuntimeCounters()
             DolbyVisionConversionStats.reset()
@@ -304,8 +369,8 @@ internal fun PlayerRuntimeController.initializePlayer(
 
             // Resolve effective DV7 mode — AUTO consults the display-capability policy.
             // The persisted enum stays as-is; only the runtime behavior is derived per playback.
-            var effectiveDv7Mode: Dv7HandlingMode
-            val dv7AutoResult: DolbyVisionBaseLayerPolicy.Result?
+            var effectiveDv7Mode: Dv7HandlingMode = playerSettings.dv7HandlingMode
+            var dv7AutoResult: DolbyVisionBaseLayerPolicy.Result? = null
             when (playerSettings.dv7HandlingMode) {
                 Dv7HandlingMode.AUTO -> {
                     val result = DolbyVisionBaseLayerPolicy.resolve(
@@ -333,7 +398,6 @@ internal fun PlayerRuntimeController.initializePlayer(
                     )
                 }
                 else -> {
-                    dv7AutoResult = null
                     effectiveDv7Mode = playerSettings.dv7HandlingMode
                 }
             }
@@ -416,7 +480,7 @@ internal fun PlayerRuntimeController.initializePlayer(
             // ── Diagnostics builder ──
             // Built incrementally during init; written to DataStore on terminal events
             // (first frame rendered = "Played", or final error display = "Error: ...").
-            var currentDiagnostics = LastPlaybackDiagnostics(
+            currentPlaybackDiagnostics = LastPlaybackDiagnostics(
                 timestampMs = System.currentTimeMillis(),
                 host = url.safeHost(),
                 streamUrl = url,
@@ -572,7 +636,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         "host=${url.safeHost()}"
             )
 
-            currentDiagnostics = currentDiagnostics.copy(
+            currentPlaybackDiagnostics = currentPlaybackDiagnostics.copy(
                 bufferEngineEnabled = playerSettings.bufferEngineEnabled,
                 parallelNetworkEnabled = playerSettings.parallelNetworkEnabled
             )
@@ -584,7 +648,6 @@ internal fun PlayerRuntimeController.initializePlayer(
             isAudioDisabledForCurrentPlayback = audioDisabledForStream
             isVc1TrackSelectionBypassActiveForCurrentPlayback = vc1TrackSelectionBypassActive
 
-            val startupSubtitlePreparation = prepareStreamStartSubtitles(playerSettings)
             val awaitedAfr = withTimeoutOrNull(AFR_PREFLIGHT_TOTAL_TIMEOUT_MS) {
                 afrJob.await()
             }
@@ -889,55 +952,26 @@ internal fun PlayerRuntimeController.initializePlayer(
                 phase = "building_player",
                 message = context.getString(R.string.player_loading_building)
             )
-            // ── Build ExoPlayer ──
-            val buildDefaultPlayer = {
-                // The actual MediaSource is built by mediaSourceFactory.createMediaSource()
-                // (setMediaSource below), NOT the DefaultMediaSourceFactory on the builder.
-                // So the DV7 app-level factory must be wired in here, otherwise
-                // createMediaSource falls back to a plain DefaultExtractorsFactory and the
-                // conversion never runs. (The libass path wires it via buildWithAssSupportCompat.)
-                mediaSourceFactory.configureSubtitleParsing(
-                    // Always wire the Matroska factory — DTS-HD sniff must not depend on DV.
-                    extractorsFactory = effectiveExtractorsFactory,
-                    subtitleParserFactory = null
-                )
-                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
-                ExoPlayer.Builder(context)
-                    .setBandwidthMeter(bandwidthMeter)
-                    .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, effectiveExtractorsFactory))
-                    .setRenderersFactory(renderersFactory)
-                    .setLoadControl(loadControl)
-                    .setReleaseTimeoutMs(PLAYER_RELEASE_TIMEOUT_MS)
-                    .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-                    .build()
-            }
-
             disposeExoPlayerBeforeRebuild()
             delay(PLAYER_REBUILD_SETTLE_DELAY_MS)
 
-            _exoPlayer = if (useLibass) {
-                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
-                ExoPlayer.Builder(context)
-                    .setBandwidthMeter(bandwidthMeter)
-                    .setLoadControl(loadControl)
-                    .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, effectiveExtractorsFactory))
-                    .setReleaseTimeoutMs(PLAYER_RELEASE_TIMEOUT_MS)
-                    .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-                    .buildWithAssSupportCompat(
-                        context = context,
-                        renderType = libassRenderType,
-                        playerMediaSourceFactory = mediaSourceFactory,
-                        dataSourceFactory = playerDataSourceFactory,
-                        extractorsFactory = effectiveExtractorsFactory,
-                        renderersFactory = renderersFactory
-                    )
-            } else {
-                buildDefaultPlayer()
-            }
+            _exoPlayer = ContentExoPlayerFactory.build(
+                context = context,
+                spec = ContentExoPlayerBuildSpec(
+                    headers = headers,
+                    bandwidthMeter = bandwidthMeter,
+                    trackSelector = trackSelector!!,
+                    loadControl = loadControl,
+                    renderersFactory = renderersFactory,
+                    extractorsFactory = effectiveExtractorsFactory,
+                    mediaSourceFactory = mediaSourceFactory,
+                    useLibass = useLibass,
+                    libassRenderType = libassRenderType
+                )
+            )
             activePlayerUsesLibass = useLibass
             libassPipelineSwitchInFlight = false
+            }
 
             _exoPlayer?.apply {
                 val audioAttributes = AudioAttributes.Builder()
@@ -981,43 +1015,60 @@ internal fun PlayerRuntimeController.initializePlayer(
                         "playbackSpeed=${_uiState.value.playbackSpeed} " +
                         "resumePositionMs=$initialResumePosition mime=${currentStreamMimeType ?: "unknown"} " +
                         "bufferEngine=${playerSettings.bufferEngineEnabled} parallel=${mediaSourceFactory.useParallelConnections} " +
-                        "vodCache=${mediaSourceFactory.vodCacheEnabled} tunneling=${playerSettings.effectiveTunnelingEnabled}"
-                )
-                val initialMediaSource = mediaSourceFactory.createMediaSource(
-                    context = context,
-                    url = url,
-                    headers = headers,
-                    subtitleConfigurations = startupSubtitleConfigurations,
-                    filename = currentFilename,
-                    responseHeaders = currentStreamResponseHeaders,
-                    mimeTypeOverride = currentStreamMimeType,
-                    audioDelayUsProvider = audioDelayUs::get,
-                    mediaMetadata = buildMediaSessionMetadata()
-                )
-
-                if (initialResumePosition > 0L) {
-                    setMediaSource(initialMediaSource, initialResumePosition)
-                    clearPendingInitialResumePosition()
-                    updatePlaybackTimeline(currentPosition = initialResumePosition)
-                } else {
-                    setMediaSource(initialMediaSource)
-                }
-
-                setLoadingStatus(
-                    phase = "starting_stream",
-                    message = context.getString(R.string.player_loading_starting)
+                        "vodCache=${mediaSourceFactory.vodCacheEnabled} tunneling=${playerSettings.effectiveTunnelingEnabled} " +
+                        "prewarm=${if (skipMediaPrepare) "claim" else "cold"}"
                 )
                 val isTunneledPlayback = playerSettings.effectiveTunnelingEnabled
-                // Hold playWhenReady=false through prepare() so audio does not race ahead
-                // while the video decoder is still opening. The first STATE_READY primes the
-                // pipeline (ColdStartPrime); synchronized play() begins in onRenderedFirstFrame().
-                //
-                // Exception: tunneled playback bypasses the normal video rendering pipeline
-                // so onRenderedFirstFrame() never fires — TunneledFirstReady starts on READY.
                 playWhenReady = false
-                prepare()
+                if (!skipMediaPrepare) {
+                    val initialMediaSource = mediaSourceFactory.createMediaSource(
+                        context = context,
+                        url = url,
+                        headers = headers,
+                        subtitleConfigurations = startupSubtitleConfigurations,
+                        filename = currentFilename,
+                        responseHeaders = currentStreamResponseHeaders,
+                        mimeTypeOverride = currentStreamMimeType,
+                        audioDelayUsProvider = audioDelayUs::get,
+                        mediaMetadata = buildMediaSessionMetadata()
+                    )
 
-                addListener(object : Player.Listener {
+                    if (initialResumePosition > 0L) {
+                        setMediaSource(initialMediaSource, initialResumePosition)
+                        clearPendingInitialResumePosition()
+                        updatePlaybackTimeline(currentPosition = initialResumePosition)
+                    } else {
+                        setMediaSource(initialMediaSource)
+                    }
+
+                    setLoadingStatus(
+                        phase = "starting_stream",
+                        message = context.getString(R.string.player_loading_starting)
+                    )
+                    // Hold playWhenReady=false through prepare() so audio does not race ahead
+                    // while the video decoder is still opening. The first STATE_READY primes the
+                    // pipeline (ColdStartPrime); synchronized play() begins in onRenderedFirstFrame().
+                    //
+                    // Exception: tunneled playback bypasses the normal video rendering pipeline
+                    // so onRenderedFirstFrame() never fires — TunneledFirstReady starts on READY.
+                    prepare()
+                } else {
+                    val adoptedResume = adoptedSnapshot?.resumePositionMs ?: 0L
+                    if (adoptedResume > 0L) {
+                        clearPendingInitialResumePosition()
+                        updatePlaybackTimeline(currentPosition = adoptedResume)
+                    }
+                    setLoadingStatus(
+                        phase = "starting_stream",
+                        message = context.getString(R.string.player_loading_starting)
+                    )
+                    // Prewarm only builds the player and sets the media item. Decoder
+                    // prepare stays here so it starts after PlayerScreen owns the instance,
+                    // matching the cold path (READY arrives after PlayerView can attach).
+                    prepare()
+                }
+
+                val exoPlaybackListener = object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (isReleasingPlayer) return
                         logScrobbleDiagnostic(
@@ -1063,7 +1114,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                                 Log.i(
                                     PlayerRuntimeController.TAG,
                                     "REBUFFER: count=$rebufferCount totalRebufferMs=$rebufferTotalMs " +
-                                        "bufferEngine=${currentDiagnostics.bufferEngineEnabled} " +
+                                        "bufferEngine=${currentPlaybackDiagnostics.bufferEngineEnabled} " +
                                         "dv7dovi=${isExperimentalDv7ToDv81ActiveForCurrentPlayback} " +
                                         "host=${currentStreamUrl.safeHost()}"
                                 )
@@ -1152,7 +1203,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                                         play()
                                     }
                                     finishLoadingDiagnostics("first_frame_ready")
-                                    currentDiagnostics = recordFirstFrameDiagnostics(this@apply, currentDiagnostics, playerSettings)
+                                    currentPlaybackDiagnostics = recordFirstFrameDiagnostics(this@apply, currentPlaybackDiagnostics, playerSettings)
                                     _uiState.update {
                                         it.copy(
                                             showLoadingOverlay = false,
@@ -1216,14 +1267,14 @@ internal fun PlayerRuntimeController.initializePlayer(
                             Log.i(
                                 PlayerRuntimeController.TAG,
                                 "BUFFER_SUMMARY: rebuffers=$rebufferCount rebufferTotalMs=$rebufferTotalMs " +
-                                    "bufferEngine=${currentDiagnostics.bufferEngineEnabled} host=${currentStreamUrl.safeHost()}"
+                                    "bufferEngine=${currentPlaybackDiagnostics.bufferEngineEnabled} host=${currentStreamUrl.safeHost()}"
                             )
-                            if (currentDiagnostics.result == "Played") {
-                                currentDiagnostics = currentDiagnostics.copy(
+                            if (currentPlaybackDiagnostics.result == "Played") {
+                                currentPlaybackDiagnostics = currentPlaybackDiagnostics.copy(
                                     rebufferCount = rebufferCount,
                                     rebufferTotalMs = rebufferTotalMs
                                 )
-                                val endDiagnostics = currentDiagnostics
+                                val endDiagnostics = currentPlaybackDiagnostics
                                 lastPlaybackDiagnosticsForReport = endDiagnostics
                                 scope.launch {
                                     runCatching { playerSettingsDataStore.setLastPlaybackDiagnostics(endDiagnostics) }
@@ -1313,7 +1364,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         finishLoadingDiagnostics("first_frame_rendered")
 
                         if (isFirstFrame) {
-                            currentDiagnostics = recordFirstFrameDiagnostics(this@apply, currentDiagnostics, playerSettings)
+                            currentPlaybackDiagnostics = recordFirstFrameDiagnostics(this@apply, currentPlaybackDiagnostics, playerSettings)
                         }
                     }
 
@@ -1527,7 +1578,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                             playbackAnalyticsDiagnostics.onRebufferEnded(this@apply, rebufferTotalMs, lastRebufferMs)
                         }
 
-                        val errorDiagnostics = currentDiagnostics.copy(
+                        val errorDiagnostics = currentPlaybackDiagnostics.copy(
                             rebufferCount = rebufferCount,
                             rebufferTotalMs = rebufferTotalMs,
                             result = "Error: $detailedError"
@@ -1563,7 +1614,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                             )
                         }
                     }
-                })
+                }
+                addListener(exoPlaybackListener)
 
                 addAnalyticsListener(object : AnalyticsListener {
                     override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
@@ -1611,7 +1663,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                         initializedTimestampMs: Long,
                         initializationDurationMs: Long
                     ) {
-                        currentDiagnostics = currentDiagnostics.copy(dv81DecoderName = decoderName)
+                        currentPlaybackDiagnostics = currentPlaybackDiagnostics.copy(dv81DecoderName = decoderName)
                         playbackAnalyticsDiagnostics.onVideoDecoderInitialized(
                             eventTime = eventTime,
                             decoderName = decoderName,
@@ -2559,7 +2611,7 @@ private class SafeBandwidthMeter(
 
 private fun PlayerRuntimeController.recordFirstFrameDiagnostics(
     player: ExoPlayer,
-    currentDiagnostics: LastPlaybackDiagnostics,
+    currentPlaybackDiagnostics: LastPlaybackDiagnostics,
     playerSettings: com.nuvio.tv.data.local.PlayerSettings
 ): LastPlaybackDiagnostics {
     val startupMs = (System.currentTimeMillis() - playerInitializationStartedAtMs).coerceAtLeast(0L)
@@ -2638,7 +2690,7 @@ private fun PlayerRuntimeController.recordFirstFrameDiagnostics(
                     "host=${currentStreamUrl.safeHost()}"
         )
     }
-    val finalDiagnostics = currentDiagnostics.copy(
+    val finalDiagnostics = currentPlaybackDiagnostics.copy(
         firstFrameMs = startupMs,
         dv7DoviCalls = conversionCalls.toInt(),
         dv7DoviSuccess = conversionSucceeded.toInt(),
@@ -2650,7 +2702,7 @@ private fun PlayerRuntimeController.recordFirstFrameDiagnostics(
         videoHdrType = friendlyVideoHdrType(
             currentVideoTrackMimeType,
             currentVideoTrackColorTransfer,
-            currentDiagnostics.dv7ModeEffective,
+            currentPlaybackDiagnostics.dv7ModeEffective,
             dvConversionOccurred
         ),
         videoBitrate = run {

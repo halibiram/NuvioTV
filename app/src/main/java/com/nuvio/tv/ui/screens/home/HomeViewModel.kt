@@ -80,7 +80,8 @@ class HomeViewModel @Inject constructor(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     internal val profileManager: com.nuvio.tv.core.profile.ProfileManager,
-    internal val tvRecommendationManager: TvRecommendationManager
+    internal val tvRecommendationManager: TvRecommendationManager,
+    private val playbackPrewarmCoordinator: com.nuvio.tv.core.player.PlaybackPrewarmCoordinator
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -518,6 +519,26 @@ class HomeViewModel @Inject constructor(
     fun onItemFocus(item: MetaPreview) = onItemFocusPipeline(item)
 
     fun preloadAdjacentItem(item: MetaPreview) = preloadAdjacentItemPipeline(item)
+
+    fun prewarmContinueWatching(item: ContinueWatchingItem) {
+        val key = when (item) {
+            is ContinueWatchingItem.InProgress -> com.nuvio.tv.core.player.PlaybackPrewarmStreamKey(
+                type = item.progress.contentType,
+                videoId = item.progress.videoId,
+                season = item.progress.season,
+                episode = item.progress.episode,
+                contentId = item.progress.contentId
+            )
+            is ContinueWatchingItem.NextUp -> com.nuvio.tv.core.player.PlaybackPrewarmStreamKey(
+                type = item.info.contentType,
+                videoId = item.info.videoId,
+                season = item.info.season,
+                episode = item.info.episode,
+                contentId = item.info.contentId
+            )
+        }
+        playbackPrewarmCoordinator.warmStreams(key)
+    }
 
     private fun loadHomeCatalogOrderPreference() = loadHomeCatalogOrderPreferencePipeline()
 

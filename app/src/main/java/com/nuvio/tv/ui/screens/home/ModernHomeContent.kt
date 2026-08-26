@@ -109,6 +109,7 @@ fun ModernHomeContent(
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = {},
     showContinueWatchingManualPlayOption: Boolean = false,
+    onContinueWatchingFocused: (ContinueWatchingItem) -> Unit = {},
     onRequestTrailerPreview: (String, String, String?, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit,
     onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit,
@@ -1012,7 +1013,15 @@ fun ModernHomeContent(
             val onActiveItemIndexChangeLambda = remember { { index: Int -> focusHolder.activeItemIndex = index; activeItemIndex.intValue = index } }
             val onLastHeroNavigationAtMsChangeLambda = remember { { ms: Long -> lastHeroNavigationAtMs.longValue = ms } }
             val onHeroFocusSettleDelayChangeLambda = remember { { delay: Long -> heroFocusSettleDelayMs.longValue = delay } }
-            val onLastFocusedContinueWatchingIndexChangeLambda = remember { { index: Int -> lastFocusedContinueWatchingIndex.intValue = index } }
+            val latestContinueWatchingItems by rememberUpdatedState(uiState.continueWatchingItems)
+            val latestOnContinueWatchingFocused by rememberUpdatedState(onContinueWatchingFocused)
+            val onLastFocusedContinueWatchingIndexChangeLambda = remember {
+                { index: Int ->
+                    lastFocusedContinueWatchingIndex.intValue = index
+                    latestContinueWatchingItems.getOrNull(index)?.let(latestOnContinueWatchingFocused)
+                    Unit
+                }
+            }
             val onFocusedCatalogSelectionChangeLambda = remember { { selection: FocusedCatalogSelection? -> focusedCatalogSelection.value = selection } }
             val onFocusedHeroMediaNonceChangeLambda = remember { { nonce: Int -> focusedHeroMediaNonce.intValue = nonce } }
             val onExpansionInteractionNonceChangeLambda = remember { { nonce: Int -> expansionInteractionNonce.intValue = nonce } }
