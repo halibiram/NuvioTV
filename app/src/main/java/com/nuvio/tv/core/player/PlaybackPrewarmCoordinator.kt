@@ -25,6 +25,12 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Overlaps stream search, last-link, AFR, ExoPlayer construction, and
+ * PreloadMediaSource sample-queue prefetch with Detail/CW/Stream.
+ * ExoPlayer.prepare() still runs after claim once a surface exists, so Fire TV
+ * does not hold a second idle decoder.
+ */
 @Singleton
 class PlaybackPrewarmCoordinator @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -139,11 +145,11 @@ class PlaybackPrewarmCoordinator @Inject constructor(
                     contentPlaybackActive = synchronized(lock) { contentPlaybackActive }
                 )
             ) {
-                Log.i(TAG, "PREWARM_PREPARE_MS skipped host=${safeHost(url)}")
+                Log.i(TAG, "PREWARM_BUILD_MS skipped host=${safeHost(url)}")
                 return@launch
             }
             gate.markPrepareStarted(url)
-            val prepareStartedAt = SystemClock.elapsedRealtime()
+            val buildStartedAt = SystemClock.elapsedRealtime()
             val snapshot = try {
                 prewarmedPlayerFactory.prepare(
                     request.copy(resumePositionMs = resume.first)
@@ -151,11 +157,11 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                Log.w(TAG, "PREWARM prepare failed host=${safeHost(url)}", error)
+                Log.w(TAG, "PREWARM build failed host=${safeHost(url)}", error)
                 null
             }
-            val prepareMs = SystemClock.elapsedRealtime() - prepareStartedAt
-            Log.i(TAG, "PREWARM_PREPARE_MS=$prepareMs host=${safeHost(url)} snapshot=${snapshot != null}")
+            val buildMs = SystemClock.elapsedRealtime() - buildStartedAt
+            Log.i(TAG, "PREWARM_BUILD_MS=$buildMs host=${safeHost(url)} snapshot=${snapshot != null}")
             if (snapshot == null) return@launch
             try {
                 ensureActive()

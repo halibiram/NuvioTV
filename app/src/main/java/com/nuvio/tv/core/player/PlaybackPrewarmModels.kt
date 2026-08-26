@@ -45,7 +45,8 @@ data class PlaybackPrewarmEngineSnapshot(
     val trackSelector: DefaultTrackSelector?,
     val useLibass: Boolean,
     val resumePositionMs: Long,
-    val prepareStartedAtElapsedMs: Long
+    val prepareStartedAtElapsedMs: Long,
+    val preloadMediaSource: androidx.media3.exoplayer.source.preload.PreloadMediaSource? = null
 )
 
 data class PlaybackPrewarmTicket(

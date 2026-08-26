@@ -1062,9 +1062,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                         phase = "starting_stream",
                         message = context.getString(R.string.player_loading_starting)
                     )
-                    // Prewarm only builds the player and sets the media item. Decoder
-                    // prepare stays here so it starts after PlayerScreen owns the instance,
-                    // matching the cold path (READY arrives after PlayerView can attach).
+                    // PreloadMediaSource already filled the start of the stream. prepare()
+                    // here enables renderers after PlayerView can attach, matching cold start
+                    // so audio cannot race ahead of the first video frame.
                     prepare()
                 }
 

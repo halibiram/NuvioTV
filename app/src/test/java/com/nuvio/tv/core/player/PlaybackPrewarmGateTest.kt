@@ -65,4 +65,15 @@ class PlaybackPrewarmGateTest {
         val claim = gate.claim("https://cdn.example/a.mkv") as PlaybackPrewarmClaimResult.Hit
         assertTrue(claim.ticket.session.prepareStarted)
     }
+
+    @Test
+    fun claimDuringPreloadStillTransfersTheSameUrl() {
+        val gate = PlaybackPrewarmGate()
+        gate.beginResolved(PlaybackPrewarmSession(url = "https://cdn.example/a.mkv"))
+        gate.markPrepareStarted("https://cdn.example/a.mkv")
+        val claim = gate.claim("https://cdn.example/a.mkv") as PlaybackPrewarmClaimResult.Hit
+        assertEquals("https://cdn.example/a.mkv", claim.ticket.session.url)
+        assertTrue(claim.ticket.session.prepareStarted)
+        assertNull(gate.currentSession())
+    }
 }

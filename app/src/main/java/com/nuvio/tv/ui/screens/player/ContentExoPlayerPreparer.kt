@@ -7,16 +7,26 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRendererCapabilitiesList
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.preload.PreloadMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.trackselection.TrackSelector
+import androidx.media3.exoplayer.upstream.BandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import com.nuvio.tv.core.player.DolbyVisionConversionConfig
 import com.nuvio.tv.core.player.DolbyVisionExtractorsFactory
+import com.nuvio.tv.core.player.DurationLimitedPreloadControl
 import com.nuvio.tv.core.player.PlaybackPrewarmEngineSnapshot
 import com.nuvio.tv.core.player.PlaybackPrewarmMediaRequest
+import com.nuvio.tv.core.player.PlaybackPrewarmPreloadPolicy
 import com.nuvio.tv.core.player.PrewarmedPlayerFactory
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
@@ -27,6 +37,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
+/**
+ * Constructs a claimable ExoPlayer and prefetches the start of the stream into
+ * PreloadMediaSource sample queues. ExoPlayer.prepare() is deferred until
+ * PlayerScreen has a surface so Fire TV does not hold a second HW decoder.
+ */
 @OptIn(UnstableApi::class)
 @Singleton
 class ContentExoPlayerPreparer @Inject constructor(
@@ -107,19 +122,29 @@ class ContentExoPlayerPreparer @Inject constructor(
                     libassRenderType = settings.libassRenderType.toAssRenderType()
                 )
             )
+            var preloadMediaSource: PreloadMediaSource? = null
             try {
                 val audioAttributes = AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .build()
                 player.setAudioAttributes(audioAttributes, true)
-                val mediaSource = mediaSourceFactory.createMediaSource(
+                val innerSource = mediaSourceFactory.createMediaSource(
                     context = context,
                     url = url,
                     headers = request.headers,
                     filename = request.filename,
                     mimeTypeOverride = mimeType
                 )
+                preloadMediaSource = wrapPreloadMediaSource(
+                    innerSource = innerSource,
+                    trackSelector = trackSelector,
+                    bandwidthMeter = bandwidthMeter,
+                    renderersFactory = renderersFactory,
+                    loadControl = loadControl,
+                    playbackLooper = player.playbackLooper
+                )
+                val mediaSource = preloadMediaSource ?: innerSource
                 val resume = request.resumePositionMs.coerceAtLeast(0L)
                 if (resume > 0L) {
                     player.setMediaSource(mediaSource, resume)
@@ -127,16 +152,18 @@ class ContentExoPlayerPreparer @Inject constructor(
                     player.setMediaSource(mediaSource)
                 }
                 player.playWhenReady = false
-                Log.i(TAG, "Built prewarm ExoPlayer host=${safeHost(url)} resumeMs=$resume mime=$mimeType")
+                preloadMediaSource?.preload(PlaybackPrewarmPreloadPolicy.startPositionUs(resume))
                 PlaybackPrewarmEngineSnapshot(
                     player = player,
                     mimeType = mimeType,
                     trackSelector = trackSelector,
                     useLibass = settings.useLibass,
                     resumePositionMs = resume,
-                    prepareStartedAtElapsedMs = SystemClock.elapsedRealtime()
+                    prepareStartedAtElapsedMs = SystemClock.elapsedRealtime(),
+                    preloadMediaSource = preloadMediaSource
                 )
             } catch (error: Throwable) {
+                preloadMediaSource?.releasePreloadMediaSource()
                 runCatching { player.release() }
                 throw error
             }
@@ -145,7 +172,9 @@ class ContentExoPlayerPreparer @Inject constructor(
 
     override fun release(snapshot: PlaybackPrewarmEngineSnapshot) {
         val player = snapshot.player
+        val preloadMediaSource = snapshot.preloadMediaSource
         val release = {
+            runCatching { preloadMediaSource?.releasePreloadMediaSource() }
             runCatching { player.playWhenReady = false }
             runCatching { player.stop() }
             runCatching { player.clearMediaItems() }
@@ -159,8 +188,34 @@ class ContentExoPlayerPreparer @Inject constructor(
         }
     }
 
-    private fun safeHost(url: String): String {
-        return runCatching { android.net.Uri.parse(url).host ?: "unknown" }.getOrDefault("unknown")
+    private fun wrapPreloadMediaSource(
+        innerSource: MediaSource,
+        trackSelector: TrackSelector,
+        bandwidthMeter: BandwidthMeter,
+        renderersFactory: RenderersFactory,
+        loadControl: LoadControl,
+        playbackLooper: android.os.Looper
+    ): PreloadMediaSource? {
+        if (!PlaybackPrewarmPreloadPolicy.canAttachPreload(playbackLooper)) return null
+        val capabilitiesList = DefaultRendererCapabilitiesList.Factory(renderersFactory)
+            .createRendererCapabilitiesList()
+        return try {
+            val factory = PreloadMediaSource.Factory(
+                DefaultMediaSourceFactory(context),
+                DurationLimitedPreloadControl(),
+                trackSelector,
+                bandwidthMeter,
+                capabilitiesList.rendererCapabilities,
+                loadControl.allocator,
+                playbackLooper
+            )
+            factory.createMediaSource(innerSource)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "PreloadMediaSource wrap failed", error)
+            null
+        } finally {
+            capabilitiesList.release()
+        }
     }
 
     private companion object {

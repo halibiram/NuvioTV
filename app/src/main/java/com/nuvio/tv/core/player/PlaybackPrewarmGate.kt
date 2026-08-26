@@ -1,8 +1,8 @@
 package com.nuvio.tv.core.player
 
 /**
- * Thread-safe session gate for player prewarm. Holds metadata only; the coordinator
- * owns any ExoPlayer snapshot and releases it when this gate says to.
+ * Thread-safe session gate for speculative playback construction.
+ * Holds URL/AFR/resume metadata only; the coordinator owns any ExoPlayer snapshot.
  */
 internal class PlaybackPrewarmGate {
     private val lock = Any()
