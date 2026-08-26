@@ -17,9 +17,12 @@ import com.nuvio.tv.domain.model.ScraperInfo
 import com.nuvio.tv.domain.model.ScraperManifestInfo
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
@@ -29,7 +32,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -221,6 +227,8 @@ class PluginManager @Inject constructor(
                 isDaemon = true
             }
         }.asCoroutineDispatcher()
+
+    private val pluginWorkScope = CoroutineScope(SupervisorJob() + pluginDispatcher)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val scraperOrchestrationDispatcher: CoroutineDispatcher =
@@ -694,12 +702,16 @@ class PluginManager @Inject constructor(
     /**
      * Execute all enabled scrapers and emit results as each scraper completes.
      * Returns a Flow that emits (scraperName, results) pairs.
+     * When [allowed] becomes false, the in-flight scraper is cancelled immediately
+     * so it does not keep a plugin worker. It retries when allowed again.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun executeScrapersStreaming(
         tmdbId: String,
         mediaType: String,
         season: Int? = null,
-        episode: Int? = null
+        episode: Int? = null,
+        allowed: Flow<Boolean> = flowOf(true)
     ): Flow<Pair<ScraperInfo, List<LocalScraperResult>>> = channelFlow {
         val enabledList = enabledScrapers.first()
             .filter { it.supportsType(mediaType) }
@@ -709,28 +721,48 @@ class PluginManager @Inject constructor(
         }
         
         Log.d(TAG, "Streaming execution of ${enabledList.size} scrapers for $mediaType:$tmdbId")
- 
-        // Preload all extractors from EXTERNAL_DEX repos before any scraper runs
-        val dexScraperIds = enabledList.filter { it.type == RepositoryType.EXTERNAL_DEX }.map { it.id }
-        if (dexScraperIds.isNotEmpty()) {
-            val allDexIds = dataStore.scrapers.first()
-                .filter { it.type == RepositoryType.EXTERNAL_DEX }
-                .map { it.id }
-            withContext(Dispatchers.IO) {
-                externalExtensionLoader.ensureExtractorsLoaded(allDexIds)
+
+        val gate = allowed.distinctUntilChanged()
+
+        gate.transformLatest { isAllowed ->
+            if (!isAllowed) return@transformLatest
+            val dexScraperIds = enabledList.filter { it.type == RepositoryType.EXTERNAL_DEX }.map { it.id }
+            if (dexScraperIds.isNotEmpty()) {
+                val allDexIds = dataStore.scrapers.first()
+                    .filter { it.type == RepositoryType.EXTERNAL_DEX }
+                    .map { it.id }
+                awaitPluginWorkOrTimeout(SCRAPER_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        externalExtensionLoader.ensureExtractorsLoaded(allDexIds)
+                    }
+                }
             }
-        }
+            emit(Unit)
+        }.first()
  
         enabledList.forEachIndexed { index, scraper ->
             launch(scraperOrchestrationDispatcher) {
-                if (index > 0) {
-                    kotlinx.coroutines.delay(index * 60L)
-                }
                 try {
-                    val results = executeScraperWithSingleFlight(scraper, tmdbId, mediaType, season, episode)
+                    val results = gate.transformLatest { isAllowed ->
+                        if (!isAllowed) return@transformLatest
+                        if (index > 0) {
+                            kotlinx.coroutines.delay(index * 60L)
+                        }
+                        emit(
+                            executeScraperWithSingleFlight(
+                                scraper,
+                                tmdbId,
+                                mediaType,
+                                season,
+                                episode
+                            )
+                        )
+                    }.first()
                     if (results.isNotEmpty()) {
                         send(scraper to results)
                     }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     Log.e(TAG, "Scraper ${scraper.name} failed in streaming: ${e.message}")
                 }
@@ -755,6 +787,8 @@ class PluginManager @Inject constructor(
         if (existing != null) {
             return try {
                 existing.await()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 emptyList()
             }
@@ -772,6 +806,8 @@ class PluginManager @Inject constructor(
             
             try {
                 deferred.await()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Scraper ${scraper.name} failed: ${e.message}")
                 emptyList()
@@ -794,6 +830,32 @@ class PluginManager @Inject constructor(
         return when (scraper.type) {
             RepositoryType.EXTERNAL_DEX -> executeExternalDexScraper(scraper, tmdbId, mediaType, season, episode)
             RepositoryType.NUVIO_JS -> executeJsScraper(scraper, tmdbId, mediaType, season, episode)
+        }
+    }
+
+    /**
+     * Runs plugin work off the caller's job so a hung scraper cannot pin the 120s
+     * timeout behind an uninterruptible [withContext]. The worker is cancelled
+     * best-effort; a buggy plugin may still occupy a background thread until it returns.
+     */
+    private suspend fun <T> awaitPluginWorkOrTimeout(
+        timeoutMs: Long,
+        block: suspend () -> T
+    ): T? {
+        val deferred = CompletableDeferred<T>()
+        val job = pluginWorkScope.launch {
+            try {
+                deferred.complete(block())
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                deferred.cancel()
+            } catch (error: Throwable) {
+                deferred.completeExceptionally(error)
+            }
+        }
+        return try {
+            withTimeoutOrNull(timeoutMs) { deferred.await() }
+        } finally {
+            job.cancel()
         }
     }
 
@@ -828,20 +890,16 @@ class PluginManager @Inject constructor(
             val settings = dataStore.getScraperSettings(scraper.id)
             
             Log.d(TAG, "Executing scraper: ${scraper.name}")
-            val results = withTimeoutOrNull(SCRAPER_TIMEOUT_MS) {
-                // Run plugin JS on the dedicated low-priority pool so a buggy
-                // scraper can't burn cores at the expense of ExoPlayer / UI.
-                withContext(pluginDispatcher) {
-                    runtime.executePlugin(
-                        code = code,
-                        tmdbId = tmdbId,
-                        mediaType = mediaType,
-                        season = season,
-                        episode = episode,
-                        scraperId = scraper.id,
-                        scraperSettings = settings
-                    )
-                }
+            val results = awaitPluginWorkOrTimeout(SCRAPER_TIMEOUT_MS) {
+                runtime.executePlugin(
+                    code = code,
+                    tmdbId = tmdbId,
+                    mediaType = mediaType,
+                    season = season,
+                    episode = episode,
+                    scraperId = scraper.id,
+                    scraperSettings = settings
+                )
             }
 
             if (results == null) {
@@ -852,6 +910,8 @@ class PluginManager @Inject constructor(
             Log.d(TAG, "Scraper ${scraper.name} returned ${results.size} results")
             results.map { it.copy(provider = scraper.name) }
 
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "Failed to execute scraper ${scraper.name}: ${e.message}", e)
             emptyList()
@@ -867,13 +927,8 @@ class PluginManager @Inject constructor(
     ): List<LocalScraperResult> {
         return try {
             Log.d(TAG, "Executing DEX scraper: ${scraper.name}")
-            val results = withTimeoutOrNull(SCRAPER_TIMEOUT_MS) {
-                // DEX (.cs3) scrapers run arbitrary Kotlin from external repos.
-                // Wrap on the low-priority pool for the same reason as the JS
-                // path: keep their CPU footprint out of ExoPlayer's way.
-                withContext(pluginDispatcher) {
-                    externalExtensionRunner.execute(scraper.id, tmdbId, mediaType, season, episode)
-                }
+            val results = awaitPluginWorkOrTimeout(SCRAPER_TIMEOUT_MS) {
+                externalExtensionRunner.execute(scraper.id, tmdbId, mediaType, season, episode)
             }
             if (results == null) {
                 Log.w(TAG, "DEX scraper ${scraper.name} timed out after ${SCRAPER_TIMEOUT_MS}ms")
@@ -881,6 +936,8 @@ class PluginManager @Inject constructor(
             }
             Log.d(TAG, "DEX scraper ${scraper.name} returned ${results.size} results")
             results.map { it.copy(provider = scraper.name) }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "Failed to execute DEX scraper ${scraper.name}: ${e.message}", e)
             emptyList()

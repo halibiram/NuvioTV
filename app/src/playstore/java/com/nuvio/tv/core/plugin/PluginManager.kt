@@ -59,7 +59,8 @@ class PluginManager {
         tmdbId: String,
         mediaType: String,
         season: Int? = null,
-        episode: Int? = null
+        episode: Int? = null,
+        allowed: Flow<Boolean> = flowOf(true)
     ): Flow<Pair<ScraperInfo, List<LocalScraperResult>>> = emptyFlow()
 
     suspend fun executeScraper(

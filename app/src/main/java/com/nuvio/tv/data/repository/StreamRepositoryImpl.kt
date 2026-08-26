@@ -33,10 +33,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -88,7 +89,8 @@ class StreamRepositoryImpl @Inject constructor(
         videoId: String,
         season: Int?,
         episode: Int?,
-        forceRefresh: Boolean
+        forceRefresh: Boolean,
+        includeLocalPlugins: Boolean
     ): Flow<NetworkResult<List<AddonStreams>>> = flow {
         val sourceConfiguration = captureSourceConfiguration()
         val requestKey = StreamSearchRequestKey(
@@ -106,7 +108,8 @@ class StreamRepositoryImpl @Inject constructor(
                 debridPresentationConfiguration = sourceConfiguration.debridSettings
                     .withoutRawCredentials()
                     .toString()
-            )
+            ),
+            includeLocalPlugins = includeLocalPlugins
         )
 
         emitAll(
@@ -121,7 +124,8 @@ class StreamRepositoryImpl @Inject constructor(
                     episode = episode,
                     addons = sourceConfiguration.addons,
                     debridSettings = sourceConfiguration.debridSettings,
-                    hasCompatiblePlugins = sourceConfiguration.pluginsEnabled &&
+                    hasCompatiblePlugins = includeLocalPlugins &&
+                        sourceConfiguration.pluginsEnabled &&
                         sourceConfiguration.enabledScrapers.any { scraper -> scraper.supportsType(type) }
                 )
             }
@@ -248,6 +252,7 @@ class StreamRepositoryImpl @Inject constructor(
                     try {
                         if (!hasCompatiblePlugins) return@launch
 
+                        pluginSearchAllowed(type, videoId, season, episode).first { it }
                         val tmdbId = tmdbService.ensureTmdbId(videoId, type)
                         Log.d(TAG, "Video ID: $videoId -> TMDB ID: $tmdbId (type: $type)")
                         val pluginRequest = buildPluginRequest(tmdbId, type, videoId)
@@ -257,21 +262,16 @@ class StreamRepositoryImpl @Inject constructor(
                             season = season,
                             episode = episode
                         )
-                        localPluginSearchPaused
-                            .transformLatest { paused ->
-                                if (!paused) {
-                                    streamLocalPlugins(
-                                        pluginId = pluginRequest.id,
-                                        mediaType = pluginRequest.mediaType,
-                                        pluginSource = pluginRequest.source,
-                                        season = pluginSeason,
-                                        episode = pluginEpisode,
-                                        resultChannel = resultChannel
-                                    )
-                                    emit(Unit)
-                                }
-                            }
-                            .first()
+                        pluginSearchAllowed(type, videoId, season, episode).first { it }
+                        streamLocalPlugins(
+                            pluginId = pluginRequest.id,
+                            mediaType = pluginRequest.mediaType,
+                            pluginSource = pluginRequest.source,
+                            season = pluginSeason,
+                            episode = pluginEpisode,
+                            resultChannel = resultChannel,
+                            allowed = pluginSearchAllowed(type, videoId, season, episode)
+                        )
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
                         Log.e(TAG, "Plugin execution failed: ${e.message}")
@@ -434,13 +434,28 @@ class StreamRepositoryImpl @Inject constructor(
             startsWith("mal:", ignoreCase = true)
     }
 
+    private fun pluginSearchAllowed(
+        type: String,
+        videoId: String,
+        season: Int?,
+        episode: Int?
+    ): Flow<Boolean> = combine(localPluginSearchPaused, streamSearchSessions.focusedKey) { paused, focused ->
+        !paused &&
+            focused != null &&
+            focused.type == type.lowercase() &&
+            focused.videoId == videoId &&
+            focused.season == season &&
+            focused.episode == episode
+    }.distinctUntilChanged()
+
     private suspend fun streamLocalPlugins(
         pluginId: String,
         mediaType: String,
         pluginSource: String,
         season: Int?,
         episode: Int?,
-        resultChannel: Channel<AddonStreams>
+        resultChannel: Channel<AddonStreams>,
+        allowed: Flow<Boolean>
     ) {
         // Check if plugins are enabled
         if (!pluginManager.pluginsEnabled.first()) {
@@ -463,7 +478,8 @@ class StreamRepositoryImpl @Inject constructor(
                 tmdbId = pluginId,
                 mediaType = mediaType,
                 season = season,
-                episode = episode
+                episode = episode,
+                allowed = allowed
             ).collect { (scraper, results) ->
                 if (results.isNotEmpty()) {
                     val addonName = scraper.pluginAddonName(groupByRepository, repositoriesById)

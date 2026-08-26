@@ -40,6 +40,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
     private val lock = Any()
     private var engineSnapshot: PlaybackPrewarmEngineSnapshot? = null
     private var streamWarmJob: Job? = null
+    private var lastLinkWarmJob: Job? = null
     private var resolvedWarmJob: Job? = null
     private var lastStreamKey: PlaybackPrewarmStreamKey? = null
     private var lastClaimedUrl: String? = null
@@ -72,7 +73,8 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             }
         }
         if (includeResolvedLastLink) {
-            scope.launch {
+            lastLinkWarmJob?.cancel()
+            lastLinkWarmJob = scope.launch {
                 maybeWarmLastLink(key)
             }
         }
@@ -173,6 +175,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
     }
 
     fun yieldForContentPlayback() {
+        streamRepository.setLocalPluginSearchPaused(true)
         val yieldNow = { trailerPlayerPool.yield() }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
             yieldNow()
@@ -194,6 +197,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
     }
 
     fun claim(expectedUrl: String, adoptEngine: Boolean): PlaybackPrewarmClaimResult {
+        streamRepository.setLocalPluginSearchPaused(true)
         val decision = gate.claim(expectedUrl)
         val snapshot = synchronized(lock) {
             when (decision) {
@@ -261,6 +265,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             lastClaimedUrl = null
             releaseEngineSnapshotLocked()
         }
+        streamRepository.setLocalPluginSearchPaused(false)
     }
 
     fun abort(reason: String) {
@@ -274,6 +279,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             lastClaimedUrl = null
             releaseEngineSnapshotLocked()
         }
+        streamRepository.setLocalPluginSearchPaused(false)
         Log.i(TAG, "PREWARM abort reason=$reason host=${safeHost(session.url)}")
     }
 

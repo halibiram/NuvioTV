@@ -26,7 +26,8 @@ internal data class StreamSearchRequestKey(
     val videoId: String,
     val season: Int?,
     val episode: Int?,
-    val sourceConfiguration: String
+    val sourceConfiguration: String,
+    val includeLocalPlugins: Boolean = true
 )
 
 /**
@@ -51,11 +52,13 @@ internal class StreamSearchSessionCache(
         lateinit var job: Job
         @Volatile var invalidated: Boolean = false
         var completedAtMs: Long? = null
+        var lastTouchedAtMs: Long = 0L
         var lastSuccessfulResult: NetworkResult.Success<List<AddonStreams>>? = null
     }
 
     private val mutex = Mutex()
     private val sessions = LinkedHashMap<StreamSearchRequestKey, Session>(16, 0.75f, true)
+    internal val focusedKey = MutableStateFlow<StreamSearchRequestKey?>(null)
 
     fun observe(
         key: StreamSearchRequestKey,
@@ -84,14 +87,19 @@ internal class StreamSearchSessionCache(
         val selected = mutex.withLock {
             removeExpiredLocked()
             removeObsoleteSessionsLocked(key)
+            focusedKey.value = key
 
             if (forceRefresh) {
                 sessions.remove(key)?.cancelAndComplete()
             } else {
-                sessions[key]?.let { return@withLock it }
+                sessions[key]?.let { existing ->
+                    existing.lastTouchedAtMs = nowMs()
+                    return@withLock existing
+                }
             }
 
             createSession(key, producer).also { session ->
+                session.lastTouchedAtMs = nowMs()
                 sessions[key] = session
                 trimToSizeLocked()
                 created = session
@@ -187,11 +195,19 @@ internal class StreamSearchSessionCache(
 
     private fun removeExpiredLocked() {
         val now = nowMs()
+        val focused = focusedKey.value
         val iterator = sessions.entries.iterator()
         while (iterator.hasNext()) {
-            val session = iterator.next().value
-            val completedAt = session.completedAtMs ?: continue
-            if (now - completedAt >= completedTtlMs) {
+            val (existingKey, session) = iterator.next()
+            val completedAt = session.completedAtMs
+            val ageMs = if (completedAt != null) {
+                now - completedAt
+            } else {
+                val isFocused = focused?.matchesMediaRequest(existingKey) == true
+                if (isFocused) continue
+                now - session.lastTouchedAtMs
+            }
+            if (ageMs >= completedTtlMs) {
                 iterator.remove()
                 session.cancelAndComplete()
             }
