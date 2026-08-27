@@ -239,6 +239,12 @@ fun HomeScreen(
     // Reports the home screen as fully drawn once it leaves the loading state so startup timing is measurable and post-launch work can be deferred.
     ReportDrawnWhen { !showStartupLoader }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.cancelContinueWatchingPrewarm()
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {

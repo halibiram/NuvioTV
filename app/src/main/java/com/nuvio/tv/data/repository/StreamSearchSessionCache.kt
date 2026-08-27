@@ -60,6 +60,10 @@ internal class StreamSearchSessionCache(
     private val sessions = LinkedHashMap<StreamSearchRequestKey, Session>(16, 0.75f, true)
     internal val focusedKey = MutableStateFlow<StreamSearchRequestKey?>(null)
 
+    fun clearFocusedKey() {
+        focusedKey.value = null
+    }
+
     fun observe(
         key: StreamSearchRequestKey,
         forceRefresh: Boolean,

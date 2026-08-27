@@ -9,6 +9,9 @@ interface StreamRepository {
     /** Suspends local plugin work while playback owns the device, then resumes the same search. */
     fun setLocalPluginSearchPaused(paused: Boolean)
 
+    /** Clears the active focused search key, signalling running local plugins to cancel immediately. */
+    fun clearFocusedStreamSearch()
+
     /**
      * Fetches streams from all installed addons for a given video ID
      * @param type The content type (movie, series, etc.)

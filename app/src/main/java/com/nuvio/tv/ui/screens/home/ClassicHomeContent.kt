@@ -587,7 +587,7 @@ fun ClassicHomeContent(
                         currentFocusSnapshot.itemIndex = itemIndex
                         currentFocusSnapshot.rowKey = "continue_watching"
                         uiState.continueWatchingItems.getOrNull(itemIndex)?.let(onContinueWatchingFocused)
-                        onFocusedRowKeyChanged(null)
+                        onFocusedRowKeyChanged("continue_watching")
                         if (uiState.classicFocusGradientEnabled) {
                             focusedArtwork = uiState.continueWatchingItems.getOrNull(itemIndex)
                                 ?.toClassicFocusArtwork(uiState.focusedPosterBackdropExpandEnabled)
@@ -644,6 +644,12 @@ fun ClassicHomeContent(
                         }
                         val isNextUp = item is ContinueWatchingItem.NextUp
                         onRemoveContinueWatching(contentId, season, episode, isNextUp)
+                    },
+                    onItemFocused = { itemIndex ->
+                        currentFocusSnapshot.rowIndex = -1
+                        currentFocusSnapshot.itemIndex = itemIndex
+                        currentFocusSnapshot.rowKey = "upcoming_section"
+                        onFocusedRowKeyChanged("upcoming_section")
                     },
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,

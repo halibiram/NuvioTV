@@ -274,7 +274,19 @@ class PlaybackPrewarmCoordinator @Inject constructor(
         streamRepository.setLocalPluginSearchPaused(false)
     }
 
+    fun cancelStreamsWarm() {
+        synchronized(lock) {
+            lastStreamKey = null
+            streamWarmJob?.cancel()
+            streamWarmJob = null
+            lastLinkWarmJob?.cancel()
+            lastLinkWarmJob = null
+        }
+        streamRepository.clearFocusedStreamSearch()
+    }
+
     fun abort(reason: String) {
+        cancelStreamsWarm()
         val session = gate.abort()
         if (session == null) {
             Log.d(TAG, "PREWARM abort ignored reason=$reason transferred=${gate.hasTransferredOwnership()}")

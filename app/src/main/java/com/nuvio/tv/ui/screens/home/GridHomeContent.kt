@@ -423,6 +423,7 @@ fun GridHomeContent(
                         focusRequesters = cwFocusRequesters,
                         onItemFocused = {
                             lastFocusedCwIndex.intValue = it
+                            onFocusedRowKeyChanged("continue_watching")
                             continueWatchingItems.getOrNull(it)?.let(onContinueWatchingFocused)
                         },
                         onItemClick = onContinueWatchingClick,

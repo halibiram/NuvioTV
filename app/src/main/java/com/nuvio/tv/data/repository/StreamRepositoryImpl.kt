@@ -63,6 +63,10 @@ class StreamRepositoryImpl @Inject constructor(
         localPluginSearchPaused.value = paused
     }
 
+    override fun clearFocusedStreamSearch() {
+        streamSearchSessions.clearFocusedKey()
+    }
+
     private enum class StreamFailureKind {
         MISSING,
         REQUEST_FAILED

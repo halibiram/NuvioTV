@@ -443,6 +443,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
 }
 
 internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
+    cancelContinueWatchingPrewarm()
     if (startupGracePeriodActive) {
         deferredEnrichItem = item
         return

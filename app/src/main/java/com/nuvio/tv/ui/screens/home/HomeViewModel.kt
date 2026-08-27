@@ -545,6 +545,10 @@ class HomeViewModel @Inject constructor(
         playbackPrewarmCoordinator.warmStreams(key)
     }
 
+    fun cancelContinueWatchingPrewarm() {
+        playbackPrewarmCoordinator.cancelStreamsWarm()
+    }
+
     private fun loadHomeCatalogOrderPreference() = loadHomeCatalogOrderPreferencePipeline()
 
     private fun loadFollowAddonsOrder() = loadFollowAddonsOrderPipeline()
@@ -759,6 +763,9 @@ class HomeViewModel @Inject constructor(
     /** Called by the Home content when the focused row changes. */
     fun setLiveFocusedRowKey(rowKey: String?) {
         liveFocusedRowKey = rowKey
+        if (rowKey != "continue_watching") {
+            cancelContinueWatchingPrewarm()
+        }
     }
 
     /**
