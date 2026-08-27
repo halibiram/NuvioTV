@@ -319,6 +319,7 @@ class PlayerRuntimeController(
     internal fun resetPlaybackTimeline() {
         livePlaybackLatched = false
         liveWatchClock.reset()
+        pendingPreviewSeekPosition = null
         _playbackTimeline.value = PlaybackTimelineState()
     }
 
@@ -503,7 +504,17 @@ class PlayerRuntimeController(
     internal val seekProgressSyncDebounceMs = 700L
     internal val audioDelayUs = AtomicLong(0L)
     internal val subtitleDelayUs = AtomicLong(0L)
-    internal var pendingPreviewSeekPosition: Long? = null
+    internal var pendingPreviewSeekPosition: Long?
+        get() = _uiState.value.pendingPreviewSeekPosition
+        set(value) {
+            _uiState.update { state ->
+                if (state.pendingPreviewSeekPosition == value) {
+                    state
+                } else {
+                    state.copy(pendingPreviewSeekPosition = value)
+                }
+            }
+        }
     internal var pendingResumeProgress: WatchProgress? = null
     internal var hasRetriedCurrentStreamAfter416: Boolean = false
     internal var isReleasingPlayer: Boolean = false
