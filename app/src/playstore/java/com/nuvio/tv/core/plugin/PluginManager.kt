@@ -48,6 +48,8 @@ class PluginManager {
 
     suspend fun setGroupStreamsByRepository(enabled: Boolean) = Unit
 
+    fun setMaxConcurrentScrapers(limit: Int) = Unit
+
     suspend fun executeScrapers(
         tmdbId: String,
         mediaType: String,

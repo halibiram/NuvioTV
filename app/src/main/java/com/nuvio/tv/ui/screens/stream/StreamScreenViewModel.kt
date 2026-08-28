@@ -636,6 +636,7 @@ class StreamScreenViewModel @Inject constructor(
             }
 
             val streamLoadInner = launch {
+                streamRepository.setScraperConcurrency(com.nuvio.tv.domain.repository.StreamRepository.DEFAULT_CONCURRENT_SCRAPERS)
                 streamRepository.getStreamsFromAllAddons(
                     type = contentType,
                     videoId = videoId,

@@ -61,6 +61,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             if (lastStreamKey == key && streamWarmJob?.isActive == true) return
             lastStreamKey = key
             streamWarmJob?.cancel()
+            streamRepository.setScraperConcurrency(StreamRepository.PREWARM_CONCURRENT_SCRAPERS)
             streamWarmJob = scope.launch {
                 Log.i(
                     TAG,
@@ -272,6 +273,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             releaseEngineSnapshotLocked()
         }
         streamRepository.setLocalPluginSearchPaused(false)
+        streamRepository.setScraperConcurrency(StreamRepository.DEFAULT_CONCURRENT_SCRAPERS)
     }
 
     fun cancelStreamsWarm() {
@@ -283,6 +285,7 @@ class PlaybackPrewarmCoordinator @Inject constructor(
             lastLinkWarmJob = null
         }
         streamRepository.clearFocusedStreamSearch()
+        streamRepository.setScraperConcurrency(StreamRepository.DEFAULT_CONCURRENT_SCRAPERS)
     }
 
     fun abort(reason: String) {

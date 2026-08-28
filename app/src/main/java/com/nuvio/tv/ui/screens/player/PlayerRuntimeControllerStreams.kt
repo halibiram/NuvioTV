@@ -215,6 +215,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
             updateSourceChipsForFetchStart(type, vid, installedAddons)
         }
 
+        streamRepository.setScraperConcurrency(com.nuvio.tv.domain.repository.StreamRepository.DEFAULT_CONCURRENT_SCRAPERS)
         streamRepository.getStreamsFromAllAddons(
             type = type,
             videoId = vid,

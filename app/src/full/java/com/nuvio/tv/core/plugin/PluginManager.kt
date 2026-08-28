@@ -67,6 +67,83 @@ private const val MAX_RESPONSE_SIZE = 5 * 1024 * 1024L
 private const val SCRAPER_TIMEOUT_MS = 120_000L
 private const val MANIFEST_SUFFIX = "/manifest.json"
 
+private class ConcurrencyLimiter(
+    @Volatile private var maxConcurrency: Int = MAX_CONCURRENT_SCRAPERS
+) {
+    private val lock = Any()
+    private var activeCount = 0
+    private val queue = ArrayDeque<kotlinx.coroutines.CancellableContinuation<Unit>>()
+
+    suspend fun <T> withPermit(block: suspend () -> T): T {
+        acquire()
+        try {
+            return block()
+        } finally {
+            release()
+        }
+    }
+
+    private suspend fun acquire() {
+        val acquired = synchronized(lock) {
+            if (activeCount < maxConcurrency) {
+                activeCount++
+                true
+            } else {
+                false
+            }
+        }
+        if (acquired) return
+
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            synchronized(lock) {
+                if (activeCount < maxConcurrency) {
+                    activeCount++
+                    cont.resumeWith(Result.success(Unit))
+                } else {
+                    queue.addLast(cont)
+                    cont.invokeOnCancellation {
+                        synchronized(lock) {
+                            queue.remove(cont)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun release() {
+        var toResume: kotlinx.coroutines.CancellableContinuation<Unit>? = null
+        synchronized(lock) {
+            while (queue.isNotEmpty()) {
+                val next = queue.removeFirst()
+                if (next.isActive) {
+                    toResume = next
+                    break
+                }
+            }
+            if (toResume == null) {
+                activeCount = maxOf(0, activeCount - 1)
+            }
+        }
+        toResume?.resumeWith(Result.success(Unit))
+    }
+
+    fun setMaxConcurrency(newMax: Int) {
+        val toResumeList = mutableListOf<kotlinx.coroutines.CancellableContinuation<Unit>>()
+        synchronized(lock) {
+            maxConcurrency = newMax
+            while (queue.isNotEmpty() && activeCount < maxConcurrency) {
+                val next = queue.removeFirst()
+                if (next.isActive) {
+                    activeCount++
+                    toResumeList.add(next)
+                }
+            }
+        }
+        toResumeList.forEach { it.resumeWith(Result.success(Unit)) }
+    }
+}
+
 @Singleton
 class PluginManager @Inject constructor(
     private val dataStore: PluginDataStore,
@@ -216,9 +293,12 @@ class PluginManager @Inject constructor(
     // Single-flight map to prevent duplicate scraper executions
     private val inFlightScrapers = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<List<LocalScraperResult>>>()
     
-    // Semaphore to limit concurrent scrapers
-    private val scraperSemaphore = Semaphore(MAX_CONCURRENT_SCRAPERS)
+    // Dynamic limiter for concurrent scrapers (3 for background CW prewarm, 10 for foreground search)
+    private val scraperLimiter = ConcurrencyLimiter(MAX_CONCURRENT_SCRAPERS)
 
+    fun setMaxConcurrentScrapers(limit: Int) {
+        scraperLimiter.setMaxConcurrency(limit.coerceIn(1, MAX_CONCURRENT_SCRAPERS))
+    }
     
     @OptIn(ExperimentalCoroutinesApi::class)
     private val pluginDispatcher: CoroutineDispatcher =
@@ -813,7 +893,7 @@ class PluginManager @Inject constructor(
             val deferred = async {
                 val startedAt = SystemClock.elapsedRealtime()
                 try {
-                    scraperSemaphore.withPermit {
+                    scraperLimiter.withPermit {
                         executeScraper(scraper, tmdbId, mediaType, season, episode)
                     }.also {
                         scraperLatencyDataStore.record(

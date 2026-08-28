@@ -6,11 +6,19 @@ import com.nuvio.tv.domain.model.Stream
 import kotlinx.coroutines.flow.Flow
 
 interface StreamRepository {
+    companion object {
+        const val DEFAULT_CONCURRENT_SCRAPERS = 10
+        const val PREWARM_CONCURRENT_SCRAPERS = 3
+    }
+
     /** Suspends local plugin work while playback owns the device, then resumes the same search. */
     fun setLocalPluginSearchPaused(paused: Boolean)
 
     /** Clears the active focused search key, signalling running local plugins to cancel immediately. */
     fun clearFocusedStreamSearch()
+
+    /** Adjusts maximum concurrent scraper limit (e.g. 3 for background prewarm, 10 for foreground search). */
+    fun setScraperConcurrency(maxConcurrent: Int)
 
     /**
      * Fetches streams from all installed addons for a given video ID

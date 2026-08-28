@@ -67,6 +67,10 @@ class StreamRepositoryImpl @Inject constructor(
         streamSearchSessions.clearFocusedKey()
     }
 
+    override fun setScraperConcurrency(maxConcurrent: Int) {
+        pluginManager.setMaxConcurrentScrapers(maxConcurrent)
+    }
+
     private enum class StreamFailureKind {
         MISSING,
         REQUEST_FAILED
