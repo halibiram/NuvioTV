@@ -210,11 +210,16 @@ internal val LANGUAGE_NAME_ALIASES = mapOf(
     "zulu" to "zu"
 )
 
+private val WHITESPACE_REGEX = Regex("\\s+")
+
+private val SORTED_LANGUAGE_NAME_ALIASES: List<Map.Entry<String, String>> by lazy {
+    LANGUAGE_NAME_ALIASES.entries.sortedByDescending { it.key.length }
+}
+
 internal fun resolveLanguageNameAlias(tokenized: String): String? {
     if (tokenized.isBlank()) return null
     LANGUAGE_NAME_ALIASES[tokenized]?.let { return it }
-    return LANGUAGE_NAME_ALIASES.entries
-        .sortedByDescending { it.key.length }
+    return SORTED_LANGUAGE_NAME_ALIASES
         .firstOrNull { (name, _) ->
             tokenized == name ||
                 tokenized.startsWith("$name ") ||
@@ -236,7 +241,7 @@ fun languageCodeToName(code: String): String {
         .replace('-', ' ')
         .replace('.', ' ')
         .replace('/', ' ')
-        .replace(Regex("\\s+"), " ")
+        .replace(WHITESPACE_REGEX, " ")
         .trim()
     val bcp47 = LANGUAGE_OVERRIDES[lowerCode]
         ?: resolveLanguageNameAlias(tokenized)

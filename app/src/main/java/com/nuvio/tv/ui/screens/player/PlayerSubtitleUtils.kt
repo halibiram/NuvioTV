@@ -8,6 +8,8 @@ import com.nuvio.tv.ui.util.LANGUAGE_OVERRIDES
 import com.nuvio.tv.ui.util.resolveLanguageNameAlias
 
 internal object PlayerSubtitleUtils {
+    private val WHITESPACE_REGEX = Regex("\\s+")
+
     fun normalizeLanguageCode(lang: String): String {
         val code = lang.trim().lowercase()
         if (code.isBlank()) return ""
@@ -17,7 +19,7 @@ internal object PlayerSubtitleUtils {
             .replace('-', ' ')
             .replace('.', ' ')
             .replace('/', ' ')
-            .replace(Regex("\\s+"), " ")
+            .replace(WHITESPACE_REGEX, " ")
             .trim()
 
         fun containsAny(vararg values: String): Boolean = values.any { value ->
@@ -49,10 +51,15 @@ internal object PlayerSubtitleUtils {
             ?: normalizedCode
     }
 
-    fun matchesLanguageCode(language: String?, target: String): Boolean {
+    fun matchesLanguageCode(
+        language: String?,
+        target: String,
+        preNormalizedLanguage: String? = null,
+        preNormalizedTarget: String? = null
+    ): Boolean {
         if (language.isNullOrBlank()) return false
-        val normalizedLanguage = normalizeLanguageCode(language)
-        val normalizedTarget = normalizeLanguageCode(target)
+        val normalizedLanguage = preNormalizedLanguage ?: normalizeLanguageCode(language)
+        val normalizedTarget = preNormalizedTarget ?: normalizeLanguageCode(target)
         if (matchesNormalizedLanguage(normalizedLanguage, normalizedTarget)) {
             return true
         }
