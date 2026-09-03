@@ -260,8 +260,16 @@ internal fun PlayerRuntimeController.filterToVisibleAddonSubtitles(
     }
 
     return subtitles.filter { subtitle ->
+        val lang = subtitle.lang
+        if (lang.isNullOrBlank()) return@filter false
+        val normalizedLang = PlayerSubtitleUtils.normalizeLanguageCode(lang)
         preferredTargets.any { target ->
-            PlayerSubtitleUtils.matchesLanguageCode(subtitle.lang, target)
+            PlayerSubtitleUtils.matchesLanguageCode(
+                language = lang,
+                target = target,
+                preNormalizedLanguage = normalizedLang,
+                preNormalizedTarget = target
+            )
         }
     }
 }
