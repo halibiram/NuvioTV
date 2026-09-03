@@ -95,11 +95,7 @@ class SubtitleRepositoryImpl @Inject constructor(
                             accumulatedSubtitles.addAll(subtitles)
                             accumulatedSubtitles.toList()
                         }
-                        if (onSubtitlesEmitted != null) {
-                            withContext(Dispatchers.Main.immediate) {
-                                onSubtitlesEmitted.invoke(snapshot)
-                            }
-                        }
+                        onSubtitlesEmitted?.invoke(snapshot)
                         Log.d(
                             TAG,
                             "Subtitle fetch done for addon=${addon.name} count=${subtitles.size} in ${System.currentTimeMillis() - addonStartMs}ms"
