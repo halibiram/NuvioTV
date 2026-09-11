@@ -394,6 +394,7 @@ class PlayerRuntimeController(
     internal val loadingDiagnosticEvents: ArrayDeque<PlayerLoadingDiagnosticEvent> = ArrayDeque()
     internal val loadingDiagnosticRawEventLines: ArrayDeque<String> = ArrayDeque()
     internal val pendingPlaybackRawEventLines: ArrayDeque<String> = ArrayDeque()
+    internal var playbackRawEventSinkReady: Boolean = false
     internal var loadingDiagnosticsStartedAtMs: Long = 0L
     internal var currentLoadingPhase: String = "idle"
     internal var currentLoadingPhaseStartedAtMs: Long = 0L

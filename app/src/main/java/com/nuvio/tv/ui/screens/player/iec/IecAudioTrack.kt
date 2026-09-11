@@ -6,6 +6,7 @@ import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
 import com.nuvio.tv.ui.screens.player.DirectOpenProbeLock
+import java.nio.ByteBuffer
 
 internal enum class HbrPayload {
     /** IEC 61937 burst (Pa/Pb + payload). HDMI InfoFrame = bitstream. */
@@ -18,7 +19,11 @@ internal interface IecAudioTrack {
     val sampleRate: Int
     val frameSizeBytes: Int
     val payload: HbrPayload
+    val audioSessionId: Int
+        get() = 0
     fun write(data: ByteArray, offset: Int, size: Int): Int
+    fun write(data: ByteArray, offset: Int, size: Int, timestampNs: Long): Int =
+        write(data, offset, size)
     fun play()
     fun pause()
     fun flush()
@@ -54,7 +59,8 @@ internal fun interface IecAudioTrackFactory {
         channelCount: Int,
         bufferSizeBytes: Int,
         sessionId: Int,
-        trueHd: Boolean
+        trueHd: Boolean,
+        hwAvSync: Boolean = false
     ): IecAudioTrack? = open(sampleRate, channelCount, bufferSizeBytes, sessionId)
 }
 
@@ -96,25 +102,28 @@ internal class PlatformIecAudioTrackFactory : IecAudioTrackFactory {
         channelCount: Int,
         bufferSizeBytes: Int,
         sessionId: Int
-    ): IecAudioTrack? = openHbr(sampleRate, channelCount, bufferSizeBytes, sessionId, trueHd = true)
+    ): IecAudioTrack? = openHbr(
+        sampleRate, channelCount, bufferSizeBytes, sessionId, trueHd = true, hwAvSync = false
+    )
 
     override fun openHbr(
         sampleRate: Int,
         channelCount: Int,
         bufferSizeBytes: Int,
         sessionId: Int,
-        trueHd: Boolean
+        trueHd: Boolean,
+        hwAvSync: Boolean
     ): IecAudioTrack? {
         val mask = channelMaskFor(channelCount)
         if (trueHd) {
             val mat = dolbyMatEncoding()
             if (mat != null) {
-                val track = createTrack(sampleRate, mask, mat, bufferSizeBytes, sessionId)
+                val track = createTrack(sampleRate, mask, mat, bufferSizeBytes, sessionId, hwAvSync)
                 if (track != null) {
-                    Log.i(TAG, "opened DOLBY_MAT $sampleRate/$channelCount")
+                    Log.i(TAG, "opened DOLBY_MAT $sampleRate/$channelCount hwAvSync=$hwAvSync")
                     return PlatformIecAudioTrack(track, sampleRate, channelCount * 2, HbrPayload.MAT)
                 }
-                Log.w(TAG, "DOLBY_MAT refused")
+                Log.w(TAG, "DOLBY_MAT refused hwAvSync=$hwAvSync")
             }
         }
         if (iec61937Usable) {
@@ -123,14 +132,17 @@ internal class PlatformIecAudioTrackFactory : IecAudioTrackFactory {
                 mask,
                 AudioFormat.ENCODING_IEC61937,
                 bufferSizeBytes,
-                sessionId
+                sessionId,
+                hwAvSync
             )
             if (track != null) {
-                Log.i(TAG, "opened IEC61937 $sampleRate/$channelCount")
+                Log.i(TAG, "opened IEC61937 $sampleRate/$channelCount hwAvSync=$hwAvSync")
                 return PlatformIecAudioTrack(track, sampleRate, channelCount * 2, HbrPayload.IEC_BURST)
             }
-            iec61937Usable = false
-            Log.w(TAG, "IEC61937 open failed after probe")
+            if (!hwAvSync) {
+                iec61937Usable = false
+            }
+            Log.w(TAG, "IEC61937 open failed after probe hwAvSync=$hwAvSync")
         }
         return null
     }
@@ -140,7 +152,8 @@ internal class PlatformIecAudioTrackFactory : IecAudioTrackFactory {
         channelMask: Int,
         encoding: Int,
         bufferSizeBytes: Int,
-        sessionId: Int
+        sessionId: Int,
+        hwAvSync: Boolean
     ): AudioTrack? {
         val min = AudioTrack.getMinBufferSize(sampleRate, channelMask, encoding)
         if (min <= 0) return null
@@ -148,9 +161,11 @@ internal class PlatformIecAudioTrackFactory : IecAudioTrackFactory {
         // Try the requested size, then the HAL minimum, so a larger buffer request can
         // never fail an open the minimum size would have made.
         if (requested > min) {
-            createTrackAtSize(sampleRate, channelMask, encoding, requested, sessionId)?.let { return it }
+            createTrackAtSize(sampleRate, channelMask, encoding, requested, sessionId, hwAvSync)?.let {
+                return it
+            }
         }
-        return createTrackAtSize(sampleRate, channelMask, encoding, min, sessionId)
+        return createTrackAtSize(sampleRate, channelMask, encoding, min, sessionId, hwAvSync)
     }
 
     private fun createTrackAtSize(
@@ -158,7 +173,8 @@ internal class PlatformIecAudioTrackFactory : IecAudioTrackFactory {
         channelMask: Int,
         encoding: Int,
         size: Int,
-        sessionId: Int
+        sessionId: Int,
+        hwAvSync: Boolean
     ): AudioTrack? {
         return try {
             val format = AudioFormat.Builder()
@@ -166,12 +182,14 @@ internal class PlatformIecAudioTrackFactory : IecAudioTrackFactory {
                 .setSampleRate(sampleRate)
                 .setChannelMask(channelMask)
                 .build()
-            val attributes = AudioAttributes.Builder()
+            val attrBuilder = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .build()
+            if (hwAvSync) {
+                attrBuilder.setFlags(AudioAttributes.FLAG_HW_AV_SYNC)
+            }
             val builder = AudioTrack.Builder()
-                .setAudioAttributes(attributes)
+                .setAudioAttributes(attrBuilder.build())
                 .setAudioFormat(format)
                 .setBufferSizeInBytes(size)
                 .setTransferMode(AudioTrack.MODE_STREAM)
@@ -298,9 +316,31 @@ private class PlatformIecAudioTrack(
 ) : IecAudioTrack {
     private var headWrap: Long = 0L
     private var lastHead: Int = 0
+    private var timestampWriteBuffer: ByteBuffer = ByteBuffer.allocateDirect(0)
+
+    override val audioSessionId: Int
+        get() = track.audioSessionId
 
     override fun write(data: ByteArray, offset: Int, size: Int): Int {
         return track.write(data, offset, size, AudioTrack.WRITE_NON_BLOCKING)
+    }
+
+    override fun write(data: ByteArray, offset: Int, size: Int, timestampNs: Long): Int {
+        if (timestampNs < 0L) {
+            return write(data, offset, size)
+        }
+        if (timestampWriteBuffer.capacity() < size) {
+            timestampWriteBuffer = ByteBuffer.allocateDirect(size)
+        }
+        timestampWriteBuffer.clear()
+        timestampWriteBuffer.put(data, offset, size)
+        timestampWriteBuffer.flip()
+        return track.write(
+            timestampWriteBuffer,
+            size,
+            AudioTrack.WRITE_NON_BLOCKING,
+            timestampNs
+        )
     }
 
     override fun play() {
@@ -310,8 +350,9 @@ private class PlatformIecAudioTrack(
     }
 
     override fun pause() {
-        if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+        try {
             track.pause()
+        } catch (_: Exception) {
         }
     }
 

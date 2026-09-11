@@ -57,6 +57,7 @@ internal class IecPassthroughAudioSink(
     private var lastHealthNanos: Long = 0L
     private var lastHealthUnderruns: Int = -1
     private var tunnelingRequested: Boolean = false
+    private var sinkListener: AudioSink.Listener? = null
 
     init {
         trackFactory.setReadyListener { onIecBecameReady?.invoke() }
@@ -67,10 +68,26 @@ internal class IecPassthroughAudioSink(
     val isIecActive: Boolean
         get() = mode != Mode.FORWARD && iecTrack != null
 
-    // True when this sink would carry the format on its own IEC track, which a tunnelled
-    // video cannot be clocked against; the track selector uses it to keep the video untunnelled.
+    fun diagnosticRawLine(): String {
+        val track = iecTrack
+        return "iec_state mode=$mode active=$isIecActive tunneling=$tunnelingRequested playing=$playing " +
+            "payload=${track?.payload ?: "none"} session=${track?.audioSessionId?.takeIf { it > 0 } ?: audioSessionId} " +
+            "hwAvSync=$tunnelingRequested written=$writtenFrames head=${track?.playbackHeadFrames() ?: -1} " +
+            "pending=${pendingFrames.size} leftover=${leftover.size} startPtsUs=$startPtsUs " +
+            "stalls=$totalWriteStalls failed=$iecFailedThisSession"
+    }
+
+    private fun emitIec(op: String) {
+        onDiagnosticEvent?.invoke("$op ${diagnosticRawLine()}")
+    }
+
     fun claimsHbr(format: Format): Boolean {
         return hbrIecEnabled && !iecFailedThisSession && isHbrPassthrough(format) && iecAvailable(format)
+    }
+
+    override fun setListener(listener: AudioSink.Listener) {
+        sinkListener = listener
+        super.setListener(listener)
     }
 
     // Once IEC has failed in this session the format is answered by the wrapped sink, the same
@@ -96,27 +113,19 @@ internal class IecPassthroughAudioSink(
         // the encoding then reject the track. Never wait for that on this thread:
         // TrueHD may use DOLBY_MAT immediately; IEC only if a background probe
         // already proved it initializes. DTS-HD uses RAW until then.
-        // A tunnelled video releases frames against the platform's hw_av_sync clock, and no
-        // HAL has been seen to start that clock for an app-packed IEC 61937 stream (Amlogic
-        // accepts the bound track, then swallows the audio). Under tunnelling the wrapped
-        // sink owns HBR; the selector normally keeps the video untunnelled before it gets here.
-        val tunnelReady = !tunnelingRequested
-        val tryCustomHbr = hbrIecEnabled && !iecFailedThisSession && tunnelReady &&
+        val tryCustomHbr = hbrIecEnabled && !iecFailedThisSession &&
             (isTrueHd(inputFormat) || (isHbrPassthrough(inputFormat) && trackFactory.iec61937Ready()))
-        if (tryCustomHbr) {
-            val opened = openIec(inputFormat)
-            if (opened) {
-                mode = if (isTrueHd(inputFormat)) Mode.TRUEHD else Mode.DTS_HD
-                dtsChannelCount = inputFormat.channelCount.takeIf { it > 0 } ?: 8
-                android.util.Log.i(
-                    "IecPassthrough",
-                    "HBR active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType}"
-                )
-                onDiagnosticEvent?.invoke(
-                    "iec_hbr_active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType}"
-                )
-                return
-            }
+        if (tryCustomHbr && startIec(inputFormat)) {
+            android.util.Log.i(
+                "IecPassthrough",
+                "HBR active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType} " +
+                    "hwAvSync=$tunnelingRequested"
+            )
+            onDiagnosticEvent?.invoke(
+                "iec_hbr_active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType} " +
+                    "hwAvSync=$tunnelingRequested"
+            )
+            return
         }
         mode = Mode.FORWARD
         if (isHbrPassthrough(inputFormat)) {
@@ -126,7 +135,7 @@ internal class IecPassthroughAudioSink(
             )
             onDiagnosticEvent?.invoke(
                 "iec_hbr_raw_fallback mime=${inputFormat.sampleMimeType} " +
-                    "iecFailedThisSession=$iecFailedThisSession tunnelReady=$tunnelReady"
+                    "iecFailedThisSession=$iecFailedThisSession tunneling=$tunnelingRequested"
             )
         }
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
@@ -139,6 +148,12 @@ internal class IecPassthroughAudioSink(
     ): Boolean {
         if (mode == Mode.FORWARD) {
             return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        }
+        if (iecTrack == null) {
+            if (!playing) return false
+            if (!ensureIecTrack()) {
+                return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            }
         }
         maybeReportHealth()
         if (firstBufferPtsUs == C.TIME_UNSET && presentationTimeUs != C.TIME_UNSET) {
@@ -164,7 +179,7 @@ internal class IecPassthroughAudioSink(
     }
 
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
-        if (!isIecActive) return super.getCurrentPositionUs(sourceEnded)
+        if (mode == Mode.FORWARD) return super.getCurrentPositionUs(sourceEnded)
         val track = iecTrack ?: return AudioSink.CURRENT_POSITION_NOT_SET
         if (writtenFrames == 0L || startPtsUs == C.TIME_UNSET) {
             return AudioSink.CURRENT_POSITION_NOT_SET
@@ -175,42 +190,59 @@ internal class IecPassthroughAudioSink(
 
     override fun play() {
         playing = true
-        if (isIecActive) {
-            iecTrack?.play()
-        } else {
+        if (mode == Mode.FORWARD) {
             super.play()
+            return
         }
+        if (!ensureIecTrack()) {
+            emitIec("iec_play")
+            return
+        }
+        iecTrack?.play()
+        emitIec("iec_play")
     }
 
     override fun pause() {
         playing = false
-        if (isIecActive) {
-            iecTrack?.pause()
-        } else {
+        if (mode == Mode.FORWARD) {
             super.pause()
+            return
         }
+        if (tunnelingRequested) {
+            resetIecState(keepTrack = false)
+        } else {
+            iecTrack?.pause()
+        }
+        emitIec("iec_pause")
     }
 
     override fun flush() {
-        if (isIecActive) {
+        if (mode == Mode.FORWARD) {
+            super.flush()
+            return
+        }
+        if (tunnelingRequested) {
+            resetIecState(keepTrack = false)
+            if (ensureIecTrack() && playing) {
+                iecTrack?.play()
+            }
+        } else {
             resetIecState(keepTrack = true)
             iecTrack?.flush()
-        } else {
-            super.flush()
         }
+        emitIec("iec_flush")
     }
 
     override fun handleDiscontinuity() {
-        if (isIecActive) {
-            // No flush here: the AudioTrack head keeps counting, so re-anchor it
-            // or the position jumps by everything played before the discontinuity.
-            headAnchorFrames = iecTrack?.playbackHeadFrames() ?: 0L
-            startPtsUs = C.TIME_UNSET
-            firstBufferPtsUs = C.TIME_UNSET
-            discardedAuSinceReset = 0
-        } else {
+        if (mode == Mode.FORWARD) {
             super.handleDiscontinuity()
+            return
         }
+        headAnchorFrames = iecTrack?.playbackHeadFrames() ?: 0L
+        startPtsUs = C.TIME_UNSET
+        firstBufferPtsUs = C.TIME_UNSET
+        discardedAuSinceReset = 0
+        emitIec("iec_discontinuity")
     }
 
     override fun reset() {
@@ -227,7 +259,7 @@ internal class IecPassthroughAudioSink(
     }
 
     override fun playToEndOfStream() {
-        if (isIecActive) {
+        if (mode != Mode.FORWARD) {
             drainPending()
             handledEndOfStream = true
         } else {
@@ -236,7 +268,7 @@ internal class IecPassthroughAudioSink(
     }
 
     override fun isEnded(): Boolean {
-        return if (isIecActive) {
+        return if (mode != Mode.FORWARD) {
             handledEndOfStream && !hasPendingData()
         } else {
             super.isEnded()
@@ -244,9 +276,11 @@ internal class IecPassthroughAudioSink(
     }
 
     override fun hasPendingData(): Boolean {
-        if (!isIecActive) return super.hasPendingData()
+        if (mode == Mode.FORWARD) return super.hasPendingData()
+        if (pendingFrames.isNotEmpty() || leftover.isNotEmpty()) return true
         val track = iecTrack ?: return false
-        return pendingFrames.isNotEmpty() || leftover.isNotEmpty() || writtenFrames > track.playbackHeadFrames()
+        if (tunnelingRequested) return playing && writtenFrames > 0L
+        return writtenFrames > track.playbackHeadFrames()
     }
 
     override fun setAudioSessionId(audioSessionId: Int) {
@@ -257,6 +291,13 @@ internal class IecPassthroughAudioSink(
     override fun enableTunnelingV21() {
         tunnelingRequested = true
         super.enableTunnelingV21()
+        if (!isIecActive) return
+        val format = configuredFormat ?: return
+        releaseIec()
+        if (!startIec(format)) {
+            mode = Mode.FORWARD
+            super.configure(format, configuredBufferSize, configuredOutputChannels)
+        }
     }
 
     override fun disableTunneling() {
@@ -305,11 +346,37 @@ internal class IecPassthroughAudioSink(
             channelCount = channelCount,
             bufferSizeBytes = maxOf(bufferBytes, targetBufferBytes),
             sessionId = audioSessionId,
-            trueHd = format.sampleMimeType == MimeTypes.AUDIO_TRUEHD
+            trueHd = format.sampleMimeType == MimeTypes.AUDIO_TRUEHD,
+            hwAvSync = tunnelingRequested
         ) ?: return false
         track.setVolume(volume)
         iecTrack = track
+        val session = track.audioSessionId.takeIf { it > 0 } ?: audioSessionId
+        if (session > 0) {
+            sinkListener?.onAudioSessionIdChanged(session)
+        }
         return true
+    }
+
+    private fun startIec(format: Format): Boolean {
+        if (!openIec(format)) return false
+        mode = if (isTrueHd(format)) Mode.TRUEHD else Mode.DTS_HD
+        dtsChannelCount = format.channelCount.takeIf { it > 0 } ?: 8
+        return true
+    }
+
+    private fun ensureIecTrack(): Boolean {
+        if (iecTrack != null) return true
+        val format = configuredFormat ?: return false
+        if (startIec(format)) {
+            emitIec("iec_reopen")
+            return true
+        }
+        emitIec("iec_reopen_failed")
+        mode = Mode.FORWARD
+        super.configure(format, configuredBufferSize, configuredOutputChannels)
+        if (playing) super.play()
+        return false
     }
 
     private fun hbrIecChannelCount(format: Format): Int {
@@ -424,8 +491,13 @@ internal class IecPassthroughAudioSink(
         if (playing) track.play()
         while (pendingFrames.isNotEmpty()) {
             val frame = pendingFrames.first()
+            val timestampNs = if (tunnelingRequested && startPtsUs != C.TIME_UNSET) {
+                startPtsUs * 1000L + writtenFrames * 1_000_000_000L / track.sampleRate
+            } else {
+                -1L
+            }
             while (pendingOffset < frame.size) {
-                val written = track.write(frame, pendingOffset, frame.size - pendingOffset)
+                val written = track.write(frame, pendingOffset, frame.size - pendingOffset, timestampNs)
                 if (written < 0) {
                     return fallbackToWrappedSink("write_error code=$written")
                 }
