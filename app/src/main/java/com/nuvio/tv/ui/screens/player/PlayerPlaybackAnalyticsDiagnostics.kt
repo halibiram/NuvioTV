@@ -866,7 +866,12 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
 }
 
 internal fun PlayerRuntimeController.queuePlaybackRawEventLine(line: String) {
-    pendingPlaybackRawEventLines.addLast(line.rawPlaybackLine())
+    val normalized = line.rawPlaybackLine()
+    if (playbackRawEventSinkReady) {
+        playbackAnalyticsDiagnostics.recordRawEventLine(normalized)
+        return
+    }
+    pendingPlaybackRawEventLines.addLast(normalized)
     while (pendingPlaybackRawEventLines.size > PENDING_PLAYBACK_RAW_EVENT_LIMIT) {
         pendingPlaybackRawEventLines.removeFirst()
     }

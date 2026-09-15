@@ -419,6 +419,7 @@ internal fun PlayerRuntimeController.submitPlaybackIssueReport() {
         error = state.error,
     )
     val loadingInput = buildPlaybackIssueLoadingInput(reportReason)
+    flushPendingPlaybackRawEventLines()
     val playbackAnalyticsInput = playbackAnalyticsDiagnostics.snapshot(
         player = _exoPlayer,
         hasRenderedFirstFrame = hasRenderedFirstFrame,
@@ -426,14 +427,21 @@ internal fun PlayerRuntimeController.submitPlaybackIssueReport() {
         rebufferTotalMs = rebufferTotalMs,
         rebufferStartedAtMs = rebufferStartedAtMs
     ).let { snapshot ->
+        val player = _exoPlayer
+        val extraRaw = listOfNotNull(
+            "audio_passthrough_state surroundMode=${currentPlayerSettingsForReport.surroundFormatMode.name} " +
+                "iecActive=${playbackSpeedAwareAudioSink?.isIecHbrActive()} " +
+                "forceOptical=${currentPlayerSettingsForReport.forceOpticalPassthrough} " +
+                "tunnelingEffective=${state.tunnelingEnabled} " +
+                "userPaused=$userPausedManually playWhenReady=${player?.playWhenReady} " +
+                "isPlaying=${player?.isPlaying} exoState=${player?.playbackState} " +
+                "posMs=${player?.currentPosition} bufferedMs=${player?.bufferedPosition}",
+            playbackSpeedAwareAudioSink?.diagnosticRawLine()
+        )
         snapshot.copy(
             startupStages = loadingInput.events,
-            rawEventLines = snapshot.rawEventLines + listOf(
-                "audio_passthrough_state surroundMode=${currentPlayerSettingsForReport.surroundFormatMode.name} " +
-                    "iecActive=${playbackSpeedAwareAudioSink?.isIecHbrActive()} " +
-                    "forceOptical=${currentPlayerSettingsForReport.forceOpticalPassthrough} " +
-                    "tunnelingEffective=${state.tunnelingEnabled}"
-            )
+            rawEventLines = snapshot.rawEventLines + extraRaw,
+            rawEvents = snapshot.rawEvents + extraRaw
         )
     }
     val input = PlaybackIssueReportInput(

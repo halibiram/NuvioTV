@@ -112,7 +112,12 @@ internal class PlaybackSpeedAwareAudioSink(
 
     fun isIecHbrActive(): Boolean = iecSink?.isIecActive == true
 
-    fun demandsNonTunnelledVideo(format: Format): Boolean = iecSink?.claimsHbr(format) == true
+    fun diagnosticRawLine(): String {
+        val format = currentInputFormat
+        val iec = iecSink?.diagnosticRawLine() ?: "iec_state none"
+        return "audio_sink_state mime=${format?.sampleMimeType} ch=${format?.channelCount} " +
+            "sr=${format?.sampleRate} tunnelClass=$currentTunnelAudioClass $iec"
+    }
 
     // Coarse class of what the sink chain will hand the platform for this format under the
     // current policy: the bitstream mime for passthrough, TUNNEL_AUDIO_CLASS_PCM for anything decoded.
