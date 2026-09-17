@@ -26,7 +26,8 @@ internal class IecPassthroughAudioSink(
     private val trackFactory: IecAudioTrackFactory = PlatformIecAudioTrackFactory(),
     private val hbrIecEnabled: Boolean = true,
     private val onDiagnosticEvent: ((String) -> Unit)? = null,
-    private val onIecBecameReady: (() -> Unit)? = null
+    private val onIecBecameReady: (() -> Unit)? = null,
+    private val onIecUnderrun: ((Int) -> Unit)? = null
 ) : ForwardingAudioSink(sink) {
 
     private val diag = IecDiagnostics(onDiagnosticEvent)
@@ -611,6 +612,7 @@ internal class IecPassthroughAudioSink(
             "na"
         }
         val tsLag = track.timestampLagFrames()
+        if (lastHealthUnderruns >= 0 && underruns > lastHealthUnderruns) onIecUnderrun?.invoke(underruns)
         lastHealthNanos = now
         lastHealthUnderruns = underruns
         lastHealthHead = head

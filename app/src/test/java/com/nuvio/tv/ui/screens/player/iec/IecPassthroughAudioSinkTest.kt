@@ -641,7 +641,7 @@ class IecPassthroughAudioSinkTest {
             }
         }
         var notified = false
-        IecPassthroughAudioSink(RecordingSink(), factory) { notified = true }
+        IecPassthroughAudioSink(RecordingSink(), factory, onIecBecameReady = { notified = true })
         captured!!.invoke()
         assertTrue(notified)
     }

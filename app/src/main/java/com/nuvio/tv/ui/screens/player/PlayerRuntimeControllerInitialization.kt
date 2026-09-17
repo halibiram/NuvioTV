@@ -1101,6 +1101,13 @@ internal fun PlayerRuntimeController.initializePlayer(
                 preferSoftwareAudioOnly = isBluetoothAudioOutput || preferFfmpegAudioActive,
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
                 onAudioDiagnosticEvent = { line -> scope.launch { queuePlaybackRawEventLine(line) } },
+                onIecUnderrun = { total ->
+                    PlayerAudioUnderrunCounter.recordIec(total)
+                    scope.launch {
+                        playbackAnalyticsDiagnostics.onIecUnderrun(total)
+                        queuePlaybackRawEventLine("audio_underrun source=iec count=$total")
+                    }
+                },
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
                     renderer?.applyDownmixSettings(
@@ -2398,7 +2405,8 @@ private class SubtitleOffsetRenderersFactory(
     private val passthroughPolicy: AudioPassthroughPolicy = AudioPassthroughPolicy.ALLOW_ALL,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit,
     private val onFfmpegAudioRendererChanged: (FfmpegAudioRenderer?) -> Unit,
-    private val onAudioDiagnosticEvent: ((String) -> Unit)? = null
+    private val onAudioDiagnosticEvent: ((String) -> Unit)? = null,
+    private val onIecUnderrun: ((Int) -> Unit)? = null
 ) : DefaultRenderersFactory(context) {
 
     override fun buildVideoRenderers(
@@ -2463,7 +2471,8 @@ private class SubtitleOffsetRenderersFactory(
                     speedAwareSink?.notifyAudioProcessingRequirementChanged()
                 }
             },
-            onDiagnosticEvent = onAudioDiagnosticEvent
+            onDiagnosticEvent = onAudioDiagnosticEvent,
+            onIecUnderrun = onIecUnderrun
         )
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
             sink = iecAudioSink,

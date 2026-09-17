@@ -72,6 +72,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
     private var audioDecoderInitMs: Long? = null
     private var audioDecoderReleaseCount: Int = 0
     private var audioUnderrunCount: Int = 0
+    private var iecUnderrunCount: Int = 0
     private var audioUnderrunBufferSize: Int? = null
     private var audioUnderrunBufferSizeMs: Long? = null
     private var audioUnderrunElapsedSinceLastFeedMs: Long? = null
@@ -153,6 +154,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         audioDecoderInitMs = null
         audioDecoderReleaseCount = 0
         audioUnderrunCount = 0
+        iecUnderrunCount = 0
         audioUnderrunBufferSize = null
         audioUnderrunBufferSizeMs = null
         audioUnderrunElapsedSinceLastFeedMs = null
@@ -520,6 +522,11 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         )
     }
 
+    /** Underrun total reported by the IEC sink's own track, which DefaultAudioSink never sees. */
+    fun onIecUnderrun(total: Int) {
+        iecUnderrunCount = total
+    }
+
     fun onAudioUnderrun(
         eventTime: AnalyticsListener.EventTime,
         bufferSize: Int,
@@ -740,7 +747,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
             audioDecoderName = audioDecoderName,
             audioDecoderInitMs = audioDecoderInitMs,
             audioDecoderReleaseCount = audioDecoderReleaseCount,
-            audioUnderrunCount = audioUnderrunCount,
+            audioUnderrunCount = maxOf(audioUnderrunCount, iecUnderrunCount),
             audioUnderrunBufferSize = audioUnderrunBufferSize,
             audioUnderrunBufferSizeMs = audioUnderrunBufferSizeMs,
             audioUnderrunElapsedSinceLastFeedMs = audioUnderrunElapsedSinceLastFeedMs,
@@ -792,7 +799,7 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
                 durationMs = durationMs,
                 bufferedPercentage = bufferedPercentage,
                 droppedFrames = droppedFrames,
-                audioUnderrunCount = audioUnderrunCount,
+                audioUnderrunCount = maxOf(audioUnderrunCount, iecUnderrunCount),
                 rebufferCount = rebufferCount.coerceAtLeast(0),
                 rebufferTotalMs = rebufferTotalMs.coerceAtLeast(0L),
                 bandwidthEstimateBps = bandwidthEstimateBps,
