@@ -29,6 +29,7 @@ internal class IecPassthroughAudioSink(
     private val onIecBecameReady: (() -> Unit)? = null
 ) : ForwardingAudioSink(sink) {
 
+    private val diag = IecDiagnostics(onDiagnosticEvent)
     private val matPacker = TrueHdMatPacker()
     private var iecTrack: IecAudioTrack? = null
     private var mode: Mode = Mode.FORWARD
@@ -122,11 +123,7 @@ internal class IecPassthroughAudioSink(
             if (opened) {
                 mode = if (isTrueHd(inputFormat)) Mode.TRUEHD else Mode.DTS_HD
                 dtsChannelCount = inputFormat.channelCount.takeIf { it > 0 } ?: 8
-                android.util.Log.i(
-                    "IecPassthrough",
-                    "HBR active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType}"
-                )
-                onDiagnosticEvent?.invoke(
+                diag.emit(
                     "iec_hbr_active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType}"
                 )
                 return
@@ -134,11 +131,7 @@ internal class IecPassthroughAudioSink(
         }
         mode = Mode.FORWARD
         if (isHbrPassthrough(inputFormat)) {
-            android.util.Log.i(
-                "IecPassthrough",
-                "HBR RAW mime=${inputFormat.sampleMimeType} (compressed, not PCM)"
-            )
-            onDiagnosticEvent?.invoke(
+            diag.emit(
                 "iec_hbr_raw_fallback mime=${inputFormat.sampleMimeType} " +
                     "iecFailedThisSession=$iecFailedThisSession tunnelReady=$tunnelReady"
             )
@@ -374,7 +367,7 @@ internal class IecPassthroughAudioSink(
                 // Not an access unit. The extractor hands over access-unit-aligned samples, so
                 // drop the remainder and resync on the next sample rather than carrying the bad
                 // head forward under every later buffer (a frozen clock with no error).
-                onDiagnosticEvent?.invoke(
+                diag.emit(
                     "iec_truehd_resync auSize=$auSize dropped=${data.size - offset}"
                 )
                 offset = data.size
@@ -424,8 +417,7 @@ internal class IecPassthroughAudioSink(
         val line = "iec_anchor mode=TRUEHD bufferPts=$bufferPtsUs discardedAu=$discardedAuSinceReset " +
             "inBuffer=$discardedInBuffer anchorPts=$startPtsUs deltaUs=$deltaUs " +
             "leftoverFallback=${!startedInBuffer}"
-        onDiagnosticEvent?.invoke(line)
-        android.util.Log.i("IecPassthrough", line)
+        diag.emit(line)
     }
 
     private fun handleDtsHd(buffer: ByteBuffer, presentationTimeUs: Long): Boolean {
@@ -516,8 +508,7 @@ internal class IecPassthroughAudioSink(
     private fun fallbackToWrappedSink(reason: String): Boolean {
         val format = configuredFormat
         val endOfStreamRequested = handledEndOfStream
-        android.util.Log.w("IecPassthrough", "IEC write failed; falling back to RAW")
-        onDiagnosticEvent?.invoke("iec_fallback_to_raw reason=$reason mime=${format?.sampleMimeType}")
+        diag.emit("iec_fallback_to_raw reason=$reason mime=${format?.sampleMimeType}", warn = true)
         trackFactory.markIecUnusable()
         iecFailedThisSession = true
         resetIecState(keepTrack = false)
@@ -532,8 +523,9 @@ internal class IecPassthroughAudioSink(
                 // thread uncaught and ends the process. Surface the refusal as a recoverable write
                 // failure instead: the renderer reports it and the recovery re-selects tracks with
                 // IEC already marked unusable, so the format is decoded from then on.
-                onDiagnosticEvent?.invoke(
-                    "iec_fallback_configure_refused mime=${format.sampleMimeType} reason=$reason"
+                diag.emit(
+                    "iec_fallback_configure_refused mime=${format.sampleMimeType} reason=$reason",
+                    warn = true
                 )
                 throw AudioSink.WriteException(WRITE_ERROR_FALLBACK_REFUSED, format, true)
                     .apply { initCause(e) }
@@ -581,8 +573,7 @@ internal class IecPassthroughAudioSink(
         val line = "iec_health mode=$mode payload=${track.payload} underruns=$underruns " +
             "head=${track.playbackHeadFrames()} written=$writtenFrames " +
             "pending=${pendingFrames.size} stalls=$totalWriteStalls playing=$playing"
-        android.util.Log.i("IecPassthrough", line)
-        onDiagnosticEvent?.invoke(line)
+        diag.emit(line)
     }
 
     private fun releaseIec() {
