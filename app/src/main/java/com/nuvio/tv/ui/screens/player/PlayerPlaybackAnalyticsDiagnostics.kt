@@ -187,6 +187,8 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
         }
     }
 
+    fun hasRawEventLine(line: String): Boolean = rawEventLines.contains(line.rawPlaybackLine())
+
     fun recordProgressSnapshot(
         player: Player,
         hasRenderedFirstFrame: Boolean,
@@ -937,10 +939,40 @@ internal fun appendPendingRawEventLine(
     }
 }
 
-internal fun PlayerRuntimeController.flushPendingPlaybackRawEventLines() {
-    while (pendingPlaybackRawEventLines.isNotEmpty()) {
-        playbackAnalyticsDiagnostics.recordRawEventLine(pendingPlaybackRawEventLines.removeFirst())
+internal fun PlayerRuntimeController.flushPendingPlaybackRawEventLines(keepPlayerContext: Boolean = false) {
+    drainPendingRawEventLines(
+        pending = pendingPlaybackRawEventLines,
+        keepPlayerContext = keepPlayerContext,
+        alreadyRecorded = { playbackAnalyticsDiagnostics.hasRawEventLine(it) },
+        record = { playbackAnalyticsDiagnostics.recordRawEventLine(it) }
+    )
+}
+
+/**
+ * Moves every pending line into the raw-event ring through [record].
+ *
+ * With [keepPlayerContext] the player context lines are copied rather than moved, and a copy is
+ * skipped while the ring still holds that line. The ring turns over continuously during playback,
+ * so without this only the first report of a title would carry them. A player rebuild drains
+ * without keeping, so a new player's context never mixes with the previous player's.
+ */
+internal fun drainPendingRawEventLines(
+    pending: ArrayDeque<String>,
+    keepPlayerContext: Boolean,
+    alreadyRecorded: (String) -> Boolean,
+    record: (String) -> Unit
+) {
+    val kept = ArrayList<String>()
+    while (pending.isNotEmpty()) {
+        val line = pending.removeFirst()
+        if (keepPlayerContext && isPlayerContextRawEventLine(line)) {
+            kept.add(line)
+            if (!alreadyRecorded(line)) record(line)
+        } else {
+            record(line)
+        }
     }
+    pending.addAll(kept)
 }
 
 private fun String.isPlaybackWarningEvent(): Boolean =

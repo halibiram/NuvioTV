@@ -125,4 +125,72 @@ class PlayerPlaybackAnalyticsDiagnosticsTest {
         assertFalse(isPlayerContextRawEventLine("BUILD: sha=1"))
         assertTrue(isPlayerContextRawEventLine("iec_open ok=0 mime=audio/true-hd"))
     }
+
+    private fun ringOf(vararg lines: String): ArrayDeque<String> = ArrayDeque<String>().also { it.addAll(lines) }
+
+    private fun ArrayDeque<String>.recordCapped(line: String) {
+        addLast(line)
+        while (size > 220) removeFirst()
+    }
+
+    @Test
+    fun `a player rebuild drains everything and leaves the queue empty`() {
+        val pending = pendingWithPlayerContext()
+        appendPendingRawEventLine(pending, "iec_health track=1 n=1")
+        val ring = ringOf()
+
+        drainPendingRawEventLines(pending, keepPlayerContext = false, alreadyRecorded = { it in ring }) {
+            ring.recordCapped(it)
+        }
+
+        assertTrue(pending.isEmpty())
+        assertEquals(playerContextLines + "iec_health track=1 n=1", ring.toList())
+    }
+
+    @Test
+    fun `a later report carries the player context again after the ring has turned over`() {
+        val pending = pendingWithPlayerContext()
+        for (i in 1..20) appendPendingRawEventLine(pending, "iec_health track=1 n=$i")
+        val ring = ringOf()
+        for (i in 1..220) ring.recordCapped("EXO_EVENT: $i")
+        val drain = {
+            drainPendingRawEventLines(pending, keepPlayerContext = true, alreadyRecorded = { it in ring }) {
+                ring.recordCapped(it)
+            }
+        }
+
+        drain()
+        assertTrue(ring.containsAll(playerContextLines))
+        assertEquals(12, ring.count { it.startsWith("iec_health ") })
+        assertEquals(playerContextLines, pending.toList())
+
+        val sizeAfterFirstReport = ring.size
+        drain()
+        assertEquals(sizeAfterFirstReport, ring.size)
+        playerContextLines.forEach { line -> assertEquals(1, ring.count { it == line }) }
+
+        for (i in 221..600) ring.recordCapped("EXO_EVENT: $i")
+        assertTrue(playerContextLines.none { it in ring })
+        for (i in 21..25) appendPendingRawEventLine(pending, "iec_health track=1 n=$i")
+        drain()
+        playerContextLines.forEach { line -> assertEquals(1, ring.count { it == line }) }
+        assertEquals(5, ring.count { it.startsWith("iec_health ") })
+    }
+
+    @Test
+    fun `a rebuild after a report clears the kept player context`() {
+        val pending = pendingWithPlayerContext()
+        val firstRing = ringOf()
+        drainPendingRawEventLines(pending, keepPlayerContext = true, alreadyRecorded = { it in firstRing }) {
+            firstRing.recordCapped(it)
+        }
+        val rebuiltRing = ringOf()
+
+        drainPendingRawEventLines(pending, keepPlayerContext = false, alreadyRecorded = { it in rebuiltRing }) {
+            rebuiltRing.recordCapped(it)
+        }
+
+        assertTrue(pending.isEmpty())
+        assertEquals(playerContextLines, rebuiltRing.toList())
+    }
 }

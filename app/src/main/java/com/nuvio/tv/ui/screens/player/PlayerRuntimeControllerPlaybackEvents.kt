@@ -419,7 +419,7 @@ internal fun PlayerRuntimeController.submitPlaybackIssueReport() {
         error = state.error,
     )
     val loadingInput = buildPlaybackIssueLoadingInput(reportReason)
-    flushPendingPlaybackRawEventLines()
+    flushPendingPlaybackRawEventLines(keepPlayerContext = true)
     val playbackAnalyticsInput = playbackAnalyticsDiagnostics.snapshot(
         player = _exoPlayer,
         hasRenderedFirstFrame = hasRenderedFirstFrame,
