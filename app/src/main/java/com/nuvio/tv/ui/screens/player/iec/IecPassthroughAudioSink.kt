@@ -195,6 +195,7 @@ internal class IecPassthroughAudioSink(
     override fun play() {
         playing = true
         if (isIecActive) {
+            diag.emit("iec_play track=$trackSerial")
             iecTrack?.play()
         } else {
             super.play()
@@ -204,6 +205,7 @@ internal class IecPassthroughAudioSink(
     override fun pause() {
         playing = false
         if (isIecActive) {
+            diag.emit("iec_pause track=$trackSerial")
             iecTrack?.pause()
         } else {
             super.pause()
@@ -212,6 +214,7 @@ internal class IecPassthroughAudioSink(
 
     override fun flush() {
         if (isIecActive) {
+            diag.emit("iec_flush track=$trackSerial pending=${pendingFrames.size}")
             resetIecState(keepTrack = true)
             iecTrack?.flush()
         } else {
@@ -224,6 +227,7 @@ internal class IecPassthroughAudioSink(
             // No flush here: the AudioTrack head keeps counting, so re-anchor it
             // or the position jumps by everything played before the discontinuity.
             headAnchorFrames = iecTrack?.playbackHeadFrames() ?: 0L
+            diag.emit("iec_discontinuity track=$trackSerial head=$headAnchorFrames pending=${pendingFrames.size}")
             startPtsUs = C.TIME_UNSET
             firstBufferPtsUs = C.TIME_UNSET
             discardedAuSinceReset = 0
@@ -614,6 +618,7 @@ internal class IecPassthroughAudioSink(
     }
 
     private fun releaseIec() {
+        if (iecTrack != null) diag.emit("iec_release track=$trackSerial")
         resetIecState(keepTrack = false)
         mode = Mode.FORWARD
     }
