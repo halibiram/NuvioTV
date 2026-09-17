@@ -1075,7 +1075,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 passthroughPolicy = surroundResolution.policy,
                 preferSoftwareAudioOnly = isBluetoothAudioOutput || preferFfmpegAudioActive,
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
-                onAudioDiagnosticEvent = { line -> queuePlaybackRawEventLine(line) },
+                onAudioDiagnosticEvent = { line -> scope.launch { queuePlaybackRawEventLine(line) } },
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
                     renderer?.applyDownmixSettings(
