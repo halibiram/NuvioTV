@@ -1058,6 +1058,16 @@ internal fun PlayerRuntimeController.initializePlayer(
                     "ver=${BuildConfig.VERSION_NAME}"
             )
 
+            queuePlaybackRawEventLine(
+                "settings tunnel=${playerSettings.effectiveTunnelingEnabled} " +
+                    "surround_mode=${playerSettings.surroundFormatMode} " +
+                    "ch_target=${playerSettings.surroundChannelTarget} " +
+                    "decoder_prio=${playerSettings.decoderPriority} decoder_prio_eff=$effectiveDecoderPriority " +
+                    "force_optical=${playerSettings.forceOpticalPassthrough} force_pt_active=$isForcePassthroughActive " +
+                    "bt=$isBluetoothAudioOutput downmix=$effectiveDownmixEnabled out_ch=$effectiveAudioOutputChannels " +
+                    "engine=${playerSettings.internalPlayerEngine} sys_pt=na"
+            )
+
             // ── Renderers Factory (Combining Libass offsets + Audio Gain + Video Fallback) ──
             val renderersFactory = SubtitleOffsetRenderersFactory(
                 context = context,
