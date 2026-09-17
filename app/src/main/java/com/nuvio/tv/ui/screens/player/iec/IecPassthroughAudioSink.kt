@@ -126,6 +126,7 @@ internal class IecPassthroughAudioSink(
                 diag.emit(
                     "iec_hbr_active payload=${iecTrack?.payload} mime=${inputFormat.sampleMimeType}"
                 )
+                emitConfigure(inputFormat)
                 return
             }
         }
@@ -137,6 +138,14 @@ internal class IecPassthroughAudioSink(
             )
         }
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
+        emitConfigure(inputFormat)
+    }
+
+    private fun emitConfigure(format: Format) {
+        diag.emit(
+            "sink_configure mode=$mode mime=${format.sampleMimeType} ch=${format.channelCount} " +
+                "rate=${format.sampleRate} tunnel_req=$tunnelingRequested"
+        )
     }
 
     override fun handleBuffer(

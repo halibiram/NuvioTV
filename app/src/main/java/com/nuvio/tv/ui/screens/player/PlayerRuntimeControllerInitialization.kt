@@ -697,7 +697,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                         rendererFormatSupports,
                         ffmpegRendererName = ffmpegAudioRenderer?.name,
                         audioSink = playbackSpeedAwareAudioSink,
-                        deadClockAudioClasses = PlayerTunnelAvSyncPolicy.deadAudioClasses
+                        deadClockAudioClasses = PlayerTunnelAvSyncPolicy.deadAudioClasses,
+                        onCleared = { line -> scope.launch { queuePlaybackRawEventLine(line) } }
                     )
                     if (isHls) {
                         for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
@@ -2960,7 +2961,8 @@ private fun demoteAudioTunnelingWhereItCannotBeClocked(
     rendererFormatSupports: Array<out Array<out IntArray>>,
     ffmpegRendererName: String?,
     audioSink: PlaybackSpeedAwareAudioSink?,
-    deadClockAudioClasses: Set<String>
+    deadClockAudioClasses: Set<String>,
+    onCleared: ((String) -> Unit)? = null
 ) {
     for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
         if (mappedTrackInfo.getRendererType(rendererIndex) != C.TRACK_TYPE_AUDIO) continue
@@ -2996,6 +2998,9 @@ private fun demoteAudioTunnelingWhereItCannotBeClocked(
                 Log.d(
                     "NuvioTrackSelector",
                     "Tunnelling cleared for renderer=$rendererName mime=${format.sampleMimeType} reason=$reason"
+                )
+                onCleared?.invoke(
+                    "tunnel_cleared renderer=$rendererName mime=${format.sampleMimeType} reason=$reason"
                 )
                 supports[groupIndex][trackIndex] = RendererCapabilities.create(
                     RendererCapabilities.getFormatSupport(current),
