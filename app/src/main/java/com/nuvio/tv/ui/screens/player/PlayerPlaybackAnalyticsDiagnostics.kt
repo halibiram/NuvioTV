@@ -23,6 +23,8 @@ import com.nuvio.tv.data.repository.PlaybackIssuePlaybackLoadInput
 private const val PLAYBACK_ANALYTICS_EVENT_LIMIT = 140
 private const val PLAYBACK_RAW_EVENT_LIMIT = 220
 private const val PENDING_PLAYBACK_RAW_EVENT_LIMIT = 40
+private const val PENDING_PLAYBACK_HEALTH_LINE_LIMIT = 12
+private const val PENDING_PLAYBACK_SINK_CONTEXT_LINE_LIMIT = 8
 private const val PLAYBACK_HEALTH_SNAPSHOT_LIMIT = 80
 private const val PLAYBACK_HEALTH_SNAPSHOT_INTERVAL_MS = 5_000L
 private const val POSITION_STALL_THRESHOLD_MS = 5_000L
@@ -873,9 +875,65 @@ internal class PlayerPlaybackAnalyticsDiagnostics {
 }
 
 internal fun PlayerRuntimeController.queuePlaybackRawEventLine(line: String) {
-    pendingPlaybackRawEventLines.addLast(line.rawPlaybackLine())
-    while (pendingPlaybackRawEventLines.size > PENDING_PLAYBACK_RAW_EVENT_LIMIT) {
-        pendingPlaybackRawEventLines.removeFirst()
+    appendPendingRawEventLine(pendingPlaybackRawEventLines, line.rawPlaybackLine())
+}
+
+// Same text as IecDiagnostics.HEALTH_PREFIX, which is private to that class. Keep the two in step.
+private const val PENDING_HEALTH_LINE_PREFIX = "iec_health "
+
+// Logged by the sink at every configure, so a reconfigure loop can produce many of them.
+private val PENDING_SINK_CONTEXT_LINE_PREFIXES = listOf("sink_configure ", "iec_open ")
+
+// Logged once per player build.
+private val PENDING_PLAYER_CONTEXT_LINE_PREFIXES =
+    listOf("diag_schema ", "build ", "settings ", "surround_resolve ", "surround_transcode ")
+
+private fun String.isPendingHealthLine(): Boolean = startsWith(PENDING_HEALTH_LINE_PREFIX)
+
+private fun String.isPendingSinkContextLine(): Boolean =
+    PENDING_SINK_CONTEXT_LINE_PREFIXES.any { startsWith(it) }
+
+/** The lines that say which build, settings, policy and audio path a player ran with. */
+internal fun isPlayerContextRawEventLine(line: String): Boolean =
+    line.isPendingSinkContextLine() || PENDING_PLAYER_CONTEXT_LINE_PREFIXES.any { line.startsWith(it) }
+
+private fun ArrayDeque<String>.dropOldestWhileAtLeast(limit: Int, matches: (String) -> Boolean) {
+    var count = count(matches)
+    while (count >= limit) {
+        val index = indexOfFirst(matches)
+        if (index < 0) return
+        removeAt(index)
+        count--
+    }
+}
+
+/**
+ * Adds [line] to the pending queue and trims the queue to [limit].
+ *
+ * iec_health arrives every five seconds and is exempt from the sink's repeat collapsing, so left
+ * alone it fills the queue in about three minutes and pushes out the lines written once at player
+ * build. Those lines are what a reader needs first, so they are evicted last: health lines are
+ * held to the newest [healthLimit], the sink's per-configure lines to the newest [sinkContextLimit],
+ * and when the queue is over [limit] the oldest line that is not player context goes first. With no
+ * health or context lines in the queue this is the plain oldest-first trim it replaces.
+ */
+internal fun appendPendingRawEventLine(
+    pending: ArrayDeque<String>,
+    line: String,
+    limit: Int = PENDING_PLAYBACK_RAW_EVENT_LIMIT,
+    healthLimit: Int = PENDING_PLAYBACK_HEALTH_LINE_LIMIT,
+    sinkContextLimit: Int = PENDING_PLAYBACK_SINK_CONTEXT_LINE_LIMIT
+) {
+    when {
+        line.isPendingHealthLine() ->
+            pending.dropOldestWhileAtLeast(healthLimit) { it.isPendingHealthLine() }
+        line.isPendingSinkContextLine() ->
+            pending.dropOldestWhileAtLeast(sinkContextLimit) { it.isPendingSinkContextLine() }
+    }
+    pending.addLast(line)
+    while (pending.size > limit) {
+        val index = pending.indexOfFirst { !isPlayerContextRawEventLine(it) }
+        if (index >= 0) pending.removeAt(index) else pending.removeFirst()
     }
 }
 
