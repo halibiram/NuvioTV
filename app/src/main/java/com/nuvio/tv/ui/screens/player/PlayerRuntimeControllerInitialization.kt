@@ -138,6 +138,14 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
     )
 }
 
+private const val PLAYBACK_DIAGNOSTIC_LOG_TAG = "NuvioAudioDiag"
+
+/** Queues a diagnostic line for the playback report and writes the same text to logcat. */
+private fun PlayerRuntimeController.queuePlaybackDiagnosticLine(line: String) {
+    Log.i(PLAYBACK_DIAGNOSTIC_LOG_TAG, line)
+    queuePlaybackRawEventLine(line)
+}
+
 private fun PlayerRuntimeController.disposeExoPlayerBeforeRebuild() {
     notifyAudioSessionUpdate(false)
     try {
@@ -1046,7 +1054,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 )
             }
 
-            queuePlaybackRawEventLine("diag_schema schema=1")
+            queuePlaybackDiagnosticLine("diag_schema schema=1")
             Log.i(
                 PlayerRuntimeController.TAG,
                 "BUILD: sha=${BuildConfig.NUVIO_GIT_SHA} tree=${BuildConfig.NUVIO_APP_SRC_TREE} " +
@@ -1059,7 +1067,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     "ver=${BuildConfig.VERSION_NAME}"
             )
 
-            queuePlaybackRawEventLine(
+            queuePlaybackDiagnosticLine(
                 "settings tunnel=${playerSettings.effectiveTunnelingEnabled} " +
                     "surround_mode=${playerSettings.surroundFormatMode} " +
                     "ch_target=${playerSettings.surroundChannelTarget} " +
@@ -1105,7 +1113,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     PlayerAudioUnderrunCounter.recordIec(total)
                     scope.launch {
                         playbackAnalyticsDiagnostics.onIecUnderrun(total)
-                        queuePlaybackRawEventLine("audio_underrun source=iec count=$total")
+                        queuePlaybackDiagnosticLine("audio_underrun source=iec count=$total")
                     }
                 },
                 onFfmpegAudioRendererChanged = { renderer ->
