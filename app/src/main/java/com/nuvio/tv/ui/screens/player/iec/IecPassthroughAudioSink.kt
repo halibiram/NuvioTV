@@ -58,6 +58,7 @@ internal class IecPassthroughAudioSink(
     private var totalWriteStalls: Long = 0L
     private var lastHealthNanos: Long = 0L
     private var lastHealthUnderruns: Int = -1
+    private var lastHealthHead: Long = -1L
     private var tunnelingRequested: Boolean = false
     // Serial of the current IEC track within this sink; counters reset when it changes.
     private var trackSerial: Int = 0
@@ -579,6 +580,7 @@ internal class IecPassthroughAudioSink(
             totalWriteStalls = 0L
             lastHealthNanos = 0L
             lastHealthUnderruns = -1
+            lastHealthHead = -1L
         }
     }
 
@@ -591,10 +593,22 @@ internal class IecPassthroughAudioSink(
         val underruns = track.underrunCount()
         val now = System.nanoTime()
         if (underruns == lastHealthUnderruns && now - lastHealthNanos < HEALTH_INTERVAL_NANOS) return
+        val head = track.playbackHeadFrames()
+        val written = writtenFrames
+        val fillMs = (written - head).coerceAtLeast(0L) * 1000L / IEC_SAMPLE_RATE
+        val rateText = if (lastHealthHead >= 0L && now > lastHealthNanos) {
+            val wallFrames = (now - lastHealthNanos) * IEC_SAMPLE_RATE / 1_000_000_000L
+            if (wallFrames > 0L) thousandths((head - lastHealthHead) * 1000L / wallFrames) else "na"
+        } else {
+            "na"
+        }
+        val tsLag = track.timestampLagFrames()
         lastHealthNanos = now
         lastHealthUnderruns = underruns
-        val line = "iec_health mode=$mode payload=${track.payload} underruns=$underruns " +
-            "head=${track.playbackHeadFrames()} written=$writtenFrames " +
+        lastHealthHead = head
+        val line = "iec_health track=$trackSerial mode=$mode payload=${track.payload} underruns=$underruns " +
+            "head=$head written=$written fill_ms=$fillMs rate_x=$rateText " +
+            "ts_lag=${if (tsLag == Long.MIN_VALUE) "na" else tsLag.toString()} ${track.describeRoute()} " +
             "pending=${pendingFrames.size} stalls=$totalWriteStalls playing=$playing"
         diag.emit(line)
     }
@@ -602,6 +616,14 @@ internal class IecPassthroughAudioSink(
     private fun releaseIec() {
         resetIecState(keepTrack = false)
         mode = Mode.FORWARD
+    }
+
+    // 1234 -> "1.234"; -50 -> "-0.050". Integer maths only: this runs on the playback thread.
+    private fun thousandths(value: Long): String {
+        val sign = if (value < 0L) "-" else ""
+        val abs = if (value < 0L) -value else value
+        val frac = (abs % 1000L).toString()
+        return sign + (abs / 1000L) + "." + "000".substring(frac.length) + frac
     }
 
     private enum class Mode { FORWARD, TRUEHD, DTS_HD }
