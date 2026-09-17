@@ -73,6 +73,10 @@ internal class IecPassthroughAudioSink(
         if (hbrIecEnabled) trackFactory.startProbe()
     }
 
+    /** What media3 last asked of this sink: true after enableTunnelingV21, false after disableTunneling/reset. */
+    val isTunnelingEffective: Boolean
+        get() = tunnelingRequested
+
     val isIecActive: Boolean
         get() = mode != Mode.FORWARD && iecTrack != null
 

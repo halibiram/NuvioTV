@@ -432,7 +432,7 @@ internal fun PlayerRuntimeController.submitPlaybackIssueReport() {
                 "audio_passthrough_state surroundMode=${currentPlayerSettingsForReport.surroundFormatMode.name} " +
                     "iecActive=${playbackSpeedAwareAudioSink?.isIecHbrActive()} " +
                     "forceOptical=${currentPlayerSettingsForReport.forceOpticalPassthrough} " +
-                    "tunnelingEffective=${state.tunnelingEnabled}"
+                    "tunnelingEffective=${playbackSpeedAwareAudioSink?.isTunnelingEffective() ?: state.tunnelingEnabled}"
             )
         )
     }
@@ -522,7 +522,7 @@ private fun PlayerRuntimeController.buildPlaybackIssuePlaybackSettingsInput(): P
         audioOutputChannels = settings.audioOutputChannels.settingValue,
         maintainOriginalAudioOnDownmix = settings.maintainOriginalAudioOnDownmix,
         tunnelingEnabled = settings.tunnelingEnabled,
-        tunnelingEffective = state.tunnelingEnabled,
+        tunnelingEffective = playbackSpeedAwareAudioSink?.isTunnelingEffective() ?: state.tunnelingEnabled,
         forceOpticalPassthrough = settings.forceOpticalPassthrough,
         skipSilence = settings.skipSilence,
         audioAmplificationDb = settings.audioAmplificationDb,
