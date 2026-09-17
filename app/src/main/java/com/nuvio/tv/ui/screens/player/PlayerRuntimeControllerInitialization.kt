@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Resources
 import android.graphics.RectF
 import android.media.MediaFormat
+import com.nuvio.tv.BuildConfig
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
@@ -1043,6 +1044,19 @@ internal fun PlayerRuntimeController.initializePlayer(
                         "mimes=${deniedTranscodeMimes.joinToString(",")}"
                 )
             }
+
+            queuePlaybackRawEventLine("diag_schema schema=1")
+            Log.i(
+                PlayerRuntimeController.TAG,
+                "BUILD: sha=${BuildConfig.NUVIO_GIT_SHA} tree=${BuildConfig.NUVIO_APP_SRC_TREE} " +
+                    "variant=${BuildConfig.FLAVOR}-${BuildConfig.BUILD_TYPE} pkg=${BuildConfig.APPLICATION_ID} " +
+                    "ver=${BuildConfig.VERSION_NAME}"
+            )
+            queuePlaybackRawEventLine(
+                "build sha=${BuildConfig.NUVIO_GIT_SHA} tree=${BuildConfig.NUVIO_APP_SRC_TREE} " +
+                    "variant=${BuildConfig.FLAVOR}-${BuildConfig.BUILD_TYPE} pkg=${BuildConfig.APPLICATION_ID} " +
+                    "ver=${BuildConfig.VERSION_NAME}"
+            )
 
             // ── Renderers Factory (Combining Libass offsets + Audio Gain + Video Fallback) ──
             val renderersFactory = SubtitleOffsetRenderersFactory(
