@@ -1,7 +1,9 @@
 package com.nuvio.tv.ui.screens.player.iec
 
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
@@ -26,6 +28,19 @@ internal interface IecAudioTrack {
     fun playbackHeadFrames(): Long
     fun setVolume(volume: Float)
     fun underrunCount(): Int
+
+    /** Facts about the opened track for the iec_open line; empty when not a platform track. */
+    fun describeOpen(): String = ""
+
+    /**
+     * Frames the playback head counter is ahead of the HAL's own timestamp, extrapolated to now;
+     * Long.MIN_VALUE when the HAL provides no timestamp. Large or growing values mean the head is
+     * counting frames the HAL is not presenting.
+     */
+    fun timestampLagFrames(): Long = Long.MIN_VALUE
+
+    /** Routed output device for the health line while playing (route=.../route_id=...); \"\" when not a platform track. */
+    fun describeRoute(): String = ""
 }
 
 internal fun interface IecAudioTrackFactory {
@@ -298,6 +313,7 @@ private class PlatformIecAudioTrack(
 ) : IecAudioTrack {
     private var headWrap: Long = 0L
     private var lastHead: Int = 0
+    private val timestamp = AudioTimestamp()
 
     override fun write(data: ByteArray, offset: Int, size: Int): Int {
         return track.write(data, offset, size, AudioTrack.WRITE_NON_BLOCKING)
@@ -344,5 +360,40 @@ private class PlatformIecAudioTrack(
 
     override fun setVolume(volume: Float) {
         track.setVolume(volume.coerceIn(0f, 1f))
+    }
+
+    override fun timestampLagFrames(): Long {
+        if (!track.getTimestamp(timestamp)) return Long.MIN_VALUE
+        val elapsedFrames = (System.nanoTime() - timestamp.nanoTime) * sampleRate / 1_000_000_000L
+        return playbackHeadFrames() - (timestamp.framePosition + elapsedFrames)
+    }
+
+    override fun describeRoute(): String = try {
+        val route = track.routedDevice
+        "route=${routeTypeName(route?.type)} route_id=${route?.id ?: -1}"
+    } catch (e: Exception) {
+        "route_err=${e.javaClass.simpleName}"
+    }
+
+    override fun describeOpen(): String = try {
+        val fmt = track.format
+        val route = track.routedDevice
+        "enc=${fmt.encoding} rate=${fmt.sampleRate} mask=0x${Integer.toHexString(fmt.channelMask)} " +
+            "ch=${fmt.channelCount} granted_frames=${track.bufferSizeInFrames} " +
+            "route=${routeTypeName(route?.type)} route_id=${route?.id ?: -1}"
+    } catch (e: Exception) {
+        "describe_err=${e.javaClass.simpleName}"
+    }
+
+    private fun routeTypeName(type: Int?): String = when (type) {
+        null -> "none"
+        AudioDeviceInfo.TYPE_HDMI -> "HDMI"
+        AudioDeviceInfo.TYPE_HDMI_ARC -> "HDMI_ARC"
+        AudioDeviceInfo.TYPE_HDMI_EARC -> "HDMI_EARC"
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "BT_A2DP"
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
+        AudioDeviceInfo.TYPE_USB_DEVICE -> "USB"
+        AudioDeviceInfo.TYPE_LINE_DIGITAL -> "SPDIF"
+        else -> "type$type"
     }
 }

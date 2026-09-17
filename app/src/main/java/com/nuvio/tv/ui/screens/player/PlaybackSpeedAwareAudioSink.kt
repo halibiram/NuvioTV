@@ -112,6 +112,9 @@ internal class PlaybackSpeedAwareAudioSink(
 
     fun isIecHbrActive(): Boolean = iecSink?.isIecActive == true
 
+    /** Effective tunnelling as seen by the audio sink; null when there is no IEC sink to ask. */
+    fun isTunnelingEffective(): Boolean? = iecSink?.isTunnelingEffective
+
     fun demandsNonTunnelledVideo(format: Format): Boolean = iecSink?.claimsHbr(format) == true
 
     // Coarse class of what the sink chain will hand the platform for this format under the

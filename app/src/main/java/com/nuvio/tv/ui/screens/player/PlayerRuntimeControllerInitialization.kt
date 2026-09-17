@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Resources
 import android.graphics.RectF
 import android.media.MediaFormat
+import com.nuvio.tv.BuildConfig
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
@@ -135,6 +136,14 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
         PlayerRuntimeController.TAG,
         "Resolved stream mimeType=${currentStreamMimeType ?: "unknown"} for url=$url"
     )
+}
+
+private const val PLAYBACK_DIAGNOSTIC_LOG_TAG = "NuvioAudioDiag"
+
+/** Queues a diagnostic line for the playback report and writes the same text to logcat. */
+private fun PlayerRuntimeController.queuePlaybackDiagnosticLine(line: String) {
+    Log.i(PLAYBACK_DIAGNOSTIC_LOG_TAG, line)
+    queuePlaybackRawEventLine(line)
 }
 
 private fun PlayerRuntimeController.disposeExoPlayerBeforeRebuild() {
@@ -688,14 +697,16 @@ internal fun PlayerRuntimeController.initializePlayer(
                     promotePassthroughAudioWhenRendererAlive(
                         mappedTrackInfo,
                         rendererFormatSupports,
-                        passthroughPolicy = currentAudioPassthroughPolicy
+                        passthroughPolicy = currentAudioPassthroughPolicy,
+                        audioSink = playbackSpeedAwareAudioSink
                     )
                     demoteAudioTunnelingWhereItCannotBeClocked(
                         mappedTrackInfo,
                         rendererFormatSupports,
                         ffmpegRendererName = ffmpegAudioRenderer?.name,
                         audioSink = playbackSpeedAwareAudioSink,
-                        deadClockAudioClasses = PlayerTunnelAvSyncPolicy.deadAudioClasses
+                        deadClockAudioClasses = PlayerTunnelAvSyncPolicy.deadAudioClasses,
+                        onCleared = { line -> scope.launch { queuePlaybackRawEventLine(line) } }
                     )
                     if (isHls) {
                         for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
@@ -1043,6 +1054,29 @@ internal fun PlayerRuntimeController.initializePlayer(
                 )
             }
 
+            queuePlaybackDiagnosticLine("diag_schema schema=1")
+            Log.i(
+                PlayerRuntimeController.TAG,
+                "BUILD: sha=${BuildConfig.NUVIO_GIT_SHA} tree=${BuildConfig.NUVIO_APP_SRC_TREE} " +
+                    "variant=${BuildConfig.FLAVOR}-${BuildConfig.BUILD_TYPE} pkg=${BuildConfig.APPLICATION_ID} " +
+                    "ver=${BuildConfig.VERSION_NAME}"
+            )
+            queuePlaybackRawEventLine(
+                "build sha=${BuildConfig.NUVIO_GIT_SHA} tree=${BuildConfig.NUVIO_APP_SRC_TREE} " +
+                    "variant=${BuildConfig.FLAVOR}-${BuildConfig.BUILD_TYPE} pkg=${BuildConfig.APPLICATION_ID} " +
+                    "ver=${BuildConfig.VERSION_NAME}"
+            )
+
+            queuePlaybackDiagnosticLine(
+                "settings tunnel=${playerSettings.effectiveTunnelingEnabled} " +
+                    "surround_mode=${playerSettings.surroundFormatMode} " +
+                    "ch_target=${playerSettings.surroundChannelTarget} " +
+                    "decoder_prio=${playerSettings.decoderPriority} decoder_prio_eff=$effectiveDecoderPriority " +
+                    "force_optical=${playerSettings.forceOpticalPassthrough} force_pt_active=$isForcePassthroughActive " +
+                    "bt=$isBluetoothAudioOutput downmix=$effectiveDownmixEnabled out_ch=$effectiveAudioOutputChannels " +
+                    "engine=${playerSettings.internalPlayerEngine} sys_pt=na"
+            )
+
             // ── Renderers Factory (Combining Libass offsets + Audio Gain + Video Fallback) ──
             val renderersFactory = SubtitleOffsetRenderersFactory(
                 context = context,
@@ -1074,7 +1108,14 @@ internal fun PlayerRuntimeController.initializePlayer(
                 passthroughPolicy = surroundResolution.policy,
                 preferSoftwareAudioOnly = isBluetoothAudioOutput || preferFfmpegAudioActive,
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
-                onAudioDiagnosticEvent = { line -> queuePlaybackRawEventLine(line) },
+                onAudioDiagnosticEvent = { line -> scope.launch { queuePlaybackRawEventLine(line) } },
+                onIecUnderrun = { total ->
+                    PlayerAudioUnderrunCounter.recordIec(total)
+                    scope.launch {
+                        playbackAnalyticsDiagnostics.onIecUnderrun(total)
+                        queuePlaybackDiagnosticLine("audio_underrun source=iec count=$total")
+                    }
+                },
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
                     renderer?.applyDownmixSettings(
@@ -2372,7 +2413,8 @@ private class SubtitleOffsetRenderersFactory(
     private val passthroughPolicy: AudioPassthroughPolicy = AudioPassthroughPolicy.ALLOW_ALL,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit,
     private val onFfmpegAudioRendererChanged: (FfmpegAudioRenderer?) -> Unit,
-    private val onAudioDiagnosticEvent: ((String) -> Unit)? = null
+    private val onAudioDiagnosticEvent: ((String) -> Unit)? = null,
+    private val onIecUnderrun: ((Int) -> Unit)? = null
 ) : DefaultRenderersFactory(context) {
 
     override fun buildVideoRenderers(
@@ -2437,7 +2479,8 @@ private class SubtitleOffsetRenderersFactory(
                     speedAwareSink?.notifyAudioProcessingRequirementChanged()
                 }
             },
-            onDiagnosticEvent = onAudioDiagnosticEvent
+            onDiagnosticEvent = onAudioDiagnosticEvent,
+            onIecUnderrun = onIecUnderrun
         )
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
             sink = iecAudioSink,
@@ -2875,7 +2918,8 @@ private fun DefaultRenderersFactory.applyMapDv7ToHevcIfSupported(enabled: Boolea
 private fun promotePassthroughAudioWhenRendererAlive(
     mappedTrackInfo: androidx.media3.exoplayer.trackselection.MappingTrackSelector.MappedTrackInfo,
     rendererFormatSupports: Array<out Array<out IntArray>>,
-    passthroughPolicy: AudioPassthroughPolicy?
+    passthroughPolicy: AudioPassthroughPolicy?,
+    audioSink: AudioSink?
 ) {
     for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
         if (mappedTrackInfo.getRendererType(rendererIndex) != C.TRACK_TYPE_AUDIO) continue
@@ -2898,10 +2942,15 @@ private fun promotePassthroughAudioWhenRendererAlive(
             for (trackIndex in 0 until group.length) {
                 val mime = group.getFormat(trackIndex).sampleMimeType ?: continue
                 if (!isPassthroughAudioMime(mime)) continue
-                // #3287: never promote a format the surround-format policy denies onto the device renderer.
-                if (passthroughPolicy?.deniesPassthrough(mime) == true) continue
                 val current = supports[groupIndex][trackIndex]
-                if (RendererCapabilities.getFormatSupport(current) == C.FORMAT_HANDLED) continue
+                val sinkSupport = audioSink?.getFormatSupport(group.getFormat(trackIndex))
+                    ?: AudioSink.SINK_FORMAT_UNSUPPORTED
+                if (!PassthroughTrackPromotion.shouldPromote(
+                        current,
+                        sinkSupport,
+                        policyDenies = passthroughPolicy?.deniesPassthrough(mime) == true
+                    )
+                ) continue
                 supports[groupIndex][trackIndex] = RendererCapabilities.create(
                     C.FORMAT_HANDLED,
                     RendererCapabilities.ADAPTIVE_SEAMLESS,
@@ -2929,7 +2978,8 @@ private fun demoteAudioTunnelingWhereItCannotBeClocked(
     rendererFormatSupports: Array<out Array<out IntArray>>,
     ffmpegRendererName: String?,
     audioSink: PlaybackSpeedAwareAudioSink?,
-    deadClockAudioClasses: Set<String>
+    deadClockAudioClasses: Set<String>,
+    onCleared: ((String) -> Unit)? = null
 ) {
     for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
         if (mappedTrackInfo.getRendererType(rendererIndex) != C.TRACK_TYPE_AUDIO) continue
@@ -2965,6 +3015,9 @@ private fun demoteAudioTunnelingWhereItCannotBeClocked(
                 Log.d(
                     "NuvioTrackSelector",
                     "Tunnelling cleared for renderer=$rendererName mime=${format.sampleMimeType} reason=$reason"
+                )
+                onCleared?.invoke(
+                    "tunnel_cleared renderer=$rendererName mime=${format.sampleMimeType} reason=$reason"
                 )
                 supports[groupIndex][trackIndex] = RendererCapabilities.create(
                     RendererCapabilities.getFormatSupport(current),

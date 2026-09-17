@@ -6,12 +6,19 @@ import java.util.concurrent.atomic.AtomicInteger
 // thread, so the overlay counts here rather than sampling those across threads every second.
 internal object PlayerAudioUnderrunCounter {
     private val count = AtomicInteger(0)
+    private val iecTotal = AtomicInteger(0)
 
-    fun reset() = count.set(0)
+    fun reset() {
+        count.set(0)
+        iecTotal.set(0)
+    }
 
     fun record() {
         count.incrementAndGet()
     }
 
-    fun current(): Int = count.get()
+    /** Latest underrun total of the IEC track; the HUD shows whichever path is larger. */
+    fun recordIec(total: Int) = iecTotal.set(total)
+
+    fun current(): Int = maxOf(count.get(), iecTotal.get())
 }
