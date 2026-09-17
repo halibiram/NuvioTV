@@ -59,6 +59,8 @@ internal class IecPassthroughAudioSink(
     private var lastHealthNanos: Long = 0L
     private var lastHealthUnderruns: Int = -1
     private var tunnelingRequested: Boolean = false
+    // Serial of the current IEC track within this sink; counters reset when it changes.
+    private var trackSerial: Int = 0
     // The factory probe is process-wide and can finish while reset/release has dropped
     // the listener. Deliver onIecBecameReady at most once so a later configure can
     // reselect DTS onto IEC without looping every configure.
@@ -347,15 +349,27 @@ internal class IecPassthroughAudioSink(
         }
         val bufferBytes = frameBytes * if (format.sampleMimeType == MimeTypes.AUDIO_TRUEHD) 2 else 4
         val targetBufferBytes = IEC_BUFFER_TARGET_MS * IEC_SAMPLE_RATE / 1000 * channelCount * 2
+        val requestBytes = maxOf(bufferBytes, targetBufferBytes)
         val track = trackFactory.openHbr(
             sampleRate = IEC_SAMPLE_RATE,
             channelCount = channelCount,
-            bufferSizeBytes = maxOf(bufferBytes, targetBufferBytes),
+            bufferSizeBytes = requestBytes,
             sessionId = audioSessionId,
             trueHd = format.sampleMimeType == MimeTypes.AUDIO_TRUEHD
-        ) ?: return false
+        ) ?: run {
+            diag.emit(
+                "iec_open ok=0 mime=${format.sampleMimeType} ch=$channelCount req_bytes=$requestBytes",
+                warn = true
+            )
+            return false
+        }
         track.setVolume(volume)
         iecTrack = track
+        trackSerial++
+        diag.emit(
+            "iec_open ok=1 track=$trackSerial payload=${track.payload} req_bytes=$requestBytes " +
+                track.describeOpen()
+        )
         return true
     }
 
