@@ -36,6 +36,11 @@ internal object Vc1VideoFormatHeuristics {
             Regex("(?<![a-z0-9])vc1(?![a-z0-9])").containsMatchIn(haystack)
     }
 
+    /** VC-1 advanced profile under either of its two MIME names, without the WMV 7/8/9 types. */
+    fun isVc1Mime(sampleMimeType: String?): Boolean =
+        sampleMimeType.equals(MimeTypes.VIDEO_VC1, ignoreCase = true) ||
+            sampleMimeType.equals("video/vc1", ignoreCase = true)
+
     fun isVc1OrWmvMime(sampleMimeType: String?): Boolean {
         if (sampleMimeType.isNullOrEmpty()) return false
         val mime = sampleMimeType.lowercase(Locale.ROOT)

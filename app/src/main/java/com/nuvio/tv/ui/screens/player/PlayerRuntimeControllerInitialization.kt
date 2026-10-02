@@ -843,10 +843,8 @@ internal fun PlayerRuntimeController.initializePlayer(
             isMapDv7ToHevcActiveForCurrentPlayback = mapDv7ToHevcEnabled
             val convertToDv81Active = !mapDv7ToHevcEnabled &&
                     dv7AutoResult?.decision == DolbyVisionBaseLayerPolicy.Decision.CONVERT_TO_DV81
-            val codecSelector = wrapVc1SoftwareCodecSelector(
-                createDolbyVisionFallbackCodecSelector(
-                    convertToDv81Active = convertToDv81Active
-                )
+            val dolbyVisionCodecSelector = createDolbyVisionFallbackCodecSelector(
+                convertToDv81Active = convertToDv81Active
             )
             // Bluetooth media sink (A2DP / LE Audio): Media3 only advertises PCM. Do not attempt
             // optical/HDMI passthrough — decode to PCM and let the BT stack encode SBC/AAC/aptX/LDAC.
@@ -867,6 +865,11 @@ internal fun PlayerRuntimeController.initializePlayer(
             } else {
                 playerSettings.decoderPriority
             }
+            val codecSelector = Vc1DecoderSelector.wrap(
+                base = dolbyVisionCodecSelector,
+                softwareRendererAvailable =
+                    effectiveDecoderPriority != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+            )
             // A2DP is stereo; force a clean 2.0 downmix so surround content is audible and balanced.
             val bluetoothStereoDownmix = isBluetoothAudioOutput
             val effectiveDownmixEnabled = playerSettings.effectiveDownmixEnabled || bluetoothStereoDownmix
@@ -2623,16 +2626,6 @@ private fun friendlyVideoHdrType(
         // Native DV passthrough.
         isDolbyVisionMime -> "Dolby Vision"
         else -> fromTransfer()
-    }
-}
-
-private fun wrapVc1SoftwareCodecSelector(base: MediaCodecSelector): MediaCodecSelector {
-    return MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-        if (Vc1VideoFormatHeuristics.isVc1OrWmvMime(mimeType)) {
-            emptyList()
-        } else {
-            base.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
-        }
     }
 }
 

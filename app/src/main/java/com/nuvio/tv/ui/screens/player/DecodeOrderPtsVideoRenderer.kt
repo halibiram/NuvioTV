@@ -6,6 +6,7 @@ import androidx.media3.decoder.DecoderInputBuffer
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.FormatHolder
 import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import com.nuvio.tv.core.player.DecodeOrderTimestamps
 import java.nio.ByteBuffer
@@ -28,6 +29,12 @@ internal class DecodeOrderPtsVideoRenderer(
     private var timestamps: DecodeOrderTimestamps? = null
     private var consumed = 0L
     private var loggedEngage = false
+
+    override fun supportsFormat(mediaCodecSelector: MediaCodecSelector, format: Format): Int =
+        Vc1DecoderSelector.hardwareFirstSupport(
+            format.sampleMimeType,
+            super.supportsFormat(mediaCodecSelector, format)
+        )
 
     override fun onInputFormatChanged(formatHolder: FormatHolder): DecoderReuseEvaluation? {
         val evaluation = super.onInputFormatChanged(formatHolder)
