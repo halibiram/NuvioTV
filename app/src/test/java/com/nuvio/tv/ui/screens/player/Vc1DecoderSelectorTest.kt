@@ -77,6 +77,25 @@ class Vc1DecoderSelectorTest {
     }
 
     @Test
+    fun forcedSoftware_hidesTheDeviceVc1Decoder() {
+        val device = deviceWith(decoder("c2.amlogic.vc1.decoder", "video/vc1"))
+
+        val selector = Vc1DecoderSelector.wrap(device, softwareRendererAvailable = true, forceSoftware = true)
+
+        assertTrue(selector.namesFor(MimeTypes.VIDEO_VC1).isEmpty())
+        assertTrue(selector.namesFor("video/vc1").isEmpty())
+    }
+
+    @Test
+    fun forcedSoftware_withoutTheSoftwareRenderer_keepsTheDeviceDecoder() {
+        val device = deviceWith(decoder("c2.amlogic.vc1.decoder", "video/vc1"))
+
+        val selector = Vc1DecoderSelector.wrap(device, softwareRendererAvailable = false, forceSoftware = true)
+
+        assertEquals(listOf("c2.amlogic.vc1.decoder"), selector.namesFor(MimeTypes.VIDEO_VC1))
+    }
+
+    @Test
     fun otherFormats_goStraightToTheBaseSelector() {
         val device = deviceWith(
             decoder("c2.android.avc.decoder", MimeTypes.VIDEO_H264),

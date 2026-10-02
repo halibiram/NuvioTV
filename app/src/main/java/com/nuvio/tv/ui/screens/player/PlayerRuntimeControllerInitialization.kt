@@ -868,7 +868,8 @@ internal fun PlayerRuntimeController.initializePlayer(
             val codecSelector = Vc1DecoderSelector.wrap(
                 base = dolbyVisionCodecSelector,
                 softwareRendererAvailable =
-                    effectiveDecoderPriority != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    effectiveDecoderPriority != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF,
+                forceSoftware = vc1SoftwareDecodeStreamUrls.contains(url)
             )
             // A2DP is stereo; force a clean 2.0 downmix so surround content is audible and balanced.
             val bluetoothStereoDownmix = isBluetoothAudioOutput
@@ -1440,6 +1441,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                                 currentStreamName = _uiState.value.currentStreamName ?: streamName ?: currentFilename
                             )
                         ) {
+                            if (!isInBackground && tryVc1DecoderStartRecovery(error)) return
                             handleVc1PlaybackFailure(errorMessage = detailedError)
                             return
                         }

@@ -14,11 +14,16 @@ internal object Vc1DecoderSelector {
     /**
      * VC-1 is looked up under both MIME names. WMV 7/8/9 stays with the FFmpeg video renderer whenever that
      * renderer is part of the player ([softwareRendererAvailable]); without it nothing is hidden from MediaCodec.
+     * [forceSoftware] sends VC-1 there as well, for a stream whose device decoder would not start.
      */
-    fun wrap(base: MediaCodecSelector, softwareRendererAvailable: Boolean): MediaCodecSelector {
+    fun wrap(
+        base: MediaCodecSelector,
+        softwareRendererAvailable: Boolean,
+        forceSoftware: Boolean = false
+    ): MediaCodecSelector {
         return MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
             when {
-                Vc1VideoFormatHeuristics.isVc1Mime(mimeType) ->
+                Vc1VideoFormatHeuristics.isVc1Mime(mimeType) && !(forceSoftware && softwareRendererAvailable) ->
                     base.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder).ifEmpty {
                         base.getDecoderInfos(
                             alternateVc1Mime(mimeType), requiresSecureDecoder, requiresTunnelingDecoder

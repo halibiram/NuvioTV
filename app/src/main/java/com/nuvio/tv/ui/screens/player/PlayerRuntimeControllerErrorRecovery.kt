@@ -445,6 +445,45 @@ internal fun PlayerRuntimeController.tryDv7HevcFallback(
     return true
 }
 
+/**
+ * A device VC-1 decoder that will not start gets one delayed retry: some (Amlogic) refuse to open while
+ * another video decoder is still alive, for example a trailer being released. If it fails again the stream
+ * is rebuilt on the FFmpeg video renderer, when that renderer is part of the player.
+ */
+internal fun PlayerRuntimeController.tryVc1DecoderStartRecovery(error: PlaybackException): Boolean {
+    if (error.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) return false
+    val initFailure = error.findCauseOfType<MediaCodecRenderer.DecoderInitializationException>()
+    if (initFailure?.codecInfo == null || !Vc1VideoFormatHeuristics.isVc1Mime(initFailure.mimeType)) return false
+
+    val toSoftware = when {
+        vc1DecoderRetryStreamUrls.add(currentStreamUrl) -> false
+        cachedDecoderPriority != 0 && vc1SoftwareDecodeStreamUrls.add(currentStreamUrl) -> true
+        else -> return false
+    }
+    val paused = userPausedManually
+    val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
+    Log.w(
+        PlayerRuntimeController.TAG,
+        if (toSoftware) {
+            "VC-1 decoder ${initFailure.codecInfo?.name} failed to start again, rebuilding on the FFmpeg video renderer"
+        } else {
+            "VC-1 decoder ${initFailure.codecInfo?.name} failed to start, retrying once in ${RETRY_DELAY_MS}ms"
+        }
+    )
+    showRecoveryOverlay()
+
+    errorRetryJob?.cancel()
+    errorRetryJob = scope.launch {
+        if (!toSoftware) delay(RETRY_DELAY_MS)
+        releasePlayer(flushPlaybackState = false)
+        if (savedPosition > 0L) {
+            _uiState.update { it.copy(pendingSeekPosition = savedPosition) }
+        }
+        initializePlayer(currentStreamUrl, currentHeaders, startPaused = paused)
+    }
+    return true
+}
+
 internal fun PlayerRuntimeController.tryParsingErrorProbeFallback(
     error: PlaybackException,
     detailedError: String,
