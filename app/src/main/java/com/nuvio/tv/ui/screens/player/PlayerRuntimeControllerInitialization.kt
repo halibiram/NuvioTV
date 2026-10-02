@@ -843,10 +843,8 @@ internal fun PlayerRuntimeController.initializePlayer(
             isMapDv7ToHevcActiveForCurrentPlayback = mapDv7ToHevcEnabled
             val convertToDv81Active = !mapDv7ToHevcEnabled &&
                     dv7AutoResult?.decision == DolbyVisionBaseLayerPolicy.Decision.CONVERT_TO_DV81
-            val codecSelector = wrapVc1SoftwareCodecSelector(
-                createDolbyVisionFallbackCodecSelector(
-                    convertToDv81Active = convertToDv81Active
-                )
+            val dolbyVisionCodecSelector = createDolbyVisionFallbackCodecSelector(
+                convertToDv81Active = convertToDv81Active
             )
             // Bluetooth media sink (A2DP / LE Audio): Media3 only advertises PCM. Do not attempt
             // optical/HDMI passthrough — decode to PCM and let the BT stack encode SBC/AAC/aptX/LDAC.
@@ -867,6 +865,12 @@ internal fun PlayerRuntimeController.initializePlayer(
             } else {
                 playerSettings.decoderPriority
             }
+            val codecSelector = Vc1DecoderSelector.wrap(
+                base = dolbyVisionCodecSelector,
+                softwareRendererAvailable =
+                    effectiveDecoderPriority != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF,
+                forceSoftware = vc1SoftwareDecodeStreamUrls.contains(url)
+            )
             // A2DP is stereo; force a clean 2.0 downmix so surround content is audible and balanced.
             val bluetoothStereoDownmix = isBluetoothAudioOutput
             val effectiveDownmixEnabled = playerSettings.effectiveDownmixEnabled || bluetoothStereoDownmix
@@ -911,6 +915,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 initialForcePcm = hasTriedAudioPcmFallback || isBluetoothAudioOutput,
                 preferSoftwareAudioOnly = isBluetoothAudioOutput,
+                mapDv7ToHevc = mapDv7ToHevcEnabled,
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
@@ -1436,6 +1441,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                                 currentStreamName = _uiState.value.currentStreamName ?: streamName ?: currentFilename
                             )
                         ) {
+                            if (!isInBackground && tryVc1DecoderStartRecovery(error)) return
                             handleVc1PlaybackFailure(errorMessage = detailedError)
                             return
                         }
@@ -2159,6 +2165,7 @@ private class SubtitleOffsetRenderersFactory(
      * platform MediaCodec path so Bluetooth PCM policy does not force software video decode.
      */
     private val preferSoftwareAudioOnly: Boolean = false,
+    private val mapDv7ToHevc: Boolean = false,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit,
     private val onFfmpegAudioRendererChanged: (FfmpegAudioRenderer?) -> Unit
 ) : DefaultRenderersFactory(context) {
@@ -2210,6 +2217,22 @@ private class SubtitleOffsetRenderersFactory(
                     ) as Renderer
                 )
             }
+        }
+        // Swap the stock MediaCodec video renderer for the one that repairs decode-order times.
+        // The factory keeps its own settings private, so the ones the app changes are passed in.
+        val stockIndex = out.indexOfFirst { it.javaClass == MediaCodecVideoRenderer::class.java }
+        if (stockIndex >= 0) {
+            out[stockIndex] = DecodeOrderPtsVideoRenderer(
+                MediaCodecVideoRenderer.Builder(context)
+                    .setCodecAdapterFactory(getCodecAdapterFactory())
+                    .setMediaCodecSelector(mediaCodecSelector)
+                    .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+                    .setEnableDecoderFallback(enableDecoderFallback)
+                    .setEventHandler(eventHandler)
+                    .setEventListener(eventListener)
+                    .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+                    .setMapDV7ToHevc(mapDv7ToHevc)
+            )
         }
     }
 
@@ -2605,16 +2628,6 @@ private fun friendlyVideoHdrType(
         // Native DV passthrough.
         isDolbyVisionMime -> "Dolby Vision"
         else -> fromTransfer()
-    }
-}
-
-private fun wrapVc1SoftwareCodecSelector(base: MediaCodecSelector): MediaCodecSelector {
-    return MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-        if (Vc1VideoFormatHeuristics.isVc1OrWmvMime(mimeType)) {
-            emptyList()
-        } else {
-            base.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
-        }
     }
 }
 
