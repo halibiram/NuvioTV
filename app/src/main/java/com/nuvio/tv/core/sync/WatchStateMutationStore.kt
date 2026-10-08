@@ -8,7 +8,9 @@ import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.WatchedItem
 import com.nuvio.tv.domain.model.WatchedMutationKey
 import com.nuvio.tv.domain.model.mutationKey
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,13 +46,17 @@ class WatchStateMutationStore @Inject constructor(
     ) {
         if (entries.isEmpty()) return
         store(profileId).edit { preferences ->
-            val pending = parseProgressUpserts(preferences[progressUpsertsKey]).toMutableMap()
-            entries.forEach { (key, progress) ->
-                pending[key] = progress
+            val raw = preferences[progressUpsertsKey]
+            val serialized = withContext(Dispatchers.Default) {
+                val pending = parseProgressUpserts(raw).toMutableMap()
+                entries.forEach { (key, progress) ->
+                    pending[key] = progress
+                }
+                pending.map { (key, progress) ->
+                    gson.toJson(PendingProgressUpsert(key, progress))
+                }.toSet()
             }
-            preferences[progressUpsertsKey] = pending.map { (key, progress) ->
-                gson.toJson(PendingProgressUpsert(key, progress))
-            }.toSet()
+            preferences[progressUpsertsKey] = serialized
             preferences[progressDeletesKey] = preferences[progressDeletesKey].orEmpty() - entries.keys
         }
     }
@@ -59,10 +65,13 @@ class WatchStateMutationStore @Inject constructor(
         val normalized = keys.map(String::trim).filter(String::isNotEmpty).toSet()
         if (normalized.isEmpty()) return
         store(profileId).edit { preferences ->
-            val pending = parseProgressUpserts(preferences[progressUpsertsKey]) - normalized
-            preferences[progressUpsertsKey] = pending.map { (key, progress) ->
-                gson.toJson(PendingProgressUpsert(key, progress))
-            }.toSet()
+            val raw = preferences[progressUpsertsKey]
+            val serialized = withContext(Dispatchers.Default) {
+                (parseProgressUpserts(raw) - normalized).map { (key, progress) ->
+                    gson.toJson(PendingProgressUpsert(key, progress))
+                }.toSet()
+            }
+            preferences[progressUpsertsKey] = serialized
             preferences[progressDeletesKey] = preferences[progressDeletesKey].orEmpty() + normalized
         }
     }
@@ -82,13 +91,16 @@ class WatchStateMutationStore @Inject constructor(
     ) {
         if (entries.isEmpty()) return
         store(profileId).edit { preferences ->
-            val pending = parseProgressUpserts(preferences[progressUpsertsKey]).toMutableMap()
-            entries.forEach { (key, progress) ->
-                if (pending[key] == progress) pending.remove(key)
+            val raw = preferences[progressUpsertsKey]
+            preferences[progressUpsertsKey] = withContext(Dispatchers.Default) {
+                val pending = parseProgressUpserts(raw).toMutableMap()
+                entries.forEach { (key, progress) ->
+                    if (pending[key] == progress) pending.remove(key)
+                }
+                pending.map { (key, progress) ->
+                    gson.toJson(PendingProgressUpsert(key, progress))
+                }.toSet()
             }
-            preferences[progressUpsertsKey] = pending.map { (key, progress) ->
-                gson.toJson(PendingProgressUpsert(key, progress))
-            }.toSet()
         }
     }
 
@@ -102,18 +114,20 @@ class WatchStateMutationStore @Inject constructor(
     suspend fun queueWatchedUpserts(items: Collection<WatchedItem>, profileId: Int) {
         if (items.isEmpty()) return
         store(profileId).edit { preferences ->
-            val pending = parseWatchedUpserts(preferences[watchedUpsertsKey]).toMutableMap()
-            items.forEach { item ->
-                pending[item.mutationKey()] = item
+            val upserts = preferences[watchedUpsertsKey]
+            val deletes = preferences[watchedDeletesKey]
+            val serialized = withContext(Dispatchers.Default) {
+                val pending = parseWatchedUpserts(upserts).toMutableMap()
+                items.forEach { item ->
+                    pending[item.mutationKey()] = item
+                }
+                val upsertKeys = items.mapTo(mutableSetOf(), WatchedItem::mutationKey)
+                pending.map { (key, item) ->
+                    gson.toJson(PendingWatchedUpsert(key, item))
+                }.toSet() to parseWatchedDeletes(deletes).minus(upsertKeys).map(gson::toJson).toSet()
             }
-            preferences[watchedUpsertsKey] = pending.map { (key, item) ->
-                gson.toJson(PendingWatchedUpsert(key, item))
-            }.toSet()
-            val upsertKeys = items.mapTo(mutableSetOf(), WatchedItem::mutationKey)
-            preferences[watchedDeletesKey] = parseWatchedDeletes(preferences[watchedDeletesKey])
-                .minus(upsertKeys)
-                .map(gson::toJson)
-                .toSet()
+            preferences[watchedUpsertsKey] = serialized.first
+            preferences[watchedDeletesKey] = serialized.second
         }
     }
 
@@ -121,13 +135,17 @@ class WatchStateMutationStore @Inject constructor(
         if (keys.isEmpty()) return
         val normalized = keys.toSet()
         store(profileId).edit { preferences ->
-            val pending = parseWatchedUpserts(preferences[watchedUpsertsKey]) - normalized
-            preferences[watchedUpsertsKey] = pending.map { (key, item) ->
-                gson.toJson(PendingWatchedUpsert(key, item))
-            }.toSet()
-            preferences[watchedDeletesKey] = (parseWatchedDeletes(preferences[watchedDeletesKey]) + normalized)
-                .map(gson::toJson)
-                .toSet()
+            val upserts = preferences[watchedUpsertsKey]
+            val deletes = preferences[watchedDeletesKey]
+            val serialized = withContext(Dispatchers.Default) {
+                val pending = (parseWatchedUpserts(upserts) - normalized).map { (key, item) ->
+                    gson.toJson(PendingWatchedUpsert(key, item))
+                }.toSet()
+                val pendingDeletes = (parseWatchedDeletes(deletes) + normalized).map(gson::toJson).toSet()
+                pending to pendingDeletes
+            }
+            preferences[watchedUpsertsKey] = serialized.first
+            preferences[watchedDeletesKey] = serialized.second
         }
     }
 
@@ -143,14 +161,17 @@ class WatchStateMutationStore @Inject constructor(
     suspend fun acknowledgeWatchedUpserts(items: Collection<WatchedItem>, profileId: Int) {
         if (items.isEmpty()) return
         store(profileId).edit { preferences ->
-            val pending = parseWatchedUpserts(preferences[watchedUpsertsKey]).toMutableMap()
-            items.forEach { item ->
-                val key = item.mutationKey()
-                if (pending[key] == item) pending.remove(key)
+            val raw = preferences[watchedUpsertsKey]
+            preferences[watchedUpsertsKey] = withContext(Dispatchers.Default) {
+                val pending = parseWatchedUpserts(raw).toMutableMap()
+                items.forEach { item ->
+                    val key = item.mutationKey()
+                    if (pending[key] == item) pending.remove(key)
+                }
+                pending.map { (key, item) ->
+                    gson.toJson(PendingWatchedUpsert(key, item))
+                }.toSet()
             }
-            preferences[watchedUpsertsKey] = pending.map { (key, item) ->
-                gson.toJson(PendingWatchedUpsert(key, item))
-            }.toSet()
         }
     }
 
@@ -160,10 +181,10 @@ class WatchStateMutationStore @Inject constructor(
     ) {
         if (keys.isEmpty()) return
         store(profileId).edit { preferences ->
-            preferences[watchedDeletesKey] = parseWatchedDeletes(preferences[watchedDeletesKey])
-                .minus(keys.toSet())
-                .map(gson::toJson)
-                .toSet()
+            val raw = preferences[watchedDeletesKey]
+            preferences[watchedDeletesKey] = withContext(Dispatchers.Default) {
+                parseWatchedDeletes(raw).minus(keys.toSet()).map(gson::toJson).toSet()
+            }
         }
     }
 

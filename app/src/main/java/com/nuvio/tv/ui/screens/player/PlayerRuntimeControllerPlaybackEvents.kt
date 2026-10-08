@@ -727,16 +727,23 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
         progressPercent = fallbackPercent
     )
 
-    scope.launch(kotlinx.coroutines.NonCancellable) {
+    // Decide on the caller thread. The disk write runs later, and the next
+    // episode can reset this flag as soon as this function returns.
+    val completed = progress.isCompleted()
+    val shouldMarkCompleted = completed && !hasMarkedCurrentEpisodeCompleted
+    if (shouldMarkCompleted) {
+        hasMarkedCurrentEpisodeCompleted = true
+    }
+    val skipInProgressSave = hasMarkedCurrentEpisodeCompleted
+    scope.launch(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
         val effectiveContentId = watchProgressRepository.normalizeParentContentId(
             parentContentId = progress.contentId,
             videoId = progress.videoId,
             profileId = profileId
         )
         val normalizedProgress = progress.copy(contentId = effectiveContentId)
-        if (normalizedProgress.isCompleted()) {
-            if (!hasMarkedCurrentEpisodeCompleted) {
-                hasMarkedCurrentEpisodeCompleted = true
+        if (completed) {
+            if (shouldMarkCompleted) {
                 watchProgressRepository.markAsCompleted(
                     normalizedProgress,
                     profileId = profileId,
@@ -744,7 +751,7 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
                 )
             }
             runCatching { tvRecommendationManager.onProgressRemoved(normalizedProgress.contentId) }
-        } else if (!hasMarkedCurrentEpisodeCompleted) {
+        } else if (!skipInProgressSave) {
             // Only save in-progress when the episode has not already been
             // marked as completed during this playback session.  After
             // natural playback completion the player can report stale

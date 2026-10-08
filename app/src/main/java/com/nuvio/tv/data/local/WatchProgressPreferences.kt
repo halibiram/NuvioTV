@@ -10,10 +10,16 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
+import com.google.gson.stream.JsonReader
 import com.nuvio.tv.domain.model.WatchProgress
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -27,6 +33,8 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.StringReader
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -53,6 +61,12 @@ class WatchProgressPreferences @Inject constructor(
         val json: String,
         val entries: Map<String, WatchProgress>
     )
+
+    private sealed interface BucketPayload {
+        data object Unchanged : BucketPayload
+        data object Clear : BucketPayload
+        data class Replace(val json: String) : BucketPayload
+    }
 
     private fun metadataStore(profileId: Int = profileManager.activeProfileId.value) =
         factory.get(profileId, WATCH_PROGRESS_METADATA_FEATURE)
@@ -264,17 +278,15 @@ class WatchProgressPreferences @Inject constructor(
     suspend fun saveProgress(
         progress: WatchProgress,
         profileId: Int = profileManager.activeProfileId.value
-    ) {
+    ) = onJsonThread {
         storageMutex.withLock {
             ensureStorageLocked(profileId)
             val recent = readBucket(recentStore(profileId), profileId, true)
             val key = createKey(progress)
             if (key in recent) {
-                recentStore(profileId).edit { preferences ->
-                    val map = parseProgressMap(preferences[watchProgressEntriesKey] ?: "{}").toMutableMap()
-                    upsertProgressEntries(map, listOf(progress))
-                    preferences[watchProgressEntriesKey] = gson.toJson(map)
-                }
+                val map = recent.toMutableMap()
+                upsertProgressEntries(map, listOf(progress))
+                writeBucketLocked(recentStore(profileId), map, profileId, recent = true)
             } else {
                 val archive = readBucket(archiveStore(profileId), profileId, false)
                 val entries = mergeWatchProgressBuckets(recent, archive)
@@ -291,8 +303,8 @@ class WatchProgressPreferences @Inject constructor(
     suspend fun saveProgressBatch(
         progressList: List<WatchProgress>,
         profileId: Int = profileManager.activeProfileId.value
-    ) {
-        if (progressList.isEmpty()) return
+    ) = onJsonThread {
+        if (progressList.isEmpty()) return@onJsonThread
         storageMutex.withLock {
             ensureStorageLocked(profileId)
             val current = readBucketsLocked(profileId)
@@ -310,7 +322,7 @@ class WatchProgressPreferences @Inject constructor(
         season: Int? = null,
         episode: Int? = null,
         profileId: Int = profileManager.activeProfileId.value
-    ) {
+    ) = onJsonThread {
         storageMutex.withLock {
             ensureStorageLocked(profileId)
             val current = readBucketsLocked(profileId)
@@ -356,8 +368,8 @@ class WatchProgressPreferences @Inject constructor(
         contentId: String,
         episodes: List<Pair<Int, Int>>,
         profileId: Int = profileManager.activeProfileId.value
-    ) {
-        if (episodes.isEmpty()) return
+    ) = onJsonThread {
+        if (episodes.isEmpty()) return@onJsonThread
         storageMutex.withLock {
             ensureStorageLocked(profileId)
             val current = readBucketsLocked(profileId)
@@ -433,8 +445,8 @@ class WatchProgressPreferences @Inject constructor(
      * @param profileId Explicit profile to read from. Prevents race conditions
      *   when the active profile changes between scheduling and execution of a sync.
      */
-    suspend fun getAllRawEntries(profileId: Int = profileManager.activeProfileId.value): Map<String, WatchProgress> {
-        return storageMutex.withLock {
+    suspend fun getAllRawEntries(profileId: Int = profileManager.activeProfileId.value): Map<String, WatchProgress> = onJsonThread {
+        storageMutex.withLock {
             ensureStorageLocked(profileId)
             val buckets = readBucketsLocked(profileId)
             mergeWatchProgressBuckets(buckets.recent, buckets.archive)
@@ -455,7 +467,7 @@ class WatchProgressPreferences @Inject constructor(
         profileId: Int = profileManager.activeProfileId.value,
         removeMissingRemoteEntries: Boolean = true,
         isNonTraktId: ((String) -> Boolean)? = null
-    ): Boolean {
+    ): Boolean = onJsonThread {
         var preservedLocalItems = false
         Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${remoteEntries.size} remote entries, profile=$profileId, removeMissing=$removeMissingRemoteEntries")
         storageMutex.withLock {
@@ -506,7 +518,7 @@ class WatchProgressPreferences @Inject constructor(
             Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${local.size} entries after merge, writing to DataStore")
             writeBucketsLocked(profileId, current, updated)
         }
-        return preservedLocalItems
+        preservedLocalItems
     }
 
     suspend fun applyRemoteChanges(
@@ -516,10 +528,10 @@ class WatchProgressPreferences @Inject constructor(
         pendingDeleteKeys: Set<String> = emptySet(),
         lastSuccessfulPushMs: Long? = null,
         profileId: Int = profileManager.activeProfileId.value
-    ): Boolean {
+    ): Boolean = onJsonThread {
         if (upserts.isEmpty() && deletes.isEmpty()) {
             Log.d(TAG, "applyRemoteChanges: no changes for profile $profileId")
-            return false
+            return@onJsonThread false
         }
         var preservedLocalItems = false
         var beforeCount = 0
@@ -559,7 +571,7 @@ class WatchProgressPreferences @Inject constructor(
             writeBucketsLocked(profileId, current, updated)
         }
         Log.d(TAG, "applyRemoteChanges: profile=$profileId before=$beforeCount after=$afterCount upserts=${upserts.size} deletes=${deletes.size} preservedLocal=$preservedLocalItems")
-        return preservedLocalItems
+        preservedLocalItems
     }
 
     suspend fun replaceWithRemoteEntries(
@@ -578,11 +590,13 @@ class WatchProgressPreferences @Inject constructor(
     /**
      * Clear all watch progress
      */
-    suspend fun clearAll(profileId: Int = profileManager.activeProfileId.value) {
+    suspend fun clearAll(profileId: Int = profileManager.activeProfileId.value) = onJsonThread {
         storageMutex.withLock {
             ensureStorageLocked(profileId)
             clearBucketLocked(recentStore(profileId))
+            rememberParsedBucket(profileId, "{}", emptyMap(), recent = true)
             clearBucketLocked(archiveStore(profileId))
+            rememberParsedBucket(profileId, "{}", emptyMap(), recent = false)
             metadataStore(profileId).edit { preferences ->
                 preferences.remove(watchProgressEntriesKey)
                 preferences.remove(deltaCursorKey)
@@ -598,7 +612,7 @@ class WatchProgressPreferences @Inject constructor(
     suspend fun clearAllPreservingNonTraktIds(
         profileId: Int = profileManager.activeProfileId.value,
         isNonTraktId: (String) -> Boolean
-    ) {
+    ) = onJsonThread {
         storageMutex.withLock {
             ensureStorageLocked(profileId)
             val current = readBucketsLocked(profileId)
@@ -657,11 +671,13 @@ class WatchProgressPreferences @Inject constructor(
         if (profileId in initializedProfiles) return
         val metadata = metadataStore(profileId).data.first()
         if ((metadata[watchProgressStorageVersionKey] ?: 0) < WATCH_PROGRESS_STORAGE_VERSION) {
-            val legacy = parseProgressMap(metadata[watchProgressEntriesKey] ?: "{}")
+            val legacy = onJsonThread {
+                parseProgressMap(metadata[watchProgressEntriesKey] ?: "{}")
+            }
             if (legacy.isNotEmpty()) {
                 val buckets = splitWatchProgressEntries(legacy)
-                writeBucketLocked(archiveStore(profileId), buckets.archive)
-                writeBucketLocked(recentStore(profileId), buckets.recent)
+                writeBucketLocked(archiveStore(profileId), buckets.archive, profileId, recent = false)
+                writeBucketLocked(recentStore(profileId), buckets.recent, profileId, recent = true)
                 Log.d(
                     TAG,
                     "Migrated profile=$profileId recent=${buckets.recent.size} archive=${buckets.archive.size}"
@@ -691,7 +707,7 @@ class WatchProgressPreferences @Inject constructor(
         return parseBucket(profileId, json, recent)
     }
 
-    private fun parseBucket(
+    private suspend fun parseBucket(
         profileId: Int,
         json: String,
         recent: Boolean
@@ -700,13 +716,8 @@ class WatchProgressPreferences @Inject constructor(
         if (cached != null && cached.profileId == profileId && cached.json == json) {
             return cached.entries
         }
-        val parsed = parseProgressMap(json)
-        val updated = ProgressMapCache(profileId, json, parsed)
-        if (recent) {
-            recentMapCache = updated
-        } else {
-            archiveMapCache = updated
-        }
+        val parsed = onJsonThread { parseProgressMap(json) }
+        rememberParsedBucket(profileId, json, parsed, recent)
         return parsed
     }
 
@@ -715,24 +726,97 @@ class WatchProgressPreferences @Inject constructor(
         current: WatchProgressBuckets,
         updated: WatchProgressBuckets
     ) {
-        if (current.archive != updated.archive) {
-            writeBucketLocked(archiveStore(profileId), updated.archive)
+        val (archivePayload, recentPayload) = coroutineScope {
+            val archive = async { diffBucket(current.archive, updated.archive) }
+            val recent = async { diffBucket(current.recent, updated.recent) }
+            archive.await() to recent.await()
         }
-        if (current.recent != updated.recent) {
-            writeBucketLocked(recentStore(profileId), updated.recent)
-        }
+        applyBucketPayload(
+            store = archiveStore(profileId),
+            payload = archivePayload,
+            profileId = profileId,
+            recent = false
+        )
+        applyBucketPayload(
+            store = recentStore(profileId),
+            payload = recentPayload,
+            profileId = profileId,
+            recent = true
+        )
     }
 
     private suspend fun writeBucketLocked(
         store: DataStore<Preferences>,
-        entries: Map<String, WatchProgress>
+        entries: Map<String, WatchProgress>,
+        profileId: Int,
+        recent: Boolean
     ) {
-        if (entries.isEmpty()) {
-            clearBucketLocked(store)
-            return
+        val payload = if (entries.isEmpty()) {
+            BucketPayload.Clear
+        } else {
+            onJsonThread {
+                BucketPayload.Replace(gson.toJson(entries))
+            }
         }
-        store.edit { preferences ->
-            preferences[watchProgressEntriesKey] = gson.toJson(entries)
+        applyBucketPayload(store, payload, profileId, recent)
+    }
+
+    /**
+     * Equality and Gson run off the caller thread. Continue Watching is often
+     * focused while a progress flush rewrites thousands of archived episodes,
+     * and doing that on the main thread freezes focus.
+     */
+    private suspend fun diffBucket(
+        current: Map<String, WatchProgress>,
+        updated: Map<String, WatchProgress>
+    ): BucketPayload = onJsonThread {
+        when {
+            current == updated -> BucketPayload.Unchanged
+            updated.isEmpty() -> BucketPayload.Clear
+            else -> BucketPayload.Replace(gson.toJson(updated))
+        }
+    }
+
+    private suspend fun applyBucketPayload(
+        store: DataStore<Preferences>,
+        payload: BucketPayload,
+        profileId: Int,
+        recent: Boolean
+    ) {
+        when (payload) {
+            BucketPayload.Unchanged -> Unit
+            BucketPayload.Clear -> {
+                clearBucketLocked(store)
+                rememberParsedBucket(profileId, "{}", emptyMap(), recent)
+            }
+            is BucketPayload.Replace -> {
+                store.edit { preferences ->
+                    preferences[watchProgressEntriesKey] = payload.json
+                }
+            }
+        }
+    }
+
+    private suspend fun <T> onJsonThread(block: suspend () -> T): T {
+        val interceptor = coroutineContext[ContinuationInterceptor]
+        return if (interceptor == Dispatchers.Default) {
+            block()
+        } else {
+            withContext(Dispatchers.Default) { block() }
+        }
+    }
+
+    private fun rememberParsedBucket(
+        profileId: Int,
+        json: String,
+        entries: Map<String, WatchProgress>,
+        recent: Boolean
+    ) {
+        val updated = ProgressMapCache(profileId, json, entries)
+        if (recent) {
+            recentMapCache = updated
+        } else {
+            archiveMapCache = updated
         }
     }
 
@@ -796,9 +880,45 @@ class WatchProgressPreferences @Inject constructor(
         )
     }
 
+    internal fun parseResolvedForTest(json: String): Map<String, WatchProgress> = parseProgressMap(json)
+
     private fun parseProgressMap(json: String): Map<String, WatchProgress> {
+        if (json.isEmpty() || json == "{}") return emptyMap()
         return try {
-            // Parse entry-by-entry so one malformed value doesn't wipe the entire map.
+            parseWatchProgressStreaming(json)
+        } catch (e: Exception) {
+            Log.e(TAG, "Streaming watch progress parse failed; using document parser", e)
+            parseWatchProgressDocument(json)
+        }
+    }
+
+    /**
+     * Walks one object at a time so a large archive is not held as a single Gson tree.
+     * Each value is still interpreted by [parseWatchProgressFromJson].
+     */
+    internal fun parseWatchProgressStreaming(json: String): Map<String, WatchProgress> {
+        val parsed = LinkedHashMap<String, WatchProgress>()
+        JsonReader(StringReader(json)).use { reader ->
+            reader.beginObject()
+            while (reader.hasNext()) {
+                val key = reader.nextName()
+                val element = JsonParser.parseReader(reader)
+                val progress = try {
+                    parseWatchProgressFromJson(element)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Skipping malformed watch progress entry for key=$key")
+                    null
+                }
+                if (progress != null) parsed[key] = progress
+            }
+            reader.endObject()
+        }
+        return parsed
+    }
+
+    /** Whole-document parse. Kept so a broken stream still produces the historical result. */
+    internal fun parseWatchProgressDocument(json: String): Map<String, WatchProgress> {
+        return try {
             val root = gson.fromJson(json, JsonObject::class.java) ?: return emptyMap()
             val parsed = mutableMapOf<String, WatchProgress>()
             root.entrySet().forEach { (key, value) ->
@@ -813,7 +933,6 @@ class WatchProgressPreferences @Inject constructor(
             parsed
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse progress data", e)
-            // Backward compatibility with previously stored direct WatchProgress payloads.
             runCatching {
                 val fallbackType = object : TypeToken<Map<String, WatchProgress>>() {}.type
                 gson.fromJson<Map<String, WatchProgress>>(json, fallbackType) ?: emptyMap()
@@ -860,44 +979,65 @@ class WatchProgressPreferences @Inject constructor(
 
     private fun JsonObject.getString(vararg keys: String): String? {
         keys.forEach { key ->
-            val value = this.get(key) ?: return@forEach
+            val value = get(key) ?: return@forEach
             if (value.isJsonNull) return@forEach
-            return runCatching { value.asString }.getOrNull()
+            return stringOrNull(value)
         }
         return null
     }
 
     private fun JsonObject.getLong(vararg keys: String): Long? {
         keys.forEach { key ->
-            val value = this.get(key) ?: return@forEach
-            if (value.isJsonNull) return@forEach
-            runCatching { value.asLong }.getOrNull()?.let { return it }
-            runCatching { value.asDouble.toLong() }.getOrNull()?.let { return it }
-            runCatching { value.asString.toLong() }.getOrNull()?.let { return it }
+            longOrNull(get(key))?.let { return it }
         }
         return null
     }
 
     private fun JsonObject.getInt(vararg keys: String): Int? {
         keys.forEach { key ->
-            val value = this.get(key) ?: return@forEach
-            if (value.isJsonNull) return@forEach
-            runCatching { value.asInt }.getOrNull()?.let { return it }
-            runCatching { value.asDouble.toInt() }.getOrNull()?.let { return it }
-            runCatching { value.asString.toInt() }.getOrNull()?.let { return it }
+            intOrNull(get(key))?.let { return it }
         }
         return null
     }
 
     private fun JsonObject.getFloat(vararg keys: String): Float? {
         keys.forEach { key ->
-            val value = this.get(key) ?: return@forEach
-            if (value.isJsonNull) return@forEach
-            runCatching { value.asFloat }.getOrNull()?.let { return it }
-            runCatching { value.asDouble.toFloat() }.getOrNull()?.let { return it }
-            runCatching { value.asString.toFloat() }.getOrNull()?.let { return it }
+            floatOrNull(get(key))?.let { return it }
         }
         return null
+    }
+
+    private fun stringOrNull(value: JsonElement?): String? {
+        if (value == null || value.isJsonNull || !value.isJsonPrimitive) return null
+        return try {
+            value.asString
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun longOrNull(value: JsonElement?): Long? {
+        if (value == null || value.isJsonNull || !value.isJsonPrimitive) return null
+        val primitive = value.asJsonPrimitive
+        try { return primitive.asLong } catch (_: Exception) {}
+        try { return primitive.asDouble.toLong() } catch (_: Exception) {}
+        return try { primitive.asString.toLong() } catch (_: Exception) { null }
+    }
+
+    private fun intOrNull(value: JsonElement?): Int? {
+        if (value == null || value.isJsonNull || !value.isJsonPrimitive) return null
+        val primitive = value.asJsonPrimitive
+        try { return primitive.asInt } catch (_: Exception) {}
+        try { return primitive.asDouble.toInt() } catch (_: Exception) {}
+        return try { primitive.asString.toInt() } catch (_: Exception) { null }
+    }
+
+    private fun floatOrNull(value: JsonElement?): Float? {
+        if (value == null || value.isJsonNull || !value.isJsonPrimitive) return null
+        val primitive = value.asJsonPrimitive
+        try { return primitive.asFloat } catch (_: Exception) {}
+        try { return primitive.asDouble.toFloat() } catch (_: Exception) {}
+        return try { primitive.asString.toFloat() } catch (_: Exception) { null }
     }
 
 }

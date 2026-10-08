@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -80,8 +81,8 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
     private val mutex = Mutex()
     @Volatile private var lastNextUpWriteMs = 0L
     @Volatile private var lastInProgressWriteMs = 0L
-    @Volatile private var lastNextUpHash = 0
-    @Volatile private var lastInProgressHash = 0
+    private val lastNextUpJsonByProfile = ConcurrentHashMap<Int, String>()
+    private val lastInProgressJsonByProfile = ConcurrentHashMap<Int, String>()
 
     /** Incremented when cache is cleared; observers can collect to trigger refresh. */
     private val _cacheCleared = kotlinx.coroutines.flow.MutableStateFlow(0)
@@ -100,41 +101,24 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
         return File(dir, "nextup_${profileId}.json")
     }
 
-    suspend fun getNextUpSnapshot(): List<CachedNextUpItem> = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            try {
-                val file = nextUpFile()
-                if (!file.exists()) return@withContext emptyList()
-                gson.fromJson(file.readText(), object : TypeToken<List<CachedNextUpItem>>() {}.type)
-                    ?: emptyList()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read next-up cache: ${e.message}")
-                emptyList()
-            }
-        }
-    }
+    suspend fun getNextUpSnapshot(): List<CachedNextUpItem> = readSnapshot(
+        file = { nextUpFile() },
+        type = object : TypeToken<List<CachedNextUpItem>>() {}.type
+    )
 
     /**
-     * @param force bypass throttle and content-change check (use at end of pipeline or for clears)
+     * @param force bypass the time throttle. Identical payloads are still skipped so a
+     * focused Continue Watching row does not rewrite the same JSON on every pipeline pass.
      */
-    suspend fun saveNextUpSnapshot(items: List<CachedNextUpItem>, force: Boolean = false) = withContext(Dispatchers.IO) {
-        val contentHash = items.hashCode()
-        if (!force) {
-            if (contentHash == lastNextUpHash) return@withContext
-            val now = System.currentTimeMillis()
-            if (now - lastNextUpWriteMs < THROTTLE_MS) return@withContext
-        }
-        mutex.withLock {
-            try {
-                val file = nextUpFile()
-                atomicWrite(file, gson.toJson(items))
-                lastNextUpWriteMs = System.currentTimeMillis()
-                lastNextUpHash = contentHash
-                _snapshotVersion.value++
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to write next-up cache: ${e.message}")
-            }
-        }
+    suspend fun saveNextUpSnapshot(items: List<CachedNextUpItem>, force: Boolean = false) {
+        saveSnapshot(
+            items = items,
+            force = force,
+            lastWriteMs = { lastNextUpWriteMs },
+            updateLastWriteMs = { lastNextUpWriteMs = it },
+            jsonByProfile = lastNextUpJsonByProfile,
+            file = { nextUpFile() }
+        )
     }
 
     // --- In-progress snapshot cache ---
@@ -146,41 +130,23 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
         return File(dir, "inprogress_${profileId}.json")
     }
 
-    suspend fun getInProgressSnapshot(): List<CachedInProgressItem> = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            try {
-                val file = inProgressFile()
-                if (!file.exists()) return@withContext emptyList()
-                gson.fromJson(file.readText(), object : TypeToken<List<CachedInProgressItem>>() {}.type)
-                    ?: emptyList()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read in-progress cache: ${e.message}")
-                emptyList()
-            }
-        }
-    }
+    suspend fun getInProgressSnapshot(): List<CachedInProgressItem> = readSnapshot(
+        file = { inProgressFile() },
+        type = object : TypeToken<List<CachedInProgressItem>>() {}.type
+    )
 
     /**
-     * @param force bypass throttle and content-change check (use at end of pipeline or for clears)
+     * @param force bypass the time throttle. Identical payloads are still skipped.
      */
-    suspend fun saveInProgressSnapshot(items: List<CachedInProgressItem>, force: Boolean = false) = withContext(Dispatchers.IO) {
-        val contentHash = items.hashCode()
-        if (!force) {
-            if (contentHash == lastInProgressHash) return@withContext
-            val now = System.currentTimeMillis()
-            if (now - lastInProgressWriteMs < THROTTLE_MS) return@withContext
-        }
-        mutex.withLock {
-            try {
-                val file = inProgressFile()
-                atomicWrite(file, gson.toJson(items))
-                lastInProgressWriteMs = System.currentTimeMillis()
-                lastInProgressHash = contentHash
-                _snapshotVersion.value++
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to write in-progress cache: ${e.message}")
-            }
-        }
+    suspend fun saveInProgressSnapshot(items: List<CachedInProgressItem>, force: Boolean = false) {
+        saveSnapshot(
+            items = items,
+            force = force,
+            lastWriteMs = { lastInProgressWriteMs },
+            updateLastWriteMs = { lastInProgressWriteMs = it },
+            jsonByProfile = lastInProgressJsonByProfile,
+            file = { inProgressFile() }
+        )
     }
 
     /**
@@ -189,16 +155,69 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
+                val profileId = profileManager.activeProfileId.value
                 nextUpFile().delete()
                 inProgressFile().delete()
-                lastNextUpHash = 0
-                lastInProgressHash = 0
+                lastNextUpJsonByProfile.remove(profileId)
+                lastInProgressJsonByProfile.remove(profileId)
+                lastNextUpWriteMs = 0L
+                lastInProgressWriteMs = 0L
                 Log.d(TAG, "Cleared CW enrichment cache for profile ${profileManager.activeProfileId.value}")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to clear CW enrichment cache: ${e.message}")
             }
         }
         _cacheCleared.value++
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun <T> readSnapshot(file: () -> File, type: java.lang.reflect.Type): T =
+        withContext(Dispatchers.IO) {
+            val text = try {
+                mutex.withLock {
+                    val target = file()
+                    if (!target.exists()) null else target.readText()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read CW cache: ${e.message}")
+                return@withContext emptyList<Any>() as T
+            }
+            if (text == null) return@withContext emptyList<Any>() as T
+            withContext(Dispatchers.Default) {
+                try {
+                    gson.fromJson<T>(text, type) ?: emptyList<Any>() as T
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse CW cache: ${e.message}")
+                    emptyList<Any>() as T
+                }
+            }
+        }
+
+    private suspend fun saveSnapshot(
+        items: List<*>,
+        force: Boolean,
+        lastWriteMs: () -> Long,
+        updateLastWriteMs: (Long) -> Unit,
+        jsonByProfile: ConcurrentHashMap<Int, String>,
+        file: () -> File
+    ) {
+        // Queue in call order. Gson runs after the turn is taken, so a newer
+        // snapshot cannot be overwritten by an older one that finished encoding first.
+        mutex.withLock {
+            val profileId = profileManager.activeProfileId.value
+            if (!force && System.currentTimeMillis() - lastWriteMs() < THROTTLE_MS) return@withLock
+            val json = withContext(Dispatchers.Default) { gson.toJson(items) }
+            val target = file()
+            if (jsonByProfile[profileId] == json && target.exists()) return@withLock
+            try {
+                atomicWrite(target, json)
+                updateLastWriteMs(System.currentTimeMillis())
+                jsonByProfile[profileId] = json
+                _snapshotVersion.value++
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to write CW cache: ${e.message}")
+            }
+        }
     }
 
     private fun atomicWrite(target: File, content: String) {

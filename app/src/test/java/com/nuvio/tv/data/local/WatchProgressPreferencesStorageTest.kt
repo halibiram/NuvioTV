@@ -406,6 +406,81 @@ class WatchProgressPreferencesStorageTest {
         assertFalse(harness.preferences.getAllRawEntries().containsKey("boundary"))
     }
 
+    @Test
+    fun `streaming parse matches the document parse`() = runTest {
+        val preferences = harness(emptyMap()).preferences
+        val generated = (0 until 300).joinToString(prefix = "{", postfix = "}") { index ->
+            """"$index":{"contentId":"id$index","contentType":"series","videoId":"v$index","lastWatched":$index,"position":"$index","season":${index % 8},"episode":${index % 20},"progressPercent":${index / 10.0}}"""
+        }
+        val readable = listOf(
+            "{}",
+            generated,
+            """{"good":{"contentId":"good","contentType":"movie","videoId":"good","lastWatched":3,"position":"1500"},"snake":{"content_id":"snake","content_type":"series","video_id":"snake","last_watched":4,"season":1,"episode":2},"encoded":"{\"contentId\":\"encoded\",\"contentType\":\"movie\",\"videoId\":\"encoded\",\"lastWatched\":5}","bad":"not-json"}"""
+        )
+        readable.forEach { json ->
+            assertEquals(
+                preferences.parseWatchProgressDocument(json),
+                preferences.parseWatchProgressStreaming(json)
+            )
+        }
+        listOf("", "null", "[]", "{bad").forEach { json ->
+            assertEquals(
+                preferences.parseWatchProgressDocument(json),
+                preferences.run { parseResolvedForTest(json) }
+            )
+        }
+    }
+
+    @Test
+    fun `warm cache matches a cold parse of the bytes just written`() = runTest {
+        val harness = harness(emptyMap())
+        harness.preferences.saveProgress(
+            progress("movie", lastWatched = 20L).copy(
+                season = 2,
+                episode = 4,
+                episodeTitle = "Cold open",
+                position = 4_500L,
+                progressPercent = 12.5f,
+                source = WatchProgress.SOURCE_TRAKT_PLAYBACK
+            )
+        )
+
+        val warm = harness.preferences.getAllRawEntries()
+        val cold = WatchProgressPreferences(harness.factory, harness.profileManager).getAllRawEntries()
+
+        assertEquals(cold, warm)
+        assertEquals(4_500L, cold.getValue("movie_s2e4").position)
+        assertEquals(12.5f, cold.getValue("movie_s2e4").progressPercent)
+    }
+
+    @Test
+    fun `malformed and alternate progress payloads keep the readable entries`() = runTest {
+        val harness = harness(emptyMap())
+        harness.preferences.getAllRawEntries()
+        val json = """
+            {
+              "good":{"contentId":"good","contentType":"movie","videoId":"good","lastWatched":3,"position":"1500","duration":9000},
+              "snake":{"content_id":"snake","content_type":"series","video_id":"snake","last_watched":4,"season":1,"episode":2},
+              "encoded":"{\"contentId\":\"encoded\",\"contentType\":\"movie\",\"videoId\":\"encoded\",\"lastWatched\":5}",
+              "bad":"not-json",
+              "empty":{"name":"missing ids"}
+            }
+        """.trimIndent()
+        harness.recent.updateData { current ->
+            current.toMutablePreferences().apply {
+                this[watchProgressEntriesKey] = json
+            }.toPreferences()
+        }
+
+        val entries = WatchProgressPreferences(harness.factory, harness.profileManager).getAllRawEntries()
+
+        assertEquals(setOf("good", "snake", "encoded"), entries.keys)
+        assertEquals(1_500L, entries.getValue("good").position)
+        assertEquals(1, entries.getValue("snake").season)
+        assertEquals(2, entries.getValue("snake").episode)
+        assertEquals("encoded", entries.getValue("encoded").contentId)
+    }
+
     private fun harness(entries: Map<String, WatchProgress>): Harness {
         val metadata = TestPreferencesDataStore(preferences(entries = entries))
         val recent = TestPreferencesDataStore()
