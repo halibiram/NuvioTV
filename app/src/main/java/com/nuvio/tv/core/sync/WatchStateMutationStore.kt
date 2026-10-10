@@ -4,6 +4,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.gson.Gson
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
+import com.nuvio.tv.data.mediaserver.ServerItemRef
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.WatchedItem
 import com.nuvio.tv.domain.model.WatchedMutationKey
@@ -44,6 +45,7 @@ class WatchStateMutationStore @Inject constructor(
         entries: Map<String, WatchProgress>,
         profileId: Int
     ) {
+        val entries = entries.filterValues { !ServerItemRef.isServerId(it.contentId) }
         if (entries.isEmpty()) return
         store(profileId).edit { preferences ->
             val raw = preferences[progressUpsertsKey]
@@ -62,7 +64,7 @@ class WatchStateMutationStore @Inject constructor(
     }
 
     suspend fun queueProgressDeletes(keys: Collection<String>, profileId: Int) {
-        val normalized = keys.map(String::trim).filter(String::isNotEmpty).toSet()
+        val normalized = keys.map(String::trim).filter { it.isNotEmpty() && !ServerItemRef.isServerId(it) }.toSet()
         if (normalized.isEmpty()) return
         store(profileId).edit { preferences ->
             val raw = preferences[progressUpsertsKey]
@@ -112,6 +114,7 @@ class WatchStateMutationStore @Inject constructor(
     }
 
     suspend fun queueWatchedUpserts(items: Collection<WatchedItem>, profileId: Int) {
+        val items = items.filterNot { ServerItemRef.isServerId(it.contentId) }
         if (items.isEmpty()) return
         store(profileId).edit { preferences ->
             val upserts = preferences[watchedUpsertsKey]
@@ -132,8 +135,8 @@ class WatchStateMutationStore @Inject constructor(
     }
 
     suspend fun queueWatchedDeletes(keys: Collection<WatchedMutationKey>, profileId: Int) {
-        if (keys.isEmpty()) return
-        val normalized = keys.toSet()
+        val normalized = keys.filterNot { ServerItemRef.isServerId(it.contentId) }.toSet()
+        if (normalized.isEmpty()) return
         store(profileId).edit { preferences ->
             val upserts = preferences[watchedUpsertsKey]
             val deletes = preferences[watchedDeletesKey]

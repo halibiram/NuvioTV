@@ -13,6 +13,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
+import com.nuvio.tv.data.mediaserver.ServerItemRef
 import com.nuvio.tv.domain.model.WatchProgress
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.coroutineContext
@@ -480,6 +481,9 @@ class WatchProgressPreferences @Inject constructor(
                 val removedKeys = local.keys - remoteEntries.keys
                 removedKeys.forEach { key ->
                     val localEntry = local[key]
+                    if (localEntry != null && ServerItemRef.isServerId(localEntry.contentId)) {
+                        return@forEach
+                    }
                     if (localEntry != null && isNonTraktId != null && isNonTraktId(localEntry.contentId)) {
                         Log.d("WatchProgressPrefs", "  preserved key=$key (non-Trakt ID: ${localEntry.contentId})")
                         preservedLocalItems = true
