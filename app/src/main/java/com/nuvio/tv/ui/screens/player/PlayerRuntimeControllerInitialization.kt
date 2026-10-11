@@ -2188,8 +2188,9 @@ private class SubtitleOffsetRenderersFactory(
             allowedVideoJoiningTimeMs,
             out
         )
+        moveFfmpegVideoRenderersLast(out)
         if (videoExtensionMode != EXTENSION_RENDERER_MODE_OFF &&
-            out.none { it.javaClass.simpleName.contains("FfmpegVideo") }
+            out.none(::isFfmpegVideoRenderer)
         ) {
             runCatching {
                 val clazz = Class.forName(
