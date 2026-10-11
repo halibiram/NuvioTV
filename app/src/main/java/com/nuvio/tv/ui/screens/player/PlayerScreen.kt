@@ -1789,7 +1789,6 @@ private fun ExoPlayerSurface(
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             enableComposeSurfaceSyncWorkaroundIfAvailable()
-            (videoSurfaceView as? SurfaceView)?.holder?.setFormat(PixelFormat.RGBX_8888)
             this.player = player
         }
     }
@@ -1830,6 +1829,16 @@ private fun ExoPlayerSurface(
     }
 
     DisposableEffect(player, playerView) {
+        var rgbxSurface = false
+        fun syncSurfaceFormat(tracks: Tracks) {
+            if (!tracks.isTypeSelected(androidx.media3.common.C.TRACK_TYPE_VIDEO)) return
+            val ffmpegVideo = player.isFfmpegVideoSelected(tracks)
+            if (ffmpegVideo == rgbxSurface) return
+            rgbxSurface = ffmpegVideo
+            (playerView.videoSurfaceView as? SurfaceView)?.holder?.setFormat(
+                if (ffmpegVideo) PixelFormat.RGBX_8888 else PixelFormat.OPAQUE
+            )
+        }
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 controller.videoAspectRatio = if (videoSize.width > 0 && videoSize.height > 0) {
@@ -1849,6 +1858,7 @@ private fun ExoPlayerSurface(
             }
 
             override fun onTracksChanged(tracks: Tracks) {
+                syncSurfaceFormat(tracks)
                 // Re-apply subtitle style when tracks change so style is applied
                 // even when subtitles are enabled after initial player setup.
                 playerView.post {
@@ -1857,6 +1867,7 @@ private fun ExoPlayerSurface(
             }
         }
         player.addListener(listener)
+        syncSurfaceFormat(player.currentTracks)
         playerView.post {
             playerView.applyExoAspectMode(latestAspectMode)
         }
