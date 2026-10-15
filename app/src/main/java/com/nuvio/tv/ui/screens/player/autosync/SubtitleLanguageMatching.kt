@@ -1,5 +1,9 @@
 package com.nuvio.tv.ui.screens.player.autosync
 
+import com.nuvio.tv.ui.util.detectSerboCroatianLanguageFromHaystack
+import com.nuvio.tv.ui.util.mapSerboCroatianLanguageCode
+import com.nuvio.tv.ui.util.resolveLanguageNameAlias
+
 internal object SubtitleLanguageMatching {
     internal val BRAZILIAN_TAGS = listOf(
         "pt-br", "pt_br", "pob", "brazilian", "brazil", "brasil", "brasileiro", " br", "(br)",
@@ -13,6 +17,7 @@ internal object SubtitleLanguageMatching {
     )
     internal val CASTILIAN_TAGS = listOf(
         "es-es", "es_es", "castilian", "castellano", "spain", "españa", "espana", "iberian",
+        "european spanish", "spanish (eu)", "spanish (europe)", "spanish (spain)",
     )
     internal val INDONESIAN_TAGS = listOf(
         "indonesia", "indonesian", "bahasa indonesia",
@@ -41,11 +46,23 @@ internal object SubtitleLanguageMatching {
         "rus" to "ru",
         "pol" to "pl",
         "spa" to "es",
+        "esp" to "es",
+        "spn" to "es",
+        "sp" to "es",
+        "es-es" to "es",
+        "es_es" to "es",
+        "spn-es" to "es",
+        "spn_es" to "es",
         "spl" to "es-419",
+        "ea" to "es-419",
         "es-419" to "es-419",
         "es_419" to "es-419",
         "es-la" to "es-419",
         "es-lat" to "es-419",
+        "spn-419" to "es-419",
+        "spn_419" to "es-419",
+        "spn-la" to "es-419",
+        "spn-lat" to "es-419",
         "fra" to "fr",
         "ita" to "it",
         "eng" to "en",
@@ -241,7 +258,7 @@ internal object SubtitleLanguageMatching {
             }
         }
 
-        if (containsAny("spanish", "espanol", "español", "castellano")) {
+        if (containsAny("spanish", "espanol", "español", "castellano", "castilian")) {
             return if (containsAny(
                     "latin",
                     "latino",
@@ -251,7 +268,10 @@ internal object SubtitleLanguageMatching {
                     "latam",
                     "es 419",
                     "es419",
-                    "la",
+                    "es-la",
+                    "es la",
+                    "(la)",
+                    " la",
                     "(419)",
                 )
             ) {
@@ -268,7 +288,12 @@ internal object SubtitleLanguageMatching {
             return "ms"
         }
 
-        return LANGUAGE_OVERRIDES[code] ?: normalizedCode
+        resolveLanguageNameAlias(tokenized)?.let { return it }
+
+        return LANGUAGE_OVERRIDES[code]
+            ?: LANGUAGE_OVERRIDES[normalizedCode]
+            ?: mapSerboCroatianLanguageCode(normalizedCode)
+            ?: normalizedCode
     }
 
     fun matchesLanguageCode(language: String?, target: String): Boolean {
@@ -312,6 +337,14 @@ internal object SubtitleLanguageMatching {
             .joinToString(" ")
             .lowercase()
 
+        if (baseLang == "hr" || baseLang == "sr" || baseLang == "bs") {
+            return baseLang
+        }
+        val serboCroatian = detectSerboCroatianLanguageFromHaystack(haystack)
+        if (serboCroatian != null && (baseLang.isBlank() || baseLang == "hbs" || baseLang == "und")) {
+            return serboCroatian
+        }
+
         if (baseLang == "pt" || baseLang == "por") {
             val hasBrazilian = BRAZILIAN_TAGS.any { haystack.contains(it) }
             val hasEuropean = EUROPEAN_PT_TAGS.any { haystack.contains(it) }
@@ -320,7 +353,9 @@ internal object SubtitleLanguageMatching {
             return baseLang
         }
 
-        if (baseLang == "es" || baseLang == "spa") {
+        if (baseLang == "es" || baseLang == "es-419" ||
+            baseLang == "spa" || baseLang == "spn" || baseLang == "esp"
+        ) {
             val hasLatino = LATINO_TAGS.any { haystack.contains(it) }
             val hasCastilian = CASTILIAN_TAGS.any { haystack.contains(it) }
             if (hasLatino && !hasCastilian) return "es-419"

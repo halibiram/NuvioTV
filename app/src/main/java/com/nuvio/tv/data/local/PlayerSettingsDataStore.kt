@@ -1436,6 +1436,8 @@ class PlayerSettingsDataStore @Inject constructor(
         return when (code) {
             "pt-br", "pt_br", "br", "pob" -> "pt-br"
             "pt-pt", "pt_pt", "por" -> "pt"
+            "es-es", "es_es", "spn", "sp" -> "es"
+            "es-419", "es_419", "spl", "ea" -> "es-419"
             "forced", "force", "forc" -> SUBTITLE_LANGUAGE_FORCED
             "zh-cn", "zh_cn" -> "zh-CN"
             "zh-tw", "zh_tw" -> "zh-TW"

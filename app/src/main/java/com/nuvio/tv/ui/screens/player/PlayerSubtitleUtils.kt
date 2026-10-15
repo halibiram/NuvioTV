@@ -5,6 +5,8 @@ import android.text.Spanned
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.text.Cue
 import com.nuvio.tv.ui.util.LANGUAGE_OVERRIDES
+import com.nuvio.tv.ui.util.detectSerboCroatianLanguageFromHaystack
+import com.nuvio.tv.ui.util.mapSerboCroatianLanguageCode
 import com.nuvio.tv.ui.util.resolveLanguageNameAlias
 
 internal object PlayerSubtitleUtils {
@@ -34,8 +36,23 @@ internal object PlayerSubtitleUtils {
             return "pt"
         }
 
-        if (containsAny("spanish", "espanol", "español", "castellano")) {
-            if (containsAny("latin", "latino", "latinoamerica", "latinoamericano", "lat am", "latam", "es 419", "es419", "la", "(419)")) {
+        if (containsAny("spanish", "espanol", "español", "castellano", "castilian")) {
+            if (containsAny(
+                    "latin",
+                    "latino",
+                    "latinoamerica",
+                    "latinoamericano",
+                    "lat am",
+                    "latam",
+                    "es 419",
+                    "es419",
+                    "es-la",
+                    "es la",
+                    "(la)",
+                    " la",
+                    "(419)"
+                )
+            ) {
                 return "es-419"
             }
             return "es"
@@ -53,6 +70,7 @@ internal object PlayerSubtitleUtils {
         // LANGUAGE_OVERRIDES uses pt-BR (mixed case) — normalize to lowercase for consistency
         return LANGUAGE_OVERRIDES[code]?.lowercase()
             ?: LANGUAGE_OVERRIDES[normalizedCode]?.lowercase()
+            ?: mapSerboCroatianLanguageCode(normalizedCode)
             ?: normalizedCode
     }
 
@@ -110,6 +128,14 @@ internal object PlayerSubtitleUtils {
             .joinToString(" ")
             .lowercase()
 
+        if (baseLang == "hr" || baseLang == "sr" || baseLang == "bs") {
+            return baseLang
+        }
+        val serboCroatian = detectSerboCroatianLanguageFromHaystack(haystack)
+        if (serboCroatian != null && (baseLang.isBlank() || baseLang == "hbs" || baseLang == "und")) {
+            return serboCroatian
+        }
+
         // Portuguese: detect Brazilian vs European from tags
         if (baseLang == "pt" || baseLang == "por") {
             val hasBrazilian = BRAZILIAN_TAGS.any { haystack.contains(it) }
@@ -119,8 +145,10 @@ internal object PlayerSubtitleUtils {
             return baseLang
         }
 
-        // Spanish: detect Latin American from tags
-        if (baseLang == "es" || baseLang == "spa") {
+        // Spanish: detect Latin American from tags. Unspecified/EU Spanish stays "es".
+        if (baseLang == "es" || baseLang == "es-419" ||
+            baseLang == "spa" || baseLang == "spn" || baseLang == "esp"
+        ) {
             val hasLatino = LATINO_TAGS.any { haystack.contains(it) }
             val hasCastilian = CASTILIAN_TAGS.any { haystack.contains(it) }
             if (hasLatino && !hasCastilian) return "es-419"
@@ -148,7 +176,8 @@ internal object PlayerSubtitleUtils {
         "latinoamericano", "latam", "lat am", "latin america"
     )
     internal val CASTILIAN_TAGS = listOf(
-        "es-es", "es_es", "castilian", "castellano", "spain", "españa", "espana", "iberian"
+        "es-es", "es_es", "castilian", "castellano", "spain", "españa", "espana", "iberian",
+        "european spanish", "spanish (eu)", "spanish (europe)", "spanish (spain)"
     )
     internal val INDONESIAN_TAGS = listOf(
         "indonesia", "indonesian", "bahasa indonesia"

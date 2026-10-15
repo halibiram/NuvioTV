@@ -1789,7 +1789,7 @@ private fun buildSubtitleLanguageRailItems(
         counts[key] = (counts[key] ?: 0) + 1
     }
     addonSubtitles.forEach { subtitle ->
-        val key = normalizeOverlayLanguageKey(subtitle.lang)
+        val key = normalizeOverlayLanguageKeyForSubtitle(subtitle)
         counts[key] = (counts[key] ?: 0) + 1
     }
 
@@ -1882,7 +1882,7 @@ private fun buildSubtitleOptionRailItems(
     }
 
     val matchingAddonSubtitles = addonSubtitles
-        .filter { normalizeOverlayLanguageKey(it.lang) == selectedLanguageKey }
+        .filter { normalizeOverlayLanguageKeyForSubtitle(it) == selectedLanguageKey }
         .distinctBy { addonSubtitleOptionId(it) }
 
     val streamProvidedItems = matchingAddonSubtitles
@@ -1925,7 +1925,7 @@ private fun selectedSubtitleLanguageKey(
     selectedInternalIndex: Int,
     selectedAddonSubtitle: Subtitle?
 ): String {
-    val selectedAddonKey = selectedAddonSubtitle?.let { normalizeOverlayLanguageKey(it.lang) }
+    val selectedAddonKey = selectedAddonSubtitle?.let { normalizeOverlayLanguageKeyForSubtitle(it) }
     if (selectedAddonKey != null) return selectedAddonKey
 
     val selectedInternalKey = internalTracks
@@ -1976,14 +1976,7 @@ private fun streamProvidedSubtitleTitle(subtitle: Subtitle): String {
 
 private fun normalizeOverlayLanguageKey(language: String?): String {
     if (language.isNullOrBlank()) return SubtitleUnknownLanguageKey
-    val normalized = PlayerSubtitleUtils.normalizeLanguageCode(language)
-    return when (normalized) {
-        "pt-br", "es-419" -> normalized
-        else -> normalized
-            .substringBefore('-')
-            .substringBefore('_')
-            .ifBlank { SubtitleUnknownLanguageKey }
-    }
+    return overlayLanguageKeyFromVariant(PlayerSubtitleUtils.normalizeLanguageCode(language))
 }
 
 /**
@@ -1992,11 +1985,26 @@ private fun normalizeOverlayLanguageKey(language: String?): String {
  * even when the language field is generic ("por", "spa").
  */
 private fun normalizeOverlayLanguageKeyForTrack(track: TrackInfo): String {
-    val variant = PlayerSubtitleUtils.detectTrackLanguageVariant(
-        language = track.language,
-        name = track.name,
-        trackId = track.trackId
+    return overlayLanguageKeyFromVariant(
+        PlayerSubtitleUtils.detectTrackLanguageVariant(
+            language = track.language,
+            name = track.name,
+            trackId = track.trackId
+        )
     )
+}
+
+private fun normalizeOverlayLanguageKeyForSubtitle(subtitle: Subtitle): String {
+    return overlayLanguageKeyFromVariant(
+        PlayerSubtitleUtils.detectTrackLanguageVariant(
+            language = subtitle.lang,
+            name = subtitle.addonName,
+            trackId = subtitle.id
+        )
+    )
+}
+
+private fun overlayLanguageKeyFromVariant(variant: String): String {
     return when (variant) {
         "pt-br", "es-419" -> variant
         else -> variant

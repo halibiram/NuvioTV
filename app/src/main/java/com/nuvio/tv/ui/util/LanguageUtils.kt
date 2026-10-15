@@ -41,11 +41,23 @@ internal val LANGUAGE_OVERRIDES = mapOf(
     "rus" to "ru",
     "pol" to "pl",
     "spa" to "es",
+    "esp" to "es",
+    "spn" to "es",
+    "sp" to "es",
+    "es-es" to "es",
+    "es_es" to "es",
+    "spn-es" to "es",
+    "spn_es" to "es",
     "spl" to "es-419",
+    "ea" to "es-419",
     "es-419" to "es-419",
     "es_419" to "es-419",
     "es-la" to "es-419",
     "es-lat" to "es-419",
+    "spn-419" to "es-419",
+    "spn_419" to "es-419",
+    "spn-la" to "es-419",
+    "spn-lat" to "es-419",
     "fra" to "fr",
     "ita" to "it",
     "eng" to "en",
@@ -134,6 +146,42 @@ internal val LANGUAGE_OVERRIDES = mapOf(
     "fil" to "tl"
 )
 
+private val SERBO_CROATIAN_ISO1 = setOf("hr", "sr", "bs")
+private val CROATIAN_LANGUAGE_TOKENS = setOf("hr", "hrv", "croatian", "hrvatski")
+private val SERBIAN_LANGUAGE_TOKENS = setOf("sr", "srp", "serbian", "srpski", "српски")
+private val BOSNIAN_LANGUAGE_TOKENS = setOf("bs", "bos", "bosnian", "bosanski")
+
+/**
+ * Maps Serbo-Croatian macrolanguage tags (ISO 639-3 `hbs`) to Croatian, Serbian, or Bosnian.
+ * Streams often emit `hbs-hrv` / `hbs-srp` / `hbs-bos`; Android has no display name for `hbs`.
+ */
+internal fun mapSerboCroatianLanguageCode(normalizedCode: String): String? {
+    val parts = normalizedCode.lowercase(Locale.ROOT)
+        .replace('_', '-')
+        .split('-')
+        .filter { it.isNotBlank() }
+    if (parts.isEmpty() || parts[0] != "hbs") return null
+    val subtag = parts.getOrNull(1) ?: return null
+    return LANGUAGE_OVERRIDES[subtag] ?: subtag.takeIf { it in SERBO_CROATIAN_ISO1 }
+}
+
+internal fun detectSerboCroatianLanguageFromHaystack(haystack: String): String? {
+    if (haystack.isBlank()) return null
+    val tokens = haystack.lowercase(Locale.ROOT)
+        .replace('_', '-')
+        .split(Regex("[^\\p{L}\\p{N}]+"))
+        .filter { it.isNotBlank() }
+        .toSet()
+    if (tokens.isEmpty()) return null
+
+    val matched = listOfNotNull(
+        "hr".takeIf { tokens.any { token -> token in CROATIAN_LANGUAGE_TOKENS } },
+        "sr".takeIf { tokens.any { token -> token in SERBIAN_LANGUAGE_TOKENS } },
+        "bs".takeIf { tokens.any { token -> token in BOSNIAN_LANGUAGE_TOKENS } }
+    )
+    return matched.singleOrNull()
+}
+
 internal val LANGUAGE_NAME_ALIASES = mapOf(
     "afrikaans" to "af",
     "albanian" to "sq",
@@ -145,12 +193,14 @@ internal val LANGUAGE_NAME_ALIASES = mapOf(
     "belarusian" to "be",
     "bengali" to "bn",
     "bosnian" to "bs",
+    "bosanski" to "bs",
     "bulgarian" to "bg",
     "burmese" to "my",
     "catalan" to "ca",
     "chinese" to "zh",
     "mandarin" to "zh",
     "croatian" to "hr",
+    "hrvatski" to "hr",
     "czech" to "cs",
     "danish" to "da",
     "dutch" to "nl",
@@ -193,6 +243,8 @@ internal val LANGUAGE_NAME_ALIASES = mapOf(
     "romanian" to "ro",
     "russian" to "ru",
     "serbian" to "sr",
+    "srpski" to "sr",
+    "српски" to "sr",
     "sinhala" to "si",
     "slovak" to "sk",
     "slovenian" to "sl",
@@ -240,6 +292,7 @@ fun languageCodeToName(code: String): String {
         .trim()
     val bcp47 = LANGUAGE_OVERRIDES[lowerCode]
         ?: resolveLanguageNameAlias(tokenized)
+        ?: mapSerboCroatianLanguageCode(lowerCode.replace('_', '-'))
         ?: lowerCode.replace('_', '-')
     LANGUAGE_DISPLAY_OVERRIDES[bcp47]?.let { return it }
     return try {

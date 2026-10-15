@@ -1353,6 +1353,12 @@ private fun trackMatchesLanguage(
     trackId: String?,
     target: String
 ): Boolean {
+    val variant = PlayerSubtitleUtils.detectTrackLanguageVariant(
+        language = language,
+        name = name,
+        trackId = trackId
+    )
+    if (PlayerSubtitleUtils.matchesLanguageCode(variant, target)) return true
     if (PlayerSubtitleUtils.matchesLanguageCode(language, target)) return true
     val normalizedTarget = PlayerSubtitleUtils.normalizeLanguageCode(target)
     val targetName = languageCodeToName(target).lowercase(Locale.ROOT)
@@ -1431,6 +1437,12 @@ private fun addonSubtitleIsForced(subtitle: Subtitle): Boolean {
 }
 
 private fun addonSubtitleMatchesLanguage(subtitle: Subtitle, target: String): Boolean {
+    val variant = PlayerSubtitleUtils.detectTrackLanguageVariant(
+        language = subtitle.lang,
+        name = subtitle.addonName,
+        trackId = subtitle.id
+    )
+    if (PlayerSubtitleUtils.matchesLanguageCode(variant, target)) return true
     if (PlayerSubtitleUtils.matchesLanguageCode(subtitle.lang, target)) return true
     val normalizedTarget = PlayerSubtitleUtils.normalizeLanguageCode(target)
     val targetName = languageCodeToName(target).lowercase(Locale.ROOT)

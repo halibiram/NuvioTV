@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import androidx.media3.common.MimeTypes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -102,5 +103,112 @@ class PlayerSubtitleUtilsMimeTest {
         assertEquals("vi", PlayerSubtitleUtils.normalizeLanguageCode("VIETNAMESE"))
         assertEquals("sv", PlayerSubtitleUtils.normalizeLanguageCode("swedish"))
         assertEquals("tr", PlayerSubtitleUtils.normalizeLanguageCode("Turkish (Forced)"))
+    }
+
+    @Test
+    fun normalizeLanguageCode_mapsSerboCroatianMacrolanguageTags() {
+        assertEquals("hr", PlayerSubtitleUtils.normalizeLanguageCode("hbs-hrv"))
+        assertEquals("hr", PlayerSubtitleUtils.normalizeLanguageCode("HBS_HRV"))
+        assertEquals("hr", PlayerSubtitleUtils.normalizeLanguageCode("hbs-hr"))
+        assertEquals("sr", PlayerSubtitleUtils.normalizeLanguageCode("hbs-srp"))
+        assertEquals("sr", PlayerSubtitleUtils.normalizeLanguageCode("hbs-sr"))
+        assertEquals("bs", PlayerSubtitleUtils.normalizeLanguageCode("hbs-bos"))
+        assertEquals("bs", PlayerSubtitleUtils.normalizeLanguageCode("hbs-bs"))
+        assertEquals("hr", PlayerSubtitleUtils.normalizeLanguageCode("hrv"))
+        assertEquals("sr", PlayerSubtitleUtils.normalizeLanguageCode("srp"))
+        assertEquals("bs", PlayerSubtitleUtils.normalizeLanguageCode("bos"))
+        assertEquals("hbs", PlayerSubtitleUtils.normalizeLanguageCode("hbs"))
+    }
+
+    @Test
+    fun normalizeLanguageCode_mapsSerboCroatianNativeNames() {
+        assertEquals("hr", PlayerSubtitleUtils.normalizeLanguageCode("Hrvatski"))
+        assertEquals("sr", PlayerSubtitleUtils.normalizeLanguageCode("Srpski"))
+        assertEquals("sr", PlayerSubtitleUtils.normalizeLanguageCode("Српски"))
+        assertEquals("bs", PlayerSubtitleUtils.normalizeLanguageCode("Bosanski"))
+    }
+
+    @Test
+    fun matchesLanguageCode_matchesSerboCroatianVariantsToIndividualLanguages() {
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("hbs-hrv", "hr"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("hbs-srp", "sr"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("hbs-bos", "bs"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("hbs-hr", "hr"))
+    }
+
+    @Test
+    fun normalizeLanguageCode_mapsOpenSubtitlesSpanishCodes() {
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("spn"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("SPN"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("sp"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("es-ES"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("esp"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("spa"))
+        assertEquals("es-419", PlayerSubtitleUtils.normalizeLanguageCode("spl"))
+        assertEquals("es-419", PlayerSubtitleUtils.normalizeLanguageCode("ea"))
+        assertEquals("es-419", PlayerSubtitleUtils.normalizeLanguageCode("spn-419"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("spn-es"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("Spanish (EU)"))
+        assertEquals("es", PlayerSubtitleUtils.normalizeLanguageCode("Castellano"))
+    }
+
+    @Test
+    fun matchesLanguageCode_groupsEuropeanSpanishWithStandardSpanish() {
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("spn", "es"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("SPN", "es"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("spn-es", "es"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("es-ES", "es"))
+        assertTrue(PlayerSubtitleUtils.matchesLanguageCode("spl", "es-419"))
+        assertFalse(PlayerSubtitleUtils.matchesLanguageCode("spn", "es-419"))
+        assertFalse(PlayerSubtitleUtils.matchesLanguageCode("es", "es-419"))
+        assertFalse(PlayerSubtitleUtils.matchesLanguageCode("es-419", "es"))
+    }
+
+    @Test
+    fun detectTrackLanguageVariant_mapsSpnToStandardSpanish() {
+        assertEquals(
+            "es",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("spn", "Built in", null)
+        )
+        assertEquals(
+            "es",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("es", "Castellano", null)
+        )
+        assertEquals(
+            "es-419",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("spn", "Latino", null)
+        )
+        assertEquals(
+            "es",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("es", "Spanish", null)
+        )
+    }
+
+    @Test
+    fun detectTrackLanguageVariant_splitsSerboCroatianFromCodesAndNames() {
+        assertEquals(
+            "hr",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("hbs-hrv", "Built in", null)
+        )
+        assertEquals(
+            "sr",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("hbs-srp", "Built in", null)
+        )
+        assertEquals(
+            "hr",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("hbs", "Hrvatski", null)
+        )
+        assertEquals(
+            "sr",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("hbs", "Српски", null)
+        )
+        assertEquals(
+            "bs",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("hbs", "Bosanski", null)
+        )
+        assertEquals(
+            "hbs",
+            PlayerSubtitleUtils.detectTrackLanguageVariant("hbs", null, null)
+        )
     }
 }
