@@ -1045,7 +1045,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 initialForcePcm = hasTriedAudioPcmFallback || isBluetoothAudioOutput,
                 passthroughPolicy = surroundResolution.policy,
-                preferSoftwareAudioOnly = isBluetoothAudioOutput || preferFfmpegAudioActive,
+                // Only the user's own "prefer" setting should move video onto extension decoders.
+                preferSoftwareAudioOnly = isBluetoothAudioOutput || preferFfmpegAudioActive ||
+                    playerSettings.decoderPriority != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER,
                 mapDv7ToHevc = mapDv7ToHevcEnabled,
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
                 onAudioDiagnosticEvent = { line -> queuePlaybackRawEventLine(line) },
@@ -2319,7 +2321,8 @@ private class SubtitleOffsetRenderersFactory(
     private val initialForcePcm: Boolean = false,
     /**
      * When true, [EXTENSION_RENDERER_MODE_PREFER] applies to audio only — video stays on the
-     * platform MediaCodec path so Bluetooth PCM policy does not force software video decode.
+     * platform MediaCodec path so an audio policy (Bluetooth PCM, FFmpeg audio, PCM fallback,
+     * forced passthrough) does not force software video decode.
      */
     private val preferSoftwareAudioOnly: Boolean = false,
     private val passthroughPolicy: AudioPassthroughPolicy = AudioPassthroughPolicy.ALLOW_ALL,
