@@ -44,6 +44,7 @@ import com.nuvio.tv.ui.screens.party.PartyScreen
 import com.nuvio.tv.ui.screens.plugin.PluginScreen
 import com.nuvio.tv.ui.screens.search.DiscoverScreen
 import com.nuvio.tv.ui.screens.search.SearchScreen
+import com.nuvio.tv.ui.screens.voice.VoiceChoiceScreen
 import com.nuvio.tv.ui.screens.settings.AboutScreen
 import com.nuvio.tv.ui.screens.settings.LayoutSettingsScreen
 import com.nuvio.tv.ui.screens.settings.LicensesAttributionsScreen
@@ -329,6 +330,16 @@ private fun PlaybackNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = "false"
+                },
+                navArgument("voiceSeason") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("voiceEpisode") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
@@ -353,6 +364,8 @@ private fun PlaybackNavHost(
             val heroBackdropUrl = detailArgs?.getString("heroBackdropUrl")?.takeIf { it.isNotBlank() }
             val playOnLoad = detailArgs?.getString("playOnLoad")?.toBooleanStrictOrNull() == true
             val manualSelection = detailArgs?.getString("manualSelection")?.toBooleanStrictOrNull() == true
+            val voiceSeason = detailArgs?.getString("voiceSeason")?.toIntOrNull()
+            val voiceEpisode = detailArgs?.getString("voiceEpisode")?.toIntOrNull()
             DetailChildHost(parentNavController = navController) { childNav ->
             MetaDetailsScreen(
                 returnFocusSeason = returnFocusSeason,
@@ -361,6 +374,8 @@ private fun PlaybackNavHost(
                 heroBackdropUrl = heroBackdropUrl,
                 playOnLoad = playOnLoad,
                 playOnLoadManually = manualSelection,
+                voiceSeason = voiceSeason,
+                voiceEpisode = voiceEpisode,
                 onReturnFocusConsumed = {
                     savedState["returnFocusSeason"] = null
                     savedState["returnFocusEpisode"] = null
@@ -1166,6 +1181,72 @@ private fun PlaybackNavHost(
                         }
                     }
                 }
+            )
+        }
+
+        composable(
+            route = Screen.VoiceChoice.route,
+            arguments = listOf(
+                navArgument("q") { type = NavType.StringType; defaultValue = "" },
+                navArgument("id") { type = NavType.StringType; defaultValue = "" },
+                navArgument("type") { type = NavType.StringType; defaultValue = "" },
+                navArgument("season") { type = NavType.StringType; defaultValue = "" },
+                navArgument("episode") { type = NavType.StringType; defaultValue = "" },
+                navArgument("play") { type = NavType.StringType; defaultValue = "true" },
+                navArgument("resume") { type = NavType.StringType; defaultValue = "false" }
+            )
+        ) {
+            VoiceChoiceScreen(
+                onPlay = { match, season, episode, startPlayback ->
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = match.id,
+                            itemType = match.type,
+                            addonBaseUrl = match.addonBaseUrl,
+                            playOnLoad = startPlayback,
+                            voiceSeason = season,
+                            voiceEpisode = episode,
+                            returnToHomeOnBack = true
+                        )
+                    ) {
+                        popUpTo(Screen.VoiceChoice.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onResume = { progress ->
+                    val route = if (progress.videoId.isBlank()) {
+                        Screen.Detail.createRoute(
+                            itemId = progress.contentId,
+                            itemType = progress.contentType.ifBlank { "movie" },
+                            playOnLoad = true,
+                            voiceSeason = progress.season,
+                            voiceEpisode = progress.episode,
+                            returnToHomeOnBack = true
+                        )
+                    } else {
+                        Screen.Stream.createRoute(
+                            videoId = progress.videoId,
+                            contentType = progress.contentType,
+                            title = progress.name,
+                            poster = progress.poster,
+                            backdrop = progress.backdrop,
+                            logo = progress.logo,
+                            season = progress.season,
+                            episode = progress.episode,
+                            episodeName = progress.episodeTitle,
+                            contentId = progress.contentId,
+                            contentName = progress.name,
+                            returnToDetailOnBack = progress.contentType.equals("series", ignoreCase = true) ||
+                                progress.contentType.equals("tv", ignoreCase = true),
+                            returnToHomeOnBack = true
+                        )
+                    }
+                    navController.navigate(route) {
+                        popUpTo(Screen.VoiceChoice.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onBack = { navController.popBackStack() }
             )
         }
 

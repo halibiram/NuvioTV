@@ -66,6 +66,8 @@
 -keepclassmembers class com.dokar.quickjs.** { *; }
 # Keep PluginRuntime and related classes for JS bindings
 -keep class com.nuvio.tv.core.plugin.** { *; }
+
+-keep class com.nuvio.tv.core.voice.VoiceSearchProvider { *; }
 -keepclassmembers class com.nuvio.tv.core.plugin.** { *; }
 
 # ── ExoPlayer / Media3 ────────────────────────────────────────────────────────

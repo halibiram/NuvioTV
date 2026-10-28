@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.detail
 
+import com.nuvio.tv.core.voice.findVoiceEpisode
 import com.nuvio.tv.ui.components.LocalPlaybackAvailability
 import com.nuvio.tv.ui.navigation.LocalDetailChildClosedEpoch
 import com.nuvio.tv.ui.navigation.LocalDetailChildOverlayVisible
@@ -414,6 +415,8 @@ fun MetaDetailsScreen(
     heroBackdropUrl: String? = null,
     playOnLoad: Boolean = false,
     playOnLoadManually: Boolean = false,
+    voiceSeason: Int? = null,
+    voiceEpisode: Int? = null,
     onBackPress: () -> Unit,
     onReturnFocusConsumed: () -> Unit = {},
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
@@ -482,6 +485,7 @@ fun MetaDetailsScreen(
     val playOnLoadConsumed = rememberSaveable { mutableStateOf(false) }
     val playOnLoadHandoffDispatched = rememberSaveable { mutableStateOf(false) }
     val playOnLoadReturnObserved = rememberSaveable { mutableStateOf(false) }
+    val voiceSeasonRequested = rememberSaveable { mutableStateOf(false) }
     val suppressInitialPlayOnLoadContent = playOnLoad && !playOnLoadReturnObserved.value
     val playOnLoadReturnContentReady = !uiState.isLoading && uiState.meta != null
     var playOnLoadReturnRevealRequested by remember(playOnLoad) { mutableStateOf(!playOnLoad) }
@@ -796,12 +800,25 @@ fun MetaDetailsScreen(
                 val isSeries = remember(meta.type, meta.videos) {
                     meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
                 }
-                val playOnLoadVideo = remember(meta, uiState.nextToWatch, uiState.episodesForSeason) {
-                    resolveHeroPlaybackVideo(
-                        meta = meta,
-                        nextToWatch = uiState.nextToWatch,
-                        episodesForSeason = uiState.episodesForSeason
-                    )
+                val directedSeason = voiceSeason
+                val directedEpisode = voiceEpisode
+                val playOnLoadVideo = remember(
+                    meta,
+                    uiState.nextToWatch,
+                    uiState.episodesForSeason,
+                    directedSeason,
+                    directedEpisode
+                ) {
+                    if (directedSeason != null && directedEpisode != null) {
+                        findVoiceEpisode(meta.videos, directedSeason, directedEpisode)
+                            ?: findVoiceEpisode(uiState.episodesForSeason, directedSeason, directedEpisode)
+                    } else {
+                        resolveHeroPlaybackVideo(
+                            meta = meta,
+                            nextToWatch = uiState.nextToWatch,
+                            episodesForSeason = uiState.episodesForSeason
+                        )
+                    }
                 }
 
                 LaunchedEffect(
@@ -811,12 +828,31 @@ fun MetaDetailsScreen(
                     isSeries,
                     uiState.nextToWatch,
                     playOnLoadVideo?.id,
-                    playbackAvailability
+                    playbackAvailability,
+                    directedSeason,
+                    directedEpisode,
+                    uiState.isLoading,
+                    uiState.selectedSeason
                 ) {
-                    if (!playOnLoad || playOnLoadConsumed.value || (isSeries && uiState.nextToWatch == null)) {
+                    if (!playOnLoad || playOnLoadConsumed.value) {
+                        return@LaunchedEffect
+                    }
+                    if ((directedSeason == null || directedEpisode == null) && isSeries && uiState.nextToWatch == null) {
                         return@LaunchedEffect
                     }
                     if (!playbackAvailability.isLoaded) return@LaunchedEffect
+                    if (directedSeason != null && directedEpisode != null && playOnLoadVideo == null) {
+                        if (uiState.isLoading) return@LaunchedEffect
+                        if (uiState.selectedSeason != directedSeason && !voiceSeasonRequested.value) {
+                            voiceSeasonRequested.value = true
+                            viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(directedSeason))
+                            return@LaunchedEffect
+                        }
+                        playOnLoadConsumed.value = true
+                        playOnLoadReturnObserved.value = true
+                        Toast.makeText(context, R.string.voice_episode_not_found, Toast.LENGTH_SHORT).show()
+                        return@LaunchedEffect
+                    }
                     playOnLoadConsumed.value = true
                     if (uiState.shufflePoolEmpty) {
                         playOnLoadReturnObserved.value = true

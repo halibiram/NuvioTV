@@ -5,7 +5,7 @@ import java.net.URLEncoder
 
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
-    data object Detail : Screen("detail/{itemId}/{itemType}?addonBaseUrl={addonBaseUrl}&returnFocusSeason={returnFocusSeason}&returnFocusEpisode={returnFocusEpisode}&returnToHomeOnBack={returnToHomeOnBack}&heroBackdropUrl={heroBackdropUrl}&playOnLoad={playOnLoad}&manualSelection={manualSelection}") {
+    data object Detail : Screen("detail/{itemId}/{itemType}?addonBaseUrl={addonBaseUrl}&returnFocusSeason={returnFocusSeason}&returnFocusEpisode={returnFocusEpisode}&returnToHomeOnBack={returnToHomeOnBack}&heroBackdropUrl={heroBackdropUrl}&playOnLoad={playOnLoad}&manualSelection={manualSelection}&voiceSeason={voiceSeason}&voiceEpisode={voiceEpisode}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
@@ -18,13 +18,15 @@ sealed class Screen(val route: String) {
             returnToHomeOnBack: Boolean = false,
             heroBackdropUrl: String? = null,
             playOnLoad: Boolean = false,
-            manualSelection: Boolean = false
+            manualSelection: Boolean = false,
+            voiceSeason: Int? = null,
+            voiceEpisode: Int? = null
         ): String {
             val encodedItemId = encode(itemId)
             val encodedItemType = encode(itemType)
             val encodedAddon = addonBaseUrl?.let { encode(it) } ?: ""
             val encodedHeroBackdrop = heroBackdropUrl?.let { encode(it) } ?: ""
-            return "detail/$encodedItemId/$encodedItemType?addonBaseUrl=$encodedAddon&returnFocusSeason=${returnFocusSeason ?: ""}&returnFocusEpisode=${returnFocusEpisode ?: ""}&returnToHomeOnBack=$returnToHomeOnBack&heroBackdropUrl=$encodedHeroBackdrop&playOnLoad=$playOnLoad&manualSelection=$manualSelection"
+            return "detail/$encodedItemId/$encodedItemType?addonBaseUrl=$encodedAddon&returnFocusSeason=${returnFocusSeason ?: ""}&returnFocusEpisode=${returnFocusEpisode ?: ""}&returnToHomeOnBack=$returnToHomeOnBack&heroBackdropUrl=$encodedHeroBackdrop&playOnLoad=$playOnLoad&manualSelection=$manualSelection&voiceSeason=${voiceSeason ?: ""}&voiceEpisode=${voiceEpisode ?: ""}"
         }
     }
     data object Stream : Screen("stream/{videoId}/{contentType}/{title}?poster={poster}&backdrop={backdrop}&logo={logo}&season={season}&episode={episode}&episodeName={episodeName}&genres={genres}&year={year}&contentId={contentId}&contentName={contentName}&runtime={runtime}&manualSelection={manualSelection}&returnToDetailOnBack={returnToDetailOnBack}&returnToHomeOnBack={returnToHomeOnBack}&startFromBeginning={startFromBeginning}&contentLanguage={contentLanguage}&profileId={profileId}") {
@@ -139,6 +141,22 @@ sealed class Screen(val route: String) {
         }
     }
     data object Search : Screen("search")
+    data object VoiceChoice : Screen("voice_choice?q={q}&id={id}&type={type}&season={season}&episode={episode}&play={play}&resume={resume}") {
+        private fun encode(value: String): String =
+            URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(
+            query: String = "",
+            id: String? = null,
+            type: String? = null,
+            season: Int? = null,
+            episode: Int? = null,
+            play: Boolean = true,
+            resume: Boolean = false
+        ): String {
+            return "voice_choice?q=${encode(query)}&id=${id?.let(::encode).orEmpty()}&type=${type?.let(::encode).orEmpty()}&season=${season ?: ""}&episode=${episode ?: ""}&play=$play&resume=$resume"
+        }
+    }
     data object Discover : Screen("discover")
     data object Library : Screen("library")
     data object Settings : Screen("settings")

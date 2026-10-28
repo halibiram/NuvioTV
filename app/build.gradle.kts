@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.sentry.android.gradle)
 }
 
+import com.android.build.api.variant.ResValue
 import com.android.build.gradle.internal.tasks.CompileArtProfileTask
 import com.android.build.gradle.internal.tasks.L8DexDesugarLibTask
 import java.io.File
@@ -366,6 +367,17 @@ androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
         variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+    }
+    onVariants(selector().all()) { variant ->
+        val appId = variant.applicationId.get()
+        variant.resValues.put(
+            variant.makeResValueKey("string", "voice_search_authority"),
+            ResValue(appId, "Voice search provider authority")
+        )
+        variant.resValues.put(
+            variant.makeResValueKey("string", "voice_search_content_uri"),
+            ResValue("content://$appId/search", "Voice search base URI")
+        )
     }
     // Only the full flavor ships the in-app updater.
     onVariants(selector().withFlavor("distribution" to "full")) { variant ->

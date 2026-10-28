@@ -27,14 +27,22 @@ object DeepLinkParser {
             .mapNotNull { segment -> decode(segment).trim().takeIf(String::isNotBlank) }
 
         return when (host) {
-            "meta" -> parseMetaFromParameters(parsedUrl) ?: parseMetaFromPath(pathSegments)
+            "meta" -> (parseMetaFromParameters(parsedUrl) ?: parseMetaFromPath(pathSegments))
+                ?.withPlaybackQuery(parsedUrl)
             "detail", "details", "open", "watch" -> parseMetaFromPath(pathSegments)
+                ?.withPlaybackQuery(parsedUrl)
             "movie", "movies", "series", "show", "shows", "tv" -> {
                 val type = normalizeMediaType(host)
                 val id = pathSegments.firstOrNull()?.let(::normalizeId).orEmpty()
-                if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
+                if (type.isBlank() || id.isBlank()) {
+                    null
+                } else {
+                    AppDeepLink.Meta(type = type, id = id).withPlaybackQuery(parsedUrl)
+                }
             }
             "imdb", "tmdb" -> parseProviderMetaDeepLink(host, pathSegments, parsedUrl)
+                ?.withPlaybackQuery(parsedUrl)
+            "voice" -> parseVoice(pathSegments, parsedUrl)
             "party" -> (pathSegments.firstOrNull() ?: firstParameter(queryParameters(parsedUrl), "code"))
                 ?.let(::normalizePartyCode)
                 ?.takeIf { it.length == PARTY_CODE_LENGTH }
@@ -48,6 +56,30 @@ object DeepLinkParser {
                 }
             }
         }
+    }
+
+    private fun parseVoice(pathSegments: List<String>, parsedUrl: URI): AppDeepLink? {
+        if (pathSegments.firstOrNull()?.equals("resume", ignoreCase = true) == true) {
+            return AppDeepLink.VoiceResume
+        }
+        val parameters = queryParameters(parsedUrl)
+        return AppDeepLink.VoiceQuery(
+            query = firstParameter(parameters, "q", "query").orEmpty(),
+            id = firstParameter(parameters, "id", "imdb", "imdbId")?.let(::normalizeId)?.takeIf { it.isNotBlank() },
+            type = firstParameter(parameters, "type", "mediaType")
+                ?.let(::normalizeMediaType)
+                ?.takeIf { it.isNotBlank() },
+            season = firstParameter(parameters, "season", "s")?.toIntOrNull()?.takeIf { it >= 0 },
+            episode = firstParameter(parameters, "episode", "e")?.toIntOrNull()?.takeIf { it > 0 }
+        )
+    }
+
+    private fun AppDeepLink.Meta.withPlaybackQuery(parsedUrl: URI): AppDeepLink.Meta {
+        val parameters = queryParameters(parsedUrl)
+        return copy(
+            season = firstParameter(parameters, "season", "s")?.toIntOrNull()?.takeIf { it >= 0 },
+            episode = firstParameter(parameters, "episode", "e")?.toIntOrNull()?.takeIf { it > 0 }
+        )
     }
 
     private fun parseMetaFromParameters(parsedUrl: URI): AppDeepLink.Meta? {

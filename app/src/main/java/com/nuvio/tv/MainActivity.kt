@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
@@ -143,6 +144,8 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.auth.DeviceSessionRegistration
 import com.nuvio.tv.core.deeplink.DeepLinkHandler
 import com.nuvio.tv.core.deeplink.DeepLinkParser
+import com.nuvio.tv.core.voice.VoiceDeepLinks
+import com.nuvio.tv.core.voice.VoiceSearchIntent
 import com.nuvio.tv.core.player.PlayerWindowBackdrop
 import com.nuvio.tv.core.party.PartyRepository
 import com.nuvio.tv.core.profile.ProfileManager
@@ -328,7 +331,13 @@ open class MainActivity : ComponentActivity() {
     @Inject
     lateinit var partyRepository: PartyRepository
 
-    private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
+    private data class PendingDeepLink(
+        val url: String,
+        val startPlayback: Boolean,
+        val nonce: Long
+    )
+
+    private val pendingDeepLinkUrl = MutableStateFlow<PendingDeepLink?>(null)
     private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
 
     private lateinit var jankStats: JankStats
@@ -832,12 +841,12 @@ open class MainActivity : ComponentActivity() {
                     val pendingDeepLink by pendingDeepLinkUrl.collectAsState()
 
                     LaunchedEffect(pendingDeepLink) {
-                        val url = pendingDeepLink ?: return@LaunchedEffect
-                        val deepLink = DeepLinkParser.parse(url)
+                        val pending = pendingDeepLink ?: return@LaunchedEffect
+                        val deepLink = DeepLinkParser.parse(pending.url)
                         if (deepLink is AppDeepLink.AddonInstall && (needsEssentialAddonSetup || !layoutChosen)) {
                             Toast.makeText(context, context.getString(R.string.addon_installing), Toast.LENGTH_SHORT).show()
                             val installResult = deepLinkHandler.installAddon(deepLink.manifestUrl)
-                            if (pendingDeepLinkUrl.value == url) {
+                            if (pendingDeepLinkUrl.value?.nonce == pending.nonce) {
                                 pendingDeepLinkUrl.value = null
                             }
                             Toast.makeText(context, installResult.message, Toast.LENGTH_LONG).show()
@@ -988,16 +997,43 @@ open class MainActivity : ComponentActivity() {
                     }
 
                     LaunchedEffect(navController, layoutChosen, pendingDeepLink) {
-                        val url = pendingDeepLink ?: return@LaunchedEffect
+                        val pending = pendingDeepLink ?: return@LaunchedEffect
                         if (!layoutChosen) return@LaunchedEffect
-                        when (val deepLink = DeepLinkParser.parse(url)) {
+                        when (val deepLink = DeepLinkParser.parse(pending.url)) {
                             is AppDeepLink.Meta -> {
                                 pendingDeepLinkUrl.value = null
                                 navController.navigate(
                                     Screen.Detail.createRoute(
                                         itemId = deepLink.id,
-                                        itemType = deepLink.type
+                                        itemType = deepLink.type,
+                                        playOnLoad = pending.startPlayback,
+                                        voiceSeason = deepLink.season,
+                                        voiceEpisode = deepLink.episode,
+                                        returnToHomeOnBack = pending.startPlayback
                                     )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            }
+                            is AppDeepLink.VoiceQuery -> {
+                                pendingDeepLinkUrl.value = null
+                                navController.navigate(
+                                    Screen.VoiceChoice.createRoute(
+                                        query = deepLink.query,
+                                        id = deepLink.id,
+                                        type = deepLink.type,
+                                        season = deepLink.season,
+                                        episode = deepLink.episode,
+                                        play = pending.startPlayback
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            }
+                            AppDeepLink.VoiceResume -> {
+                                pendingDeepLinkUrl.value = null
+                                navController.navigate(
+                                    Screen.VoiceChoice.createRoute(resume = true, play = pending.startPlayback)
                                 ) {
                                     launchSingleTop = true
                                 }
@@ -1014,7 +1050,7 @@ open class MainActivity : ComponentActivity() {
                                 }
                                 Toast.makeText(context, context.getString(R.string.addon_installing), Toast.LENGTH_SHORT).show()
                                 val installResult = deepLinkHandler.installAddon(deepLink.manifestUrl)
-                                if (pendingDeepLinkUrl.value == url) {
+                                if (pendingDeepLinkUrl.value?.nonce == pending.nonce) {
                                     pendingDeepLinkUrl.value = null
                                 }
                                 Toast.makeText(context, installResult.message, Toast.LENGTH_LONG).show()
@@ -1316,8 +1352,30 @@ open class MainActivity : ComponentActivity() {
     }
 
     private fun captureDeepLinkIntent(intent: Intent?) {
+        when (intent?.action) {
+            VoiceDeepLinks.MEDIA_PLAY_FROM_SEARCH -> {
+                pendingDeepLinkUrl.value = PendingDeepLink(
+                    url = VoiceDeepLinks.forUnresolved(VoiceSearchIntent.parse(intent)),
+                    startPlayback = true,
+                    nonce = SystemClock.uptimeMillis()
+                )
+                return
+            }
+            Intent.ACTION_SEARCH -> {
+                pendingDeepLinkUrl.value = PendingDeepLink(
+                    url = VoiceDeepLinks.forUnresolved(VoiceSearchIntent.parse(intent)),
+                    startPlayback = intent.getBooleanExtra(VoiceDeepLinks.EXTRA_START_PLAYBACK, false),
+                    nonce = SystemClock.uptimeMillis()
+                )
+                return
+            }
+        }
         val url = intent?.dataString?.trim()?.takeIf(String::isNotBlank) ?: return
-        pendingDeepLinkUrl.value = url
+        pendingDeepLinkUrl.value = PendingDeepLink(
+            url = url,
+            startPlayback = intent.getBooleanExtra(VoiceDeepLinks.EXTRA_START_PLAYBACK, false),
+            nonce = SystemClock.uptimeMillis()
+        )
     }
 
     private fun captureLaunchIntent(intent: Intent?) {

@@ -3053,6 +3053,16 @@
     <!-- Search errors -->
     <string name="search_error_load_addons_failed">Failed to load addons</string>
     <string name="search_error_failed">Search failed</string>
+    <string name="voice_search_hint">Movies and series</string>
+    <string name="voice_search_settings_description">Movies and series from your addons</string>
+    <string name="voice_choice_title">Which title should play?</string>
+    <string name="voice_choice_searching">Searching…</string>
+    <string name="voice_choice_not_found">Couldn\'t find that title.</string>
+    <string name="voice_choice_back">Back</string>
+    <string name="voice_episode_not_found">That episode isn\'t available.</string>
+    <string name="voice_resume_empty">Nothing to continue.</string>
+    <string name="voice_suggestion_resume">Continue watching</string>
+    <string name="voice_suggestion_choose">Choose a title</string>
 
     <!-- Stream / TMDB / addons fallbacks -->
     <string name="stream_unknown">Unknown Stream</string>
