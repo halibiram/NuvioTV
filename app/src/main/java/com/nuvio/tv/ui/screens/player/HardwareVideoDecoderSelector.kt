@@ -2,11 +2,14 @@ package com.nuvio.tv.ui.screens.player
 
 import android.media.MediaCodecList
 import android.os.Build
+import android.os.SystemClock
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import java.nio.ByteBuffer
 
 private val HARDWARE_FIRST_VIDEO_TYPES = setOf(
     MimeTypes.VIDEO_H264,
@@ -46,7 +49,60 @@ internal class HardwareFirstVideoRenderer(builder: MediaCodecVideoRenderer.Build
         requiresSecureDecoder: Boolean,
     ): List<MediaCodecInfo> =
         hardwareFirstVideoDecoders(format, super.getDecoderInfos(mediaCodecSelector, format, requiresSecureDecoder))
+
+    override fun processOutputBuffer(
+        positionUs: Long,
+        elapsedRealtimeUs: Long,
+        codec: MediaCodecAdapter?,
+        buffer: ByteBuffer?,
+        bufferIndex: Int,
+        bufferFlags: Int,
+        sampleCount: Int,
+        bufferPresentationTimeUs: Long,
+        isDecodeOnlyBuffer: Boolean,
+        isLastBuffer: Boolean,
+        format: Format,
+    ): Boolean {
+        // releaseOutputBuffer can block this thread on a display present fence that never
+        // signals (seen after a long pause on Realtek). The render loop's elapsedRealtimeUs
+        // stays at the value from before that wait, so VideoFrameReleaseControl treats every
+        // following frame in the same loop as late and drops it. Cap the credited wait.
+        val elapsedForReleaseUs = elapsedRealtimeUsForFrameRelease(
+            sampledElapsedRealtimeUs = elapsedRealtimeUs,
+            nowElapsedRealtimeUs = SystemClock.elapsedRealtime() * 1000L,
+        )
+        return super.processOutputBuffer(
+            positionUs,
+            elapsedForReleaseUs,
+            codec,
+            buffer,
+            bufferIndex,
+            bufferFlags,
+            sampleCount,
+            bufferPresentationTimeUs,
+            isDecodeOnlyBuffer,
+            isLastBuffer,
+            format,
+        )
+    }
 }
+
+/**
+ * Wall time since [sampledElapsedRealtimeUs] that may be treated as playback advance.
+ * One frame period: a blocked [android.media.MediaCodec.releaseOutputBuffer] must not
+ * be subtracted in full from the next frame's earliness.
+ */
+internal fun elapsedRealtimeUsForFrameRelease(
+    sampledElapsedRealtimeUs: Long,
+    nowElapsedRealtimeUs: Long,
+    maxCreditUs: Long = MAX_RENDER_LOOP_ELAPSED_CREDIT_US,
+): Long {
+    val stallUs = nowElapsedRealtimeUs - sampledElapsedRealtimeUs
+    if (stallUs <= maxCreditUs) return sampledElapsedRealtimeUs
+    return nowElapsedRealtimeUs - maxCreditUs
+}
+
+private const val MAX_RENDER_LOOP_ELAPSED_CREDIT_US = 30_000L
 
 internal fun isSoftwareDecoder(info: MediaCodecInfo): Boolean =
     info.softwareOnly || hasSoftwareDecoderName(info.name)

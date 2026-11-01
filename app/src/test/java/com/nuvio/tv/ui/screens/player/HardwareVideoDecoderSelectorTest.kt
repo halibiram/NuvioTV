@@ -156,4 +156,23 @@ class HardwareVideoDecoderSelectorTest {
         assertFalse(isSoftwareVideoDecoderName("amstream_dves_hevc.sideband", softwareOnly))
         assertFalse(isSoftwareVideoDecoderName("OMX.MTK.VIDEO.DECODER.HEVC", softwareOnly))
     }
+
+    @Test
+    fun `short render delay is still credited to frame earliness`() {
+        val sampled = 5_000_000L
+        assertEquals(sampled, elapsedRealtimeUsForFrameRelease(sampled, sampled + 8_000L))
+    }
+
+    @Test
+    fun `present fence stall is capped so the next two frames stay above the drop threshold`() {
+        val sampled = 1_000_000L
+        val stallUs = 114_297L
+        val now = sampled + stallUs
+        val creditedStallUs = now - elapsedRealtimeUsForFrameRelease(sampled, now)
+        assertEquals(30_000L, creditedStallUs)
+        // Logged resume: frame leads were +45.4ms and +86.4ms while releaseOutputBuffer
+        // held the thread ~114ms. Uncapped, earlyUs was -69ms and -37ms (drop is < -30ms).
+        assertTrue(45_445L - creditedStallUs > -30_000L)
+        assertTrue(86_445L - creditedStallUs > -30_000L)
+    }
 }
