@@ -356,7 +356,7 @@ object NuvioExoPlayerPerformanceHelper {
     fun buildScrubbingParams(): ScrubbingModeParameters? {
         if (!enabled) return null
         return ScrubbingModeParameters.Builder()
-            .setDisabledTrackTypes(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_METADATA))
+            .setDisabledTrackTypes(setOf(C.TRACK_TYPE_METADATA))
             .setShouldIncreaseCodecOperatingRate(true)
             .setAllowSkippingMediaCodecFlush(true)
             .setShouldEnableDynamicScheduling(true)

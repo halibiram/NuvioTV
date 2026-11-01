@@ -259,6 +259,163 @@ class BluetoothAudioRoutePolicyTest {
         assertFalse(shouldKeepPlaying)
     }
 
+    @Test
+    fun `dolby atmos requires 3 primed access units before ready while dts primes on first`() {
+        val baseSink =ControllableTestAudioSink()
+        val sink = PlaybackSpeedAwareAudioSink(sink = baseSink)
+        val atmos = mime(MimeTypes.AUDIO_E_AC3_JOC)
+        val pcm = mime(MimeTypes.AUDIO_RAW)
+
+        // Even when MediaCodec decodes Atmos to PCM (configure gets AUDIO_RAW),
+        // upstream track format keeps Dolby Atmos priming active.
+        sink.setUpstreamTrackFormat(atmos)
+        sink.configure(pcm, 0, null)
+        sink.onRendererPositionReset(0L)
+
+        val buf = ByteBuffer.allocate(16)
+        assertFalse(sink.isPrimedForReady())
+
+        sink.handleBuffer(buf, 0L, 1)
+        assertFalse("1st Atmos frame (32ms) should not mark sink primed", sink.isPrimedForReady())
+
+        sink.handleBuffer(buf, 32_000L, 1)
+        assertFalse("2nd Atmos frame (64ms) should not mark sink primed", sink.isPrimedForReady())
+
+        sink.handleBuffer(buf, 64_000L, 1)
+        assertTrue("3rd Atmos frame (96ms) should mark sink primed", sink.isPrimedForReady())
+
+        // DTS should prime on the very first buffer.
+        sink.flush()
+        val dts = mime(MimeTypes.AUDIO_DTS_HD)
+        sink.setUpstreamTrackFormat(dts)
+        sink.configure(dts, 0, null)
+        sink.onRendererPositionReset(10_000_000L)
+        sink.handleBuffer(buf, 10_000_000L, 1)
+        assertTrue("DTS should prime after 1st frame", sink.isPrimedForReady())
+    }
+
+    @Test
+    fun `dolby atmos startup and seek 96ms clock burst is smoothed so frames 2 and 3 are not dropped`() {
+        var fakeClockMs = 1_000L
+        val baseSink = ControllableTestAudioSink()
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = baseSink,
+            elapsedRealtimeMsProvider = { fakeClockMs }
+        )
+        val atmos = mime(MimeTypes.AUDIO_E_AC3_JOC)
+        sink.setUpstreamTrackFormat(atmos)
+        sink.configure(atmos, 0, null)
+
+        val seekPosUs = 100_000_000L
+        sink.onRendererPositionReset(seekPosUs)
+        val buf = ByteBuffer.allocate(16)
+        sink.handleBuffer(buf, seekPosUs, 1)
+        sink.handleBuffer(buf, seekPosUs + 32_000L, 1)
+        sink.handleBuffer(buf, seekPosUs + 64_000L, 1)
+        sink.play()
+
+        // Simulate HAL FIFO immediately gulping 3 E-AC3-JOC syncframes (96ms) 5ms after play().
+        fakeClockMs += 5L
+        baseSink.currentPositionUs = seekPosUs + 96_000L
+
+        val posAt5ms = sink.getCurrentPositionUs(false)
+        val frame2PtsUs = seekPosUs + 41_708L
+        val frame2EarlyUs = frame2PtsUs - posAt5ms
+        assertTrue(
+            "Frame 2 must remain early (earlyUs=$frame2EarlyUs > 0), not dropped (< -30000)",
+            frame2EarlyUs > 0L
+        )
+        assertTrue(
+            "Position must advance past initialPositionUs to unlock VideoFrameReleaseControl",
+            posAt5ms > seekPosUs
+        )
+
+        // At 38ms wall-clock, Frame 3 (+83.4ms) is evaluated.
+        fakeClockMs += 33L // total 38ms
+        val posAt38ms = sink.getCurrentPositionUs(false)
+        val frame3PtsUs = seekPosUs + 83_416L
+        val frame3EarlyUs = frame3PtsUs - posAt38ms
+        assertTrue(
+            "Frame 3 must remain early (earlyUs=$frame3EarlyUs > 0), not dropped (< -30000)",
+            frame3EarlyUs > 0L
+        )
+    }
+
+    @Test
+    fun `dolby atmos playhead zero stall unsticks gently so frame 2 is not blocked on initialPositionUs`() {
+        var fakeClockMs = 5_000L
+        val baseSink = ControllableTestAudioSink()
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = baseSink,
+            elapsedRealtimeMsProvider = { fakeClockMs }
+        )
+        val atmos = mime(MimeTypes.AUDIO_E_AC3_JOC)
+        sink.setUpstreamTrackFormat(atmos)
+        sink.configure(atmos, 0, null)
+        sink.onRendererPositionReset(0L)
+
+        val buf = ByteBuffer.allocate(16)
+        sink.handleBuffer(buf, 0L, 3)
+        sink.play()
+
+        // Simulate HDMI eARC / Dolby DSP keeping getPlaybackHeadPosition() at 0 for 20ms.
+        baseSink.currentPositionUs = 0L
+        fakeClockMs += 20L
+
+        val posAt20ms = sink.getCurrentPositionUs(false)
+        assertTrue("Clock should unstick from 0Us while pending data is playing", posAt20ms > 0L)
+        assertTrue("Synthetic unstick must stay bounded (<= 2ms)", posAt20ms <= 2_000L)
+    }
+
+    @Test
+    fun `dolby atmos in-buffer seek defers new track initialization until async flush release and hal teardown finish`() {
+        var fakeClockMs = 10_000L
+        var pendingAsyncRelease = false
+        val baseSink = ControllableTestAudioSink()
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = baseSink,
+            elapsedRealtimeMsProvider = { fakeClockMs },
+            hasPendingReleasesProvider = { pendingAsyncRelease }
+        )
+        val atmos = mime(MimeTypes.AUDIO_E_AC3_JOC)
+        sink.setUpstreamTrackFormat(atmos)
+        sink.configure(atmos, 0, null)
+        sink.onRendererPositionReset(0L)
+
+        val buf = ByteBuffer.allocate(16)
+        // Cold start: no previous AudioTrack was active, so handleBuffer succeeds immediately at t=0.
+        assertTrue(sink.handleBuffer(buf, 0L, 3))
+        assertTrue(sink.isPrimedForReady())
+        sink.play()
+
+        // Simulate an in-buffer seek: DefaultAudioSink.flush() schedules async AudioTrack release.
+        fakeClockMs += 500L
+        pendingAsyncRelease = true
+        sink.pause()
+        sink.flush()
+        sink.onRendererPositionReset(30_000_000L)
+
+        // At +43ms after flush (in-buffer seek packets already in RAM), async release is still pending:
+        // handleBuffer must return false so a new AudioTrack does not collide with the old one in AudioHw.
+        fakeClockMs += 43L
+        assertFalse(sink.handleBuffer(buf, 30_000_000L, 1))
+        assertFalse(sink.isPrimedForReady())
+
+        // At +70ms after flush, ExoPlayer:AudioTrackReleaseThread finishes ~AudioTrack,
+        // but rtk_audio_offload close-async teardown is still running (< 175ms total).
+        fakeClockMs += 27L
+        pendingAsyncRelease = false
+        assertFalse(sink.handleBuffer(buf, 30_000_000L, 1))
+
+        // At +180ms after flush, both ~AudioTrack and hardware offload close-async have completed:
+        // handleBuffer now initializes the clean AudioTrack and primes 3 Atmos frames.
+        fakeClockMs += 110L
+        assertTrue(sink.handleBuffer(buf, 30_000_000L, 1))
+        assertTrue(sink.handleBuffer(buf, 30_032_000L, 1))
+        assertTrue(sink.handleBuffer(buf, 30_064_000L, 1))
+        assertTrue(sink.isPrimedForReady())
+    }
+
     private fun mime(sampleMimeType: String): Format {
         return Format.Builder()
             .setSampleMimeType(sampleMimeType)
@@ -267,9 +424,35 @@ class BluetoothAudioRoutePolicyTest {
             .build()
     }
 
+    private class ControllableTestAudioSink : NoOpBaseSink() {
+        var currentPositionUs: Long = 0L
+        var pendingData: Boolean = false
+
+        override fun getCurrentPositionUs(sourceEnded: Boolean): Long = currentPositionUs
+
+        override fun handleBuffer(
+            buffer: ByteBuffer,
+            presentationTimeUs: Long,
+            encodedAccessUnitCount: Int
+        ): Boolean {
+            pendingData = true
+            return true
+        }
+
+        override fun hasPendingData(): Boolean = pendingData
+
+        override fun flush() {
+            pendingData = false
+        }
+
+        override fun reset() {
+            pendingData = false
+        }
+    }
+
     private class AlwaysSupportedDelegateSink : ForwardingAudioSink(NoOpBaseSink())
 
-    private class NoOpBaseSink : AudioSink {
+    private open class NoOpBaseSink : AudioSink {
         override fun setListener(listener: AudioSink.Listener) = Unit
         override fun supportsFormat(format: Format): Boolean = true
         override fun getFormatSupport(format: Format): Int = AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
