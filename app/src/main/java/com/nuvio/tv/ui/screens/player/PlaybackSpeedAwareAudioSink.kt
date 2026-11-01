@@ -34,6 +34,9 @@ import kotlin.math.abs
  *    while the old `AudioTrack`'s delayed `flush()` / `release()` is still executing in the
  *    hardware offload HAL (e.g. `rtk_audio_offload`), wiping out the newly primed Atmos frames
  *    and causing `dspFrames = 0` underflow + 2-3 dropped video frames.
+ * 4. Resume after a long pause: the offload HAL exits standby inside a blocking `AudioTrack.play()`
+ *    (~300ms) and Media3 reports a clock 100-150ms ahead of the audible position, dropping the
+ *    first video frames after resume (see [applyResumeClockGuard]).
  */
 internal class PlaybackSpeedAwareAudioSink(
     sink: AudioSink,
@@ -106,6 +109,21 @@ internal class PlaybackSpeedAwareAudioSink(
     @Volatile
     private var lastAudioTrackReleasedElapsedMs: Long = C.TIME_UNSET
 
+    @Volatile
+    private var pausedPositionUs: Long = C.TIME_UNSET
+
+    @Volatile
+    private var resumeClockGuardActive: Boolean = false
+
+    @Volatile
+    private var resumeAnchorPositionUs: Long = C.TIME_UNSET
+
+    @Volatile
+    private var resumeStartElapsedRealtimeMs: Long = C.TIME_UNSET
+
+    @Volatile
+    private var resumeLastPositionUs: Long = C.TIME_UNSET
+
     fun setInitialPlaybackSpeed(speed: Float) {
         playbackSpeed = normalizeSpeed(speed)
         markPcmFallbackIfNeeded(upstreamTrackFormat ?: currentInputFormat, playbackSpeed)
@@ -120,6 +138,8 @@ internal class PlaybackSpeedAwareAudioSink(
         rendererResetPositionUs = positionUs
         postResetClockSmoothingActive = true
         lastSmoothedPositionUs = C.TIME_UNSET
+        pausedPositionUs = C.TIME_UNSET
+        clearResumeClockGuard()
     }
 
     fun isPrimedForReady(): Boolean {
@@ -229,22 +249,44 @@ internal class PlaybackSpeedAwareAudioSink(
     }
 
     override fun play() {
+        val resumeAnchorUs = pausedPositionUs
+        pausedPositionUs = C.TIME_UNSET
+        // On offload HALs (e.g. rtk_audio_offload) that drop into standby after a long pause,
+        // AudioTrack.play() blocks the playback thread for ~300ms while the device is reopened.
+        // Timing must therefore start once super.play() has returned.
         super.play()
         isSinkPlaying = true
+        if (resumeAnchorUs != C.TIME_UNSET &&
+            !awaitingPostFlushTrackRelease &&
+            isDolbyAtmosOrSurroundFormat()
+        ) {
+            resumeAnchorPositionUs = resumeAnchorUs
+            resumeStartElapsedRealtimeMs = elapsedRealtimeMsProvider()
+            resumeLastPositionUs = C.TIME_UNSET
+            resumeClockGuardActive = true
+        }
         if (playStartElapsedRealtimeMs == C.TIME_UNSET && !awaitingPostFlushTrackRelease) {
             playStartElapsedRealtimeMs = elapsedRealtimeMsProvider()
         }
     }
 
     override fun pause() {
+        pausedPositionUs = if (isSinkPlaying && buffersHandledSinceReset > 0 && !awaitingPostFlushTrackRelease) {
+            getCurrentPositionUs(false).takeIf { it != AudioSink.CURRENT_POSITION_NOT_SET }
+                ?: C.TIME_UNSET
+        } else {
+            C.TIME_UNSET
+        }
         isSinkPlaying = false
         playStartElapsedRealtimeMs = C.TIME_UNSET
+        clearResumeClockGuard()
         super.pause()
     }
 
     override fun handleDiscontinuity() {
         postResetClockSmoothingActive = true
         lastSmoothedPositionUs = C.TIME_UNSET
+        clearResumeClockGuard()
         super.handleDiscontinuity()
     }
 
@@ -281,7 +323,14 @@ internal class PlaybackSpeedAwareAudioSink(
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
         val rawPositionUs = super.getCurrentPositionUs(sourceEnded)
         if (rawPositionUs == AudioSink.CURRENT_POSITION_NOT_SET || sourceEnded) {
+            clearResumeClockGuard()
             return rawPositionUs
+        }
+        if (resumeClockGuardActive) {
+            val guardedUs = applyResumeClockGuard(rawPositionUs)
+            if (guardedUs != C.TIME_UNSET) {
+                return guardedUs
+            }
         }
         if (!postResetClockSmoothingActive || !isDolbyAtmosOrSurroundFormat()) {
             return rawPositionUs
@@ -337,6 +386,62 @@ internal class PlaybackSpeedAwareAudioSink(
         }
         lastSmoothedPositionUs = monotonicUs
         return monotonicUs
+    }
+
+    /**
+     * Guards the Dolby offload clock after pause() -> play().
+     *
+     * After a long pause the offload HAL enters standby; on resume `AudioTrack.play()` blocks for
+     * ~300ms while the device is reopened, and Media3's `AudioTrackPositionTracker` then reports a
+     * position 100-150ms ahead of the audio that is actually audible (which resumes exactly from
+     * the paused position). The video renderer sees the first frames after resume as >30ms late
+     * and drops 1-3 of them, while the raw clock slowly corrects itself back over ~1s.
+     *
+     * The clock is held to `pausedPosition + wallClockSinceResume` and allowed to converge onto
+     * the raw position at most [RESUME_CONVERGE_PERCENT]% faster than real time, so it never jumps.
+     *
+     * @return the guarded position, or [C.TIME_UNSET] when the guard no longer applies.
+     */
+    private fun applyResumeClockGuard(rawPositionUs: Long): Long {
+        val anchorUs = resumeAnchorPositionUs
+        val startMs = resumeStartElapsedRealtimeMs
+        if (anchorUs == C.TIME_UNSET || startMs == C.TIME_UNSET || !isDolbyAtmosOrSurroundFormat()) {
+            clearResumeClockGuard()
+            return C.TIME_UNSET
+        }
+        val elapsedMs = (elapsedRealtimeMsProvider() - startMs).coerceAtLeast(0L)
+        val speed = playbackSpeed.takeIf { it > 0f } ?: 1f
+        val wallClockElapsedUs = (elapsedMs * 1000.0 * speed).toLong()
+        val expectedUs = anchorUs + wallClockElapsedUs
+        val leadUs = rawPositionUs - expectedUs
+        if (leadUs > MAX_RESUME_GUARD_LEAD_US || rawPositionUs < anchorUs - MAX_RESUME_GUARD_LEAD_US) {
+            // Not a resume clock burst (e.g. coarse position change); defer to the raw clock.
+            clearResumeClockGuard()
+            return C.TIME_UNSET
+        }
+        val maxAllowedUs = expectedUs + (wallClockElapsedUs * RESUME_CONVERGE_PERCENT) / 100L
+        val previousUs = resumeLastPositionUs
+        if (rawPositionUs <= maxAllowedUs) {
+            if (elapsedMs >= RESUME_GUARD_MIN_WINDOW_MS) {
+                // Raw clock has converged: hand back to it without going backwards.
+                clearResumeClockGuard()
+                return if (previousUs != C.TIME_UNSET) maxOf(previousUs, rawPositionUs) else rawPositionUs
+            }
+        } else if (elapsedMs >= RESUME_GUARD_MAX_WINDOW_MS) {
+            clearResumeClockGuard()
+            return if (previousUs != C.TIME_UNSET) maxOf(previousUs, rawPositionUs) else rawPositionUs
+        }
+        val guardedUs = minOf(rawPositionUs, maxAllowedUs)
+        val monotonicUs = if (previousUs != C.TIME_UNSET) maxOf(previousUs, guardedUs) else guardedUs
+        resumeLastPositionUs = monotonicUs
+        return monotonicUs
+    }
+
+    private fun clearResumeClockGuard() {
+        resumeClockGuardActive = false
+        resumeAnchorPositionUs = C.TIME_UNSET
+        resumeStartElapsedRealtimeMs = C.TIME_UNSET
+        resumeLastPositionUs = C.TIME_UNSET
     }
 
     override fun flush() {
@@ -455,6 +560,8 @@ internal class PlaybackSpeedAwareAudioSink(
         playStartElapsedRealtimeMs = C.TIME_UNSET
         postResetClockSmoothingActive = true
         lastSmoothedPositionUs = C.TIME_UNSET
+        pausedPositionUs = C.TIME_UNSET
+        clearResumeClockGuard()
     }
 
     internal fun isDolbyAtmosOrSurroundFormat(): Boolean {
@@ -559,6 +666,12 @@ internal class PlaybackSpeedAwareAudioSink(
         const val INITIAL_CLOCK_UNSTICK_US = 1_000L
         const val MIN_UNSTICK_DELAY_MS = 4L
         const val MAX_SYNTHETIC_ADVANCE_US = 2_000L
+
+        // pause() -> play() offload standby-exit clock guard.
+        const val RESUME_CONVERGE_PERCENT = 6L
+        const val RESUME_GUARD_MIN_WINDOW_MS = 500L
+        const val RESUME_GUARD_MAX_WINDOW_MS = 4_000L
+        const val MAX_RESUME_GUARD_LEAD_US = 400_000L
 
         // Media3 DefaultAudioSink.flush() schedules AudioTrack.flush() + release() on
         // ExoPlayer:AudioTrackReleaseThread with a 20ms delay (~55-80ms total to ~AudioTrack),

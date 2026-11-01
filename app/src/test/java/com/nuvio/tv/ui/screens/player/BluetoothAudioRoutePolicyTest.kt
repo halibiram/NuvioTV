@@ -416,6 +416,79 @@ class BluetoothAudioRoutePolicyTest {
         assertTrue(sink.isPrimedForReady())
     }
 
+    @Test
+    fun `dolby atmos resume after long pause holds clock to paused position plus wall clock and converges without jumping`() {
+        var fakeClockMs = 20_000L
+        val baseSink = ControllableTestAudioSink()
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = baseSink,
+            elapsedRealtimeMsProvider = { fakeClockMs }
+        )
+        val atmos = mime(MimeTypes.AUDIO_E_AC3_JOC)
+        sink.setUpstreamTrackFormat(atmos)
+        sink.configure(atmos, 0, null)
+        sink.onRendererPositionReset(0L)
+        val buf = ByteBuffer.allocate(16)
+        sink.handleBuffer(buf, 0L, 3)
+        sink.play()
+
+        // Play well past the startup smoothing window.
+        fakeClockMs += 5_000L
+        baseSink.currentPositionUs = 5_000_000L
+        assertEquals(5_000_000L, sink.getCurrentPositionUs(false))
+
+        // Long pause (buffer fills up, offload HAL enters standby).
+        sink.pause()
+        fakeClockMs += 40_000L
+
+        // play() blocks ~300ms in the HAL; afterwards Media3 reports +143ms ahead of audible audio.
+        sink.play()
+        baseSink.currentPositionUs = 5_143_000L
+        val posAtResume = sink.getCurrentPositionUs(false)
+        assertEquals("Clock must restart from the paused position", 5_000_000L, posAtResume)
+        val firstFramePtsUs = 5_127_000L
+        assertTrue("First frame after resume must not be late", firstFramePtsUs - posAtResume > -30_000L)
+
+        // Raw clock self-corrects slowly (0.9x); guarded clock never runs faster than 1.06x.
+        var previousUs = posAtResume
+        var rawUs = 5_143_000L
+        repeat(150) {
+            fakeClockMs += 10L
+            rawUs += 9_000L
+            baseSink.currentPositionUs = rawUs
+            val posUs = sink.getCurrentPositionUs(false)
+            val stepUs = posUs - previousUs
+            assertTrue("Clock must be monotonic (step=$stepUs)", stepUs >= 0L)
+            assertTrue("Clock must never jump (step=$stepUs)", stepUs <= 10_600L + 1L)
+            previousUs = posUs
+        }
+        assertEquals("Guard must hand back to the raw clock once converged", rawUs, previousUs)
+    }
+
+    @Test
+    fun `dts resume after pause is not guarded`() {
+        var fakeClockMs = 20_000L
+        val baseSink = ControllableTestAudioSink()
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = baseSink,
+            elapsedRealtimeMsProvider = { fakeClockMs }
+        )
+        val dts = mime(MimeTypes.AUDIO_DTS)
+        sink.setUpstreamTrackFormat(dts)
+        sink.configure(dts, 0, null)
+        sink.onRendererPositionReset(0L)
+        sink.handleBuffer(ByteBuffer.allocate(16), 0L, 1)
+        sink.play()
+        fakeClockMs += 5_000L
+        baseSink.currentPositionUs = 5_000_000L
+        sink.getCurrentPositionUs(false)
+        sink.pause()
+        fakeClockMs += 40_000L
+        sink.play()
+        baseSink.currentPositionUs = 5_143_000L
+        assertEquals(5_143_000L, sink.getCurrentPositionUs(false))
+    }
+
     private fun mime(sampleMimeType: String): Format {
         return Format.Builder()
             .setSampleMimeType(sampleMimeType)
