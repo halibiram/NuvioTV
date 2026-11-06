@@ -8,6 +8,7 @@ import com.nuvio.tv.data.local.LibassRenderScale
 import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.LibassRenderMode
 import com.nuvio.tv.data.local.InternalPlayerEngine
+import com.nuvio.tv.data.local.DownmixLfeLevel
 import com.nuvio.tv.data.local.NightMode
 import com.nuvio.tv.data.local.Dv7HandlingMode
 import com.nuvio.tv.data.local.PlayerSettings
@@ -56,6 +57,7 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     val playerSettings: Flow<PlayerSettings> = playerSettingsDataStore.playerSettings
     val transparentLetterbox: Flow<Boolean> = deviceLocalPlayerPreferences.transparentLetterbox
+    val releaseDecoderOnBackground: Flow<Boolean> = deviceLocalPlayerPreferences.releaseDecoderOnBackground
     val trailerSettings: Flow<TrailerSettings> = trailerSettingsDataStore.settings
     val torrentSettingsFlow: Flow<TorrentSettingsData> = torrentSettings.settings
     val torrentCacheState: StateFlow<TorrentCacheState> = torrentService.cacheState
@@ -137,6 +139,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setMaintainOriginalAudioOnDownmix(enabled)
     }
 
+    suspend fun setDownmixLfeLevel(level: DownmixLfeLevel) {
+        playerSettingsDataStore.setDownmixLfeLevel(level)
+    }
+
     suspend fun setTunnelingEnabled(enabled: Boolean) {
         playerSettingsDataStore.setTunnelingEnabled(enabled)
     }
@@ -183,6 +189,10 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setTransparentLetterbox(enabled: Boolean) {
         deviceLocalPlayerPreferences.setTransparentLetterbox(enabled)
+    }
+
+    suspend fun setReleaseDecoderOnBackground(enabled: Boolean) {
+        deviceLocalPlayerPreferences.setReleaseDecoderOnBackground(enabled)
     }
 
     suspend fun setSkipIntroEnabled(enabled: Boolean) {
