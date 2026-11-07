@@ -21,12 +21,28 @@ import androidx.media3.decoder.DecoderException;
 /** Thrown when an FFmpeg decoder error occurs. */
 @UnstableApi
 public final class FfmpegDecoderException extends DecoderException {
+  private final boolean eac3LayoutMismatch;
 
   /* package */ FfmpegDecoderException(String message) {
     super(message);
+    eac3LayoutMismatch = false;
   }
 
   /* package */ FfmpegDecoderException(String message, Throwable cause) {
     super(message, cause);
+    eac3LayoutMismatch = false;
+  }
+
+  private FfmpegDecoderException(String message, boolean eac3LayoutMismatch) {
+    super(message);
+    this.eac3LayoutMismatch = eac3LayoutMismatch;
+  }
+
+  static FfmpegDecoderException eac3LayoutMismatch() {
+    return new FfmpegDecoderException("Decoded layout differs from negotiated E-AC-3 output.", true);
+  }
+
+  public boolean isEac3LayoutMismatch() {
+    return eac3LayoutMismatch;
   }
 }

@@ -155,3 +155,6 @@
     public void setForceEac3FiveOne(boolean);
     public boolean isTranscodingToEac3();
 }
+-keepclassmembers class androidx.media3.decoder.ffmpeg.FfmpegDecoderException {
+    public boolean isEac3LayoutMismatch();
+}

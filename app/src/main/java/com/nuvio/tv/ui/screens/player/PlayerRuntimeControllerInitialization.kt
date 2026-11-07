@@ -950,7 +950,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 context,
                 playerSettings,
                 surroundInputs,
-                retryEac3AtFiveOne = eac3OpenRetry.shouldLimitToFiveOne(url, currentRouteKey)
+                retryEac3AtFiveOne = eac3Retry.shouldLimitToFiveOne(url, currentRouteKey)
             )
             val surroundResolution = surround.resolution
             tunnelDeadClockSignature = if (isBluetoothAudioOutput || currentRouteKey == null) {
@@ -1587,13 +1587,15 @@ internal fun PlayerRuntimeController.initializePlayer(
                         }
 
                         val failedEac3Output = failedTranscodedEac3Output(error, ffmpegAudioRenderer?.name)
-                        if (failedEac3Output != null) {
-                            if (tryEac3FiveOneOpenRetry(failedEac3Output.channelCount, currentPosition)) {
-                                return
-                            }
-                        } else if (tryPassthroughOpenRetry(error)) {
+                        if (tryEac3FiveOneRetry(error, failedEac3Output?.channelCount, currentPosition)) {
                             return
-                        } else if (error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED) {
+                        }
+                        if (failedEac3Output == null && tryPassthroughOpenRetry(error)) {
+                            return
+                        }
+                        if (failedEac3Output == null &&
+                            error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
+                        ) {
                             val failingMime = (error as? androidx.media3.exoplayer.ExoPlaybackException)
                                 ?.rendererFormat?.sampleMimeType
                             val rejectedGroup = AudioPassthroughPolicy.groupOf(failingMime)

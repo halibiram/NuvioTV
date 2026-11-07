@@ -50,6 +50,7 @@ import java.util.List;
 
   private static final int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
   private static final int AUDIO_DECODER_ERROR_OTHER = -2;
+  private static final int AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH = -1000;
 
   // FLAC parsing constants
   private static final byte[] flacStreamMarker = {'f', 'L', 'a', 'C'};
@@ -201,7 +202,9 @@ import java.util.List;
     if (isCompressedOutput()) {
       pendingEncodedPacketsSnapshot = getPendingEncodedPacketCount();
     }
-    if (result == AUDIO_DECODER_ERROR_OTHER) {
+    if (result == AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH) {
+      return FfmpegDecoderException.eac3LayoutMismatch();
+    } else if (result == AUDIO_DECODER_ERROR_OTHER) {
       return new FfmpegDecoderException("Error decoding (see logcat).");
     } else if (result == AUDIO_DECODER_ERROR_INVALID_DATA) {
       // Treat invalid data errors as non-fatal to match the behavior of MediaCodec. No output will
@@ -575,6 +578,9 @@ import java.util.List;
     int size = ffmpegDrainDecoder(
         nativeContext, outputBuffer, data, outputBufferSize,
         userCenterMixLevelDb, downmixNormalizationEnabled, lfeMixLevel);
+    if (size == AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH) {
+      throw FfmpegDecoderException.eac3LayoutMismatch();
+    }
     if (size < 0) {
       throw new FfmpegDecoderException("Failed to drain delayed FFmpeg decoder frames.");
     }

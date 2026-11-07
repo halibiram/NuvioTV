@@ -107,7 +107,7 @@ internal fun PlayerRuntimeController.applySurroundResolutionInPlace(reason: Stri
         context,
         settings,
         inputs.copy(routeKey = routeKey),
-        retryEac3AtFiveOne = eac3OpenRetry.shouldLimitToFiveOne(currentStreamUrl, routeKey)
+        retryEac3AtFiveOne = eac3Retry.shouldLimitToFiveOne(currentStreamUrl, routeKey)
     )
     val policy = surround.resolution.policy
     val policyChanged = playbackSpeedAwareAudioSink?.setPassthroughPolicy(policy) == true

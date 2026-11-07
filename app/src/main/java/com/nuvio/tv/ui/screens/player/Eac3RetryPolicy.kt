@@ -6,14 +6,17 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlaybackException
 
-internal class Eac3OpenRetryPolicy {
+internal class Eac3RetryPolicy {
     private var failedStreamRoute: Pair<String, String?>? = null
 
     fun shouldLimitToFiveOne(streamUrl: String, routeKey: String?): Boolean =
         failedStreamRoute == (streamUrl to routeKey)
 
-    fun recordOpenFailure(channelCount: Int, streamUrl: String, routeKey: String?): Boolean {
-        if (channelCount != 8 || shouldLimitToFiveOne(streamUrl, routeKey)) return false
+    fun recordOpenFailure(channelCount: Int, streamUrl: String, routeKey: String?): Boolean =
+        channelCount == 8 && recordFiveOneRetry(streamUrl, routeKey)
+
+    fun recordFiveOneRetry(streamUrl: String, routeKey: String?): Boolean {
+        if (shouldLimitToFiveOne(streamUrl, routeKey)) return false
         failedStreamRoute = streamUrl to routeKey
         return true
     }

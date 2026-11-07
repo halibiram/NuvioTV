@@ -400,12 +400,26 @@ internal fun PlayerRuntimeController.tryAudioTrackPcmFallback(
     return true
 }
 
-internal fun PlayerRuntimeController.tryEac3FiveOneOpenRetry(channelCount: Int, positionMs: Long): Boolean {
+internal fun PlayerRuntimeController.tryEac3FiveOneRetry(
+    error: PlaybackException,
+    failedOutputChannels: Int?,
+    positionMs: Long
+): Boolean {
     val routeKey = currentAudioOutputRoute?.key
-    if (!eac3OpenRetry.recordOpenFailure(channelCount, currentStreamUrl, routeKey)) return false
+    val reason = when {
+        failedOutputChannels != null -> {
+            if (!eac3Retry.recordOpenFailure(failedOutputChannels, currentStreamUrl, routeKey)) return false
+            "output_open"
+        }
+        Eac3TranscodingSupport.isLayoutMismatch(error) -> {
+            if (!eac3Retry.recordFiveOneRetry(currentStreamUrl, routeKey)) return false
+            "decoded_layout"
+        }
+        else -> return false
+    }
 
-    Log.w(PlayerRuntimeController.TAG, "E-AC-3 7.1 output refused at open; retrying with 5.1")
-    queuePlaybackRawEventLine("audio_open_retry mime=audio/eac3 channels=8 fallbackChannels=6 positionMs=$positionMs")
+    Log.w(PlayerRuntimeController.TAG, "Retrying E-AC-3 at 5.1 after $reason")
+    queuePlaybackRawEventLine("audio_retry mime=audio/eac3 reason=$reason fallbackChannels=6 positionMs=$positionMs")
     scheduleDeferredPlayerReinitialize(fromPositionMs = positionMs, startPaused = userPausedManually)
     return true
 }

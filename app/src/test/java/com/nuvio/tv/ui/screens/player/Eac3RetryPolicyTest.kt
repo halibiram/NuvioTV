@@ -4,15 +4,17 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.decoder.ffmpeg.FfmpegDecoderException
 import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.audio.AudioSink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeNotNull
 import org.junit.Test
 
-class Eac3OpenRetryPolicyTest {
+class Eac3RetryPolicyTest {
     private val ffmpegName = "FfmpegAudioRenderer"
 
     @Test
@@ -52,7 +54,7 @@ class Eac3OpenRetryPolicyTest {
 
     @Test
     fun oneRetryCapsOnlyTheFailedStreamAndRoute() {
-        val policy = Eac3OpenRetryPolicy()
+        val policy = Eac3RetryPolicy()
         assertFalse(policy.recordOpenFailure(6, "movie", "hdmi"))
         assertFalse(policy.shouldLimitToFiveOne("movie", "hdmi"))
         assertTrue(policy.recordOpenFailure(8, "movie", "hdmi"))
@@ -62,6 +64,47 @@ class Eac3OpenRetryPolicyTest {
         assertFalse(policy.shouldLimitToFiveOne("movie", "optical"))
         assertTrue(policy.recordOpenFailure(8, "movie", "optical"))
         assertTrue(policy.shouldLimitToFiveOne("movie", "optical"))
+    }
+
+    @Test
+    fun decoderLayoutMismatchAndOpenFailureShareOneRetry() {
+        val policy = Eac3RetryPolicy()
+        assertTrue(policy.recordFiveOneRetry("movie", "hdmi"))
+        assertTrue(policy.shouldLimitToFiveOne("movie", "hdmi"))
+        assertFalse(policy.recordOpenFailure(8, "movie", "hdmi"))
+        assertFalse(policy.recordFiveOneRetry("movie", "hdmi"))
+    }
+
+    @Test
+    fun onlyTheFfmpegLayoutMismatchIsRecognizedAsRecoverableHere() {
+        val factory = runCatching {
+            FfmpegDecoderException::class.java.getDeclaredMethod("eac3LayoutMismatch")
+        }.getOrNull()
+        assumeNotNull(factory) // Stock decoder AAR has no E-AC-3 encoder.
+        val cause = factory!!.apply { isAccessible = true }.invoke(null) as Throwable
+        val decoderFormat = outputFormat(8).buildUpon().setSampleMimeType(MimeTypes.AUDIO_TRUEHD).build()
+        assertTrue(
+            Eac3TranscodingSupport.isLayoutMismatch(
+                rendererError(
+                    decoderFormat,
+                    errorCode = PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    cause = RuntimeException(cause)
+                )
+            )
+        )
+        assertFalse(Eac3TranscodingSupport.isLayoutMismatch(rendererError(decoderFormat, cause = cause)))
+        val otherFfmpegError = FfmpegDecoderException::class.java.getDeclaredConstructor(String::class.java)
+            .apply { isAccessible = true }
+            .newInstance("Unrelated FFmpeg failure")
+        assertFalse(
+            Eac3TranscodingSupport.isLayoutMismatch(
+                rendererError(
+                    decoderFormat,
+                    errorCode = PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    cause = otherFfmpegError
+                )
+            )
+        )
     }
 
     private fun outputFormat(channels: Int): Format = Format.Builder()

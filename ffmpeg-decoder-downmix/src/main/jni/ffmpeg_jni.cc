@@ -91,6 +91,7 @@ static const float LIMITER_RELEASE_SECONDS = 0.1f;
 // LINT.IfChange
 static const int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
 static const int AUDIO_DECODER_ERROR_OTHER = -2;
+static const int AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH = -1000;
 // LINT.ThenChange(../java/androidx/media3/decoder/ffmpeg/FfmpegAudioDecoder.java)
 
 struct AudioLimiter {
@@ -475,6 +476,50 @@ AUDIO_DECODER_FUNC(jboolean, ffmpegIsDecoderDrainComplete, jlong context) {
       ? JNI_TRUE : JNI_FALSE;
 }
 
+// Append delayed samples before discarding the resampler or flushing the encoder.
+static int appendResamplerTailToFifo(DecoderContext* dc) {
+  const int channels = dc->encoder_context->ch_layout.nb_channels;
+  int capacity = swr_get_out_samples(dc->resample_context, 0);
+  if (capacity < 0 || channels <= 0) {
+    LOGE("Invalid delayed resampler dimensions: samples=%d channels=%d", capacity, channels);
+    return AUDIO_DECODER_ERROR_OTHER;
+  }
+  // Bound each allocation and let the caller repeat until the resampler is empty.
+  if (capacity == 0) {
+    capacity = 1;
+  }
+  const int kMaxDrainSamplesPerCall = 8192;
+  if (capacity > kMaxDrainSamplesPerCall) {
+    capacity = kMaxDrainSamplesPerCall;
+  }
+  if (channels > INT_MAX / (capacity * static_cast<int>(sizeof(float)))) {
+    LOGE("Resampler drain buffer dimensions overflow.");
+    return AUDIO_DECODER_ERROR_OTHER;
+  }
+  uint8_t** samples = nullptr;
+  int linesize = 0;
+  int ret = av_samples_alloc_array_and_samples(
+      &samples, &linesize, channels, capacity, AV_SAMPLE_FMT_FLTP, 0);
+  if (ret < 0) {
+    logError("av_samples_alloc_array_and_samples (drain)", ret);
+    return AUDIO_DECODER_ERROR_OTHER;
+  }
+  int produced = swr_convert(dc->resample_context, samples, capacity, nullptr, 0);
+  if (produced > 0 && dc->downmix_active) {
+    limitPlanarFloat(&dc->limiter, samples, produced, channels,
+                     dc->encoder_context->sample_rate);
+  }
+  int written = produced > 0
+      ? av_audio_fifo_write(dc->fifo, (void**)samples, produced) : produced;
+  av_freep(&samples[0]);
+  av_freep(&samples);
+  if (produced < 0 || written != produced) {
+    LOGE("Failed to drain resampler samples into encoder FIFO.");
+    return AUDIO_DECODER_ERROR_OTHER;
+  }
+  return produced;
+}
+
 // Consume SwrContext delayed samples into the encoder FIFO. A final encoder
 // flush may run only after this stage has completed. Full frames are encoded
 // through the same frame/packet queue contract as ordinary decoding.
@@ -492,10 +537,6 @@ AUDIO_DECODER_FUNC(jint, ffmpegDrainResampler, jlong context) {
   if (dc->resampler_drain_completed) {
     return dc->pending_packet_count;
   }
-  const int channels = dc->encoder_context->ch_layout.nb_channels;
-  if (channels <= 0) {
-    return AUDIO_DECODER_ERROR_OTHER;
-  }
   for (;;) {
     // One 8,192-sample batch plus a partial FIFO frame can produce up to
     // seven 1,536-sample AC-3/E-AC-3 access units. Leave room in the bounded
@@ -504,54 +545,15 @@ AUDIO_DECODER_FUNC(jint, ffmpegDrainResampler, jlong context) {
     if (dc->pending_packet_count >= 248) {
       return dc->pending_packet_count;
     }
-    int capacity = swr_get_out_samples(dc->resample_context, 0);
-    if (capacity < 0) {
-      LOGE("Invalid delayed resampler sample count: %d", capacity);
-      return AUDIO_DECODER_ERROR_OTHER;
-    }
-    // Even if the resampler reports no delayed samples, a full encoder
-    // frame may still be retained in the FIFO after send_frame(EAGAIN).
-    // Run the zero-input conversion and FIFO encoding pass before EOF.
-    if (capacity == 0) {
-      capacity = 1;
-    }
-    // Bound each drain allocation to avoid allocating a potentially huge
-    // planar buffer when FFmpeg reports a large delayed-sample upper bound.
-    // The loop continues to drain any remaining samples on the next pass.
-    const int kMaxDrainSamplesPerCall = 8192;
-    if (capacity > kMaxDrainSamplesPerCall) {
-      capacity = kMaxDrainSamplesPerCall;
-    }
-    if (channels > INT_MAX / (capacity * (int)sizeof(float))) {
-      LOGE("Resampler drain buffer dimensions overflow.");
-      return AUDIO_DECODER_ERROR_OTHER;
-    }
-    uint8_t** samples = nullptr;
-    int linesize = 0;
-    int ret = av_samples_alloc_array_and_samples(
-        &samples, &linesize, channels, capacity, AV_SAMPLE_FMT_FLTP, 0);
-    if (ret < 0) {
-      logError("av_samples_alloc_array_and_samples (drain)", ret);
-      return AUDIO_DECODER_ERROR_OTHER;
-    }
-    int produced = swr_convert(dc->resample_context, samples, capacity, nullptr, 0);
-    if (produced > 0 && dc->downmix_active) {
-      limitPlanarFloat(&dc->limiter, samples, produced, channels,
-                       dc->encoder_context->sample_rate);
-    }
-    int written = produced > 0
-        ? av_audio_fifo_write(dc->fifo, (void**)samples, produced) : produced;
-    av_freep(&samples[0]);
-    av_freep(&samples);
-    if (produced < 0 || written != produced) {
-      LOGE("Failed to drain resampler samples into encoder FIFO.");
-      return AUDIO_DECODER_ERROR_OTHER;
+    const int produced = appendResamplerTailToFifo(dc);
+    if (produced < 0) {
+      return produced;
     }
     // A zero-sample resampler return does not imply the encoder FIFO is
     // empty. Full frames retained after encoder EAGAIN must be retried.
     const int frameSize = dc->encoder_context->frame_size;
     while (av_audio_fifo_size(dc->fifo) >= frameSize) {
-      ret = av_frame_make_writable(dc->encoder_frame);
+      int ret = av_frame_make_writable(dc->encoder_frame);
       if (ret < 0 ||
           av_audio_fifo_peek(dc->fifo, (void**)dc->encoder_frame->data,
                              frameSize) != frameSize) {
@@ -1011,7 +1013,8 @@ int decodePacket(DecoderContext* decoderContext, AVPacket* packet,
                            downmixNormalizationEnabled, lfeMixLevel);
     if (result < 0) {
       av_frame_free(&frame);
-      return transformError(result);
+      return result == AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH
+          ? result : transformError(result);
     }
 
     int sampleRate =
@@ -1247,14 +1250,18 @@ int configureResampler(DecoderContext* decoderContext, AVFrame* frame,
       const int requestedChannels = decoderContext->requested_output_channel_count;
       const bool downmixToFiveOne = inputLayout.nb_channels == 8 &&
           requestedChannels == 6 && decoderContext->requested_output_layout_name;
-      if ((!downmixToFiveOne && inputLayout.nb_channels != requestedChannels) ||
-          (inputLayout.nb_channels != 6 && inputLayout.nb_channels != 8)) {
+      const bool supportedInput = inputLayout.nb_channels == 6 || inputLayout.nb_channels == 8;
+      if (!supportedInput || (!downmixToFiveOne && inputLayout.nb_channels != requestedChannels)) {
         LOGE("EAC3 channel preservation failed: input=%d requested=%d",
              inputLayout.nb_channels, decoderContext->requested_output_channel_count);
         av_channel_layout_uninit(&inputLayout);
-        return AUDIO_DECODER_ERROR_OTHER;
+        return supportedInput ? AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH : AUDIO_DECODER_ERROR_OTHER;
       }
-      if (!getOutputChannelLayout(decoderContext, &inputLayout, &outputLayout)) {
+      // The FIFO and encoder retain the layout chosen for their first frame.
+      const bool haveOutputLayout = decoderContext->encoder_initialized
+          ? copyChannelLayout(&decoderContext->encoder_context->ch_layout, &outputLayout)
+          : getOutputChannelLayout(decoderContext, &inputLayout, &outputLayout);
+      if (!haveOutputLayout) {
         av_channel_layout_uninit(&inputLayout);
         return AUDIO_DECODER_ERROR_OTHER;
       }
@@ -1312,6 +1319,18 @@ int configureResampler(DecoderContext* decoderContext, AVFrame* frame,
     return 0;
   }
 
+  if (decoderContext->transcoding_mode == 2 && decoderContext->encoder_initialized
+      && decoderContext->resample_context) {
+    int drained;
+    do {
+      drained = appendResamplerTailToFifo(decoderContext);
+    } while (drained > 0);
+    if (drained < 0) {
+      av_channel_layout_uninit(&inputLayout);
+      av_channel_layout_uninit(&outputLayout);
+      return drained;
+    }
+  }
   clearResampler(decoderContext);
 
   SwrContext* resampleContext = NULL;
