@@ -3001,14 +3001,15 @@ public class MatroskaExtractor implements Extractor {
   }
 
   private static boolean refineTrueHdTrack(Track track, byte[] data, int offset, int limit) {
-    int presentation = TrueHdAtmos.probe(data, offset, limit);
-    if (presentation < 0) {
-      return false; // Minor sync frames do not prove the absence of Atmos.
+    Format format = checkNotNull(track.format);
+    Format refined = TrueHdAtmos.refineFormat(format, data, offset, limit);
+    if (refined == null) {
+      return false; // Keep looking for a complete major sync.
     }
     track.trueHdSamplesToAnalyze = 0;
-    Format format = checkNotNull(track.format);
-    track.format = TrueHdAtmos.refineFormat(format, data, offset, limit);
-    return track.format != format;
+    track.channelCount = refined.channelCount;
+    track.format = refined;
+    return refined != format;
   }
 
   private static boolean refineEac3Track(Track track, byte[] data, int offset, int limit) {
