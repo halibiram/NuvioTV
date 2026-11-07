@@ -16,6 +16,7 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.ExperienceModeDataStore
+import com.nuvio.tv.data.local.LEGACY_OPTICAL_AC3_COMPATIBILITY_NAME
 import com.nuvio.tv.data.local.PluginDataStore
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
 import com.nuvio.tv.data.local.StreamBadgeSettingsDataStore
@@ -90,6 +91,7 @@ private val localOnlyPlayerProfileSettingsKeys = setOf(
     "downmix_normalization_enabled",
     "tunneling_enabled",
     "force_optical_passthrough",
+    LEGACY_OPTICAL_AC3_COMPATIBILITY_NAME,
     "use_system_passthrough",
     "audio_amplification_db",
     "center_mix_level_db",

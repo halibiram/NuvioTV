@@ -135,10 +135,12 @@ class ProfileDataStoreFactory @Inject constructor(
     private fun createAndCache(fileName: String): ScopedDataStore {
         val job = SupervisorJob()
         val scope = CoroutineScope(Dispatchers.IO + job)
-        val migrations = if (fileName == "layout_settings" || fileName.startsWith("layout_settings_p")) {
-            listOf(discoverLocationMigration)
-        } else {
-            emptyList()
+        val migrations = when {
+            fileName == "layout_settings" || fileName.startsWith("layout_settings_p") ->
+                listOf(discoverLocationMigration)
+            fileName == PlayerSettingsDataStore.FEATURE || fileName.startsWith("${PlayerSettingsDataStore.FEATURE}_p") ->
+                listOf(OpticalAc3Migration)
+            else -> emptyList()
         }
         // Ensure the datastore directory exists — prevents ENOENT on first read
         // when a profile-scoped file hasn't been created yet.

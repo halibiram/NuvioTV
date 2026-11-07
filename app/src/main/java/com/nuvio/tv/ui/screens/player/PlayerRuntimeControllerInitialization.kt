@@ -908,6 +908,8 @@ internal fun PlayerRuntimeController.initializePlayer(
             // optical/HDMI passthrough — decode to PCM and let the BT stack encode SBC/AAC/aptX/LDAC.
             val isBluetoothAudioOutput = currentAudioOutputRoute?.isBluetooth == true ||
                 AudioOutputRouteDetector.isBluetoothMediaOutput(context)
+            val legacyOpticalAc3 = playerSettings.usesLegacyOpticalAc3 &&
+                !isBluetoothAudioOutput && !hasTriedAudioPcmFallback
             // Prefer FFmpeg/extension audio decoder on BT so multi-channel TrueHD/DTS always
             // decode to stereo PCM even when the platform MediaCodec path is flaky.
             val effectiveDecoderPriority = if (
@@ -1037,6 +1039,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                 surround = surround,
                 onDebugAudioTrackCreated = { debugAudioTrack = it },
                 bluetoothForcePcm = isBluetoothAudioOutput,
+                legacyOpticalAc3 = legacyOpticalAc3 &&
+                    !surroundResolution.policy.deniesPassthrough(MimeTypes.AUDIO_AC3),
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 initialForcePcm = hasTriedAudioPcmFallback || isBluetoothAudioOutput,
                 passthroughPolicy = surroundResolution.policy,
@@ -2310,6 +2314,7 @@ private class SubtitleOffsetRenderersFactory(
     private val surround: SurroundResolveResult,
     private val onDebugAudioTrackCreated: (DebugAudioTrackBinding) -> Unit = {},
     private val bluetoothForcePcm: Boolean = false,
+    private val legacyOpticalAc3: Boolean = false,
     private val playbackSpeedProvider: () -> Float,
     private val initialForcePcm: Boolean = false,
     /**
@@ -2376,10 +2381,10 @@ private class SubtitleOffsetRenderersFactory(
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
         // Pin PCM-only capabilities for Bluetooth, or detected bitstream capabilities on TVs.
-        val pinnedTvCapabilities = if (bluetoothForcePcm) {
-            null
-        } else {
-            TvAudioCapabilityPin.pinnedCapabilities(context)
+        val pinnedTvCapabilities = when {
+            bluetoothForcePcm -> null
+            legacyOpticalAc3 -> TvAudioCapabilityPin.legacyOpticalAc3Capabilities(context)
+            else -> TvAudioCapabilityPin.pinnedCapabilities(context)
         }
         val builder = when {
             bluetoothForcePcm -> {
@@ -2446,9 +2451,16 @@ private class SubtitleOffsetRenderersFactory(
     ) {
         val playbackAwareSink = audioSink as? PlaybackSpeedAwareAudioSink
         val startIndex = out.size
+        // For the migrated optical mode, the platform renderer sends native AC-3 directly.
+        // Its format policy already leaves the blocked codecs to the FFmpeg renderer.
+        val audioExtensionMode = if (legacyOpticalAc3 && extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
+            EXTENSION_RENDERER_MODE_ON
+        } else {
+            extensionRendererMode
+        }
         super.buildAudioRenderers(
             context,
-            extensionRendererMode,
+            audioExtensionMode,
             mediaCodecSelector,
             enableDecoderFallback,
             audioSink,

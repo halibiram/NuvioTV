@@ -672,7 +672,7 @@ private fun PlayerRuntimeController.buildPlaybackIssuePlaybackSettingsInput(): P
         maintainOriginalAudioOnDownmix = settings.maintainOriginalAudioOnDownmix,
         tunnelingEnabled = settings.tunnelingEnabled,
         tunnelingEffective = state.tunnelingEnabled,
-        forceOpticalPassthrough = false,
+        forceOpticalPassthrough = settings.usesLegacyOpticalAc3,
         skipSilence = settings.skipSilence,
         audioAmplificationDb = settings.audioAmplificationDb,
         centerMixLevelDb = settings.centerMixLevelDb,
