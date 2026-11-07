@@ -32,7 +32,8 @@ internal data class SurroundResolveResult(
 internal fun resolveSurroundForRoute(
     context: Context,
     playerSettings: PlayerSettings,
-    inputs: SurroundResolveInputs
+    inputs: SurroundResolveInputs,
+    retryEac3AtFiveOne: Boolean
 ): SurroundResolveResult {
     val currentRouteKey = inputs.routeKey
     val manualMode = playerSettings.surroundFormatMode == SurroundFormatMode.MANUAL
@@ -92,7 +93,7 @@ internal fun resolveSurroundForRoute(
         audioOutputChannels = surroundAudioOutputChannels,
         deniedTranscodeMimes = deniedTranscodeMimes,
         eac3Target = eac3Target,
-        limitEac3ToFiveOne = eac3Target && selectedChannels == 6
+        limitEac3ToFiveOne = eac3Target && (selectedChannels == 6 || retryEac3AtFiveOne)
     )
 }
 
@@ -105,7 +106,8 @@ internal fun PlayerRuntimeController.applySurroundResolutionInPlace(reason: Stri
     val surround = resolveSurroundForRoute(
         context,
         settings,
-        inputs.copy(routeKey = routeKey)
+        inputs.copy(routeKey = routeKey),
+        retryEac3AtFiveOne = eac3OpenRetry.shouldLimitToFiveOne(currentStreamUrl, routeKey)
     )
     val policy = surround.resolution.policy
     val policyChanged = playbackSpeedAwareAudioSink?.setPassthroughPolicy(policy) == true

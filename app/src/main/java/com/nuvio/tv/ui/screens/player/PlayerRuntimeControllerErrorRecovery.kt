@@ -400,6 +400,16 @@ internal fun PlayerRuntimeController.tryAudioTrackPcmFallback(
     return true
 }
 
+internal fun PlayerRuntimeController.tryEac3FiveOneOpenRetry(channelCount: Int, positionMs: Long): Boolean {
+    val routeKey = currentAudioOutputRoute?.key
+    if (!eac3OpenRetry.recordOpenFailure(channelCount, currentStreamUrl, routeKey)) return false
+
+    Log.w(PlayerRuntimeController.TAG, "E-AC-3 7.1 output refused at open; retrying with 5.1")
+    queuePlaybackRawEventLine("audio_open_retry mime=audio/eac3 channels=8 fallbackChannels=6 positionMs=$positionMs")
+    scheduleDeferredPlayerReinitialize(fromPositionMs = positionMs, startPaused = userPausedManually)
+    return true
+}
+
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.tryPassthroughOpenRetry(error: PlaybackException): Boolean {
     val failedMime = failedAudioTrackInputFormat(error)?.sampleMimeType
