@@ -46,6 +46,7 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /** Decodes and renders audio using FFmpeg. */
 @UnstableApi
@@ -143,24 +144,22 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<Decoder<Deco
     if (forceOpticalPassthrough && MimeTypes.AUDIO_AC3.equals(mimeType)) {
       return C.FORMAT_UNSUPPORTED_SUBTYPE;
     }
-    boolean transcodeToAc3 = shouldTranscodeToAc3(format, mimeType);
+    Format compressedOutput = selectCompressedOutput(format, mimeType);
 
-    if (!transcodeToAc3 && (format.channelCount <= 0 || format.sampleRate <= 0)) {
+    if (compressedOutput == null && (format.channelCount <= 0 || format.sampleRate <= 0)) {
       return format.cryptoType == C.CRYPTO_TYPE_NONE
           ? C.FORMAT_HANDLED
           : C.FORMAT_UNSUPPORTED_DRM;
     }
-    boolean supportsConfiguredOutput;
-    if (transcodeToAc3) {
-      supportsConfiguredOutput = sinkSupportsFormat(compressedOutputFormat(format));
-    } else {
+    if (compressedOutput == null) {
       int outputChannelCount = resolveOutputChannelCount(format.channelCount);
       boolean shouldRequestDownmix = shouldRequestDownmix(format.channelCount, outputChannelCount);
       @C.PcmEncoding int outputEncoding =
           shouldRequestDownmix ? C.ENCODING_PCM_FLOAT : C.ENCODING_PCM_16BIT;
-      supportsConfiguredOutput = sinkSupportsFormat(format, outputEncoding, outputChannelCount);
-    }
-    if (!supportsConfiguredOutput) {
+      if (!sinkSupportsFormat(format, outputEncoding, outputChannelCount)) {
+        return C.FORMAT_UNSUPPORTED_SUBTYPE;
+      }
+    } else if (forceOpticalPassthrough && !sinkSupportsFormat(compressedOutput)) {
       return C.FORMAT_UNSUPPORTED_SUBTYPE;
     }
     if (format.cryptoType != C.CRYPTO_TYPE_NONE) {
@@ -179,17 +178,23 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<Decoder<Deco
       throws FfmpegDecoderException {
     TraceUtil.beginSection("createFfmpegAudioDecoder");
     String mimeType = checkNotNull(format.sampleMimeType);
-    boolean transcodeToAc3 = shouldTranscodeToAc3(format, mimeType);
+    Format compressedOutput = selectCompressedOutput(format, mimeType);
     int initialInputBufferSize =
         format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
     @C.PcmEncoding int outputEncoding;
     int nativeOutputChannelCount;
     @Nullable String outputLayoutName;
-    if (transcodeToAc3) {
-      boolean eac3 = preferEac3Transcoding && !forceOpticalPassthrough;
+    if (compressedOutput != null) {
+      boolean eac3 = MimeTypes.AUDIO_E_AC3.equals(compressedOutput.sampleMimeType);
       outputEncoding = eac3 ? C.ENCODING_E_AC3 : C.ENCODING_AC3;
-      nativeOutputChannelCount = eac3 ? eac3OutputChannels(format.channelCount, forceEac3FiveOne) : 6;
-      outputLayoutName = eac3 ? (forceEac3FiveOne ? "5.1(side)" : null) : "5.1";
+      nativeOutputChannelCount = compressedOutput.channelCount;
+      if (eac3) {
+        boolean useFiveOneLayout = nativeOutputChannelCount == 6
+            && (format.channelCount == 8 || forceEac3FiveOne);
+        outputLayoutName = useFiveOneLayout ? "5.1(side)" : null;
+      } else {
+        outputLayoutName = "5.1";
+      }
       downmixActive = false;
     } else {
       int outputChannelCount = resolveOutputChannelCount(format.channelCount);
@@ -297,26 +302,34 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<Decoder<Deco
     return sinkSupportsFormat(Util.getPcmFormat(pcmEncoding, channelCount, inputFormat.sampleRate));
   }
 
-  private boolean shouldTranscodeToAc3(Format format, String mimeType) {
+  @Nullable
+  private Format selectCompressedOutput(Format format, String mimeType) {
     if (MimeTypes.AUDIO_AC3.equals(mimeType)) {
-      return false;
-    }
-    if (preferEac3Transcoding && !forceOpticalPassthrough && !canEncodeEac3(format.channelCount)) {
-      return false;
+      return null;
     }
     boolean isDtsOrTrueHd = MimeTypes.AUDIO_DTS.equals(mimeType)
         || MimeTypes.AUDIO_DTS_HD.equals(mimeType)
         || MimeTypes.AUDIO_TRUEHD.equals(mimeType);
     boolean eligible = format.channelCount > 2 || format.channelCount <= 0 || isDtsOrTrueHd;
     if (!eligible) {
-      return false;
+      return null;
     }
-    if (forceOpticalPassthrough) {
-      return true;
+    boolean forceOptical = forceOpticalPassthrough;
+    if (!forceOptical && !deniedTranscodeMimes.contains(mimeType)) {
+      return null;
     }
-    if (preferEac3Transcoding && (MimeTypes.AUDIO_E_AC3.equals(mimeType)
-        || MimeTypes.AUDIO_E_AC3_JOC.equals(mimeType))) return false;
-    return deniedTranscodeMimes.contains(mimeType) && sinkSupportsFormat(compressedOutputFormat(format));
+    if (preferEac3Transcoding && !forceOptical) {
+      if (MimeTypes.AUDIO_E_AC3.equals(mimeType) || MimeTypes.AUDIO_E_AC3_JOC.equals(mimeType)) {
+        return null;
+      }
+      return selectEac3Output(format.channelCount, forceEac3FiveOne, this::sinkSupportsFormat);
+    }
+    Format ac3 = new Format.Builder()
+        .setSampleMimeType(MimeTypes.AUDIO_AC3)
+        .setChannelCount(6)
+        .setSampleRate(ac3SampleRate(format.sampleRate))
+        .build();
+    return forceOptical || sinkSupportsFormat(ac3) ? ac3 : null;
   }
 
   public static int ac3SampleRate(int inputSampleRate) {
@@ -357,13 +370,27 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<Decoder<Deco
     return rendererEnabled && activeDecoder != null && activeDecoder.getEncoding() == C.ENCODING_E_AC3;
   }
 
-  private Format compressedOutputFormat(Format inputFormat) {
-    boolean eac3 = preferEac3Transcoding && !forceOpticalPassthrough;
-    return new Format.Builder()
-        .setSampleMimeType(eac3 ? MimeTypes.AUDIO_E_AC3 : MimeTypes.AUDIO_AC3)
-        .setChannelCount(eac3 ? eac3OutputChannels(inputFormat.channelCount, forceEac3FiveOne) : 6)
-        .setSampleRate(eac3 ? 48000 : ac3SampleRate(inputFormat.sampleRate))
+  @Nullable
+  static Format selectEac3Output(
+      int inputChannels, boolean forceFiveOne, Predicate<Format> supportsOutput) {
+    if (!canEncodeEac3(inputChannels)) {
+      return null;
+    }
+    Format preferred = new Format.Builder()
+        .setSampleMimeType(MimeTypes.AUDIO_E_AC3)
+        .setChannelCount(eac3OutputChannels(inputChannels, forceFiveOne))
+        .setSampleRate(48000)
         .build();
+    if (supportsOutput.test(preferred)) {
+      return preferred;
+    }
+    if (preferred.channelCount == 8) {
+      Format fallback = preferred.buildUpon().setChannelCount(6).build();
+      if (supportsOutput.test(fallback)) {
+        return fallback;
+      }
+    }
+    return null;
   }
 
   private int resolveOutputChannelCount(int inputChannelCount) {
