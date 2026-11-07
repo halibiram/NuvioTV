@@ -42,6 +42,12 @@ source = replace_once(
     """    int snr_offset;
     int bits_left;""",
 )
+source = replace_once(
+    source,
+    "    header_bits = 114 + 20 * s->num_blocks;",
+    """    /* Include the final dependent substream's 8-bit compression word. */
+    header_bits = 114 + 8 + 20 * s->num_blocks;""",
+)
 start = source.index("    /* Try bit allocation at max SNR offset first.")
 end = source.index("    /* Final pass: calculate bap values", start)
 source = source[:start] + """    /* Higher SNR offsets allocate more bits. Keep the highest offset
@@ -85,7 +91,7 @@ source = replace_once(
 
     ac3_apply_rematrixing(s);""",
 )
-encoder.write_text(source)
+encoder_source = source
 
 header = root / "eac3enc.c"
 source = header.read_text()
@@ -95,4 +101,16 @@ source = replace_once(
     """    int dep_acmod = s->dependent_channel_map == 0x1a00
         ? AC3_CHMODE_3F1R : get_dep_acmod(s->dependent_channels);""",
 )
+source = replace_once(
+    source,
+    """    put_bits(pb, 1, 0);                         /* no compression gain */
+
+    /* Custom channel map - critical for dependent streams */""",
+    """    /* A/52 E.3.8.5: this is the only (and last) dependent substream. */
+    put_bits(pb, 1, 1);                         /* compre */
+    put_bits(pb, 8, 0);                         /* compr: unity gain */
+
+    /* Custom channel map - critical for dependent streams */""",
+)
+encoder.write_text(encoder_source)
 header.write_text(source)

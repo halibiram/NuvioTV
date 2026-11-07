@@ -28,9 +28,9 @@ When using `build_ffmpeg.sh`, place the checkout at `<module-main>/jni/ffmpeg` (
 ## What the local corrections do
 
 - `fix_base_mapping.py`: preserve channel identity when the independent six-channel base reads eight-channel input planes.
-- `fix_surround_substream.py`: represent side and rear surrounds in the dependent substream, preserve source planes and fix its bit-allocation/SNR choice.
+- `fix_surround_substream.py`: represent side and rear surrounds in the dependent substream, preserve source planes, fix bit allocation and write the final dependent substream's compression word as specified in ATSC A/52 Annex E.3.8.5.
 - `fix_decoder_mapping.py`: combine independent/dependent streams by channel identity rather than assuming indices are unchanged when expanding the layout.
-- `verify_channels.py`: generate distinct-frequency 5.1 and 7.1 tones, round-trip E-AC-3 and measure amplitude/crosstalk without forcing the decoder channel count.
+- `verify_channels.py`: verify substream order, the dependent channel map, frame CRCs and total bitrate, then round-trip distinct-frequency 5.1 and 7.1 tones to measure amplitude and crosstalk.
 
 The original candidate advertised 7.1 but failed channel-isolation testing; advertising eight channels alone was insufficient. After the corrections, the earlier experimental Android APK played all individually announced TrueHD 7.1 channels on the user's HDMI eARC setup. This is device evidence for that earlier APK, not validation of the PR3107 integration, other ABIs or all receivers.
 
