@@ -11,61 +11,56 @@ final class Eac3Surround {
   private Eac3Surround() {}
 
   static Format refineFormat(Format format, byte[] data, int offset, int limit) {
-    if (offset < 0 || limit > data.length || limit - offset < 6
-        || !hasSyncword(data, offset)) {
+    int baseSize = completeSyncframeSize(data, offset, limit);
+    if (baseSize == 0) {
       return format;
     }
-    int frameSize = Ac3Util.parseAc3SyncframeSize(
-        Arrays.copyOfRange(data, offset, offset + 6));
-    if (frameSize < 6 || frameSize > limit - offset) {
+    Ac3Util.SyncFrameInfo base = parseFrame(data, offset, baseSize);
+    if (base == null || base.streamType == Ac3Util.SyncFrameInfo.STREAM_TYPE_TYPE1) {
       return format;
     }
-    try {
-      Ac3Util.SyncFrameInfo frame = Ac3Util.parseAc3SyncframeInfo(
-          new ParsableBitArray(Arrays.copyOfRange(data, offset, offset + frameSize)));
-      if (MimeTypes.AUDIO_E_AC3_JOC.equals(frame.mimeType)
-          && frame.streamType != Ac3Util.SyncFrameInfo.STREAM_TYPE_TYPE1) {
-        return format.buildUpon()
-            .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
-            .setChannelCount(frame.channelCount)
-            .build();
-      }
-    } catch (IllegalStateException | IllegalArgumentException | IndexOutOfBoundsException e) {
+    if (MimeTypes.AUDIO_E_AC3_JOC.equals(base.mimeType)) {
+      return format.buildUpon()
+          .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
+          .setChannelCount(base.channelCount)
+          .build();
+    }
+
+    int extension = offset + baseSize;
+    int extensionSize = completeSyncframeSize(data, extension, limit);
+    if (extensionSize < 10) {
       return format;
     }
-    return has71Extension(data, offset, limit)
-        ? format.buildUpon().setChannelCount(8).build() : format;
+    int bitstreamId = (data[extension + 5] & 0xff) >> 3;
+    if (((data[extension + 2] & 0xff) >> 6) != 1 || bitstreamId < 11 || bitstreamId > 16) {
+      return format;
+    }
+
+    boolean has71Extension = base.channelCount == 6 && has71ChannelMap(data, extension, extensionSize);
+    Ac3Util.SyncFrameInfo dependent = parseFrame(data, extension, extensionSize);
+    if (dependent != null
+        && dependent.streamType == Ac3Util.SyncFrameInfo.STREAM_TYPE_TYPE1
+        && dependent.sampleRate == base.sampleRate
+        && dependent.sampleCount == base.sampleCount
+        && MimeTypes.AUDIO_E_AC3_JOC.equals(dependent.mimeType)) {
+      return format.buildUpon()
+          .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
+          .setChannelCount(has71Extension ? 8 : base.channelCount)
+          .build();
+    }
+    return has71Extension ? format.buildUpon().setChannelCount(8).build() : format;
   }
 
-  static boolean has71Extension(byte[] data, int offset, int limit) {
-    if (limit - offset < 6 || !hasSyncword(data, offset)) {
-      return false;
-    }
-    int baseSize = Ac3Util.parseAc3SyncframeSize(Arrays.copyOfRange(data, offset, offset + 6));
-    if (baseSize < 6 || baseSize > limit - offset - 10) {
-      return false;
-    }
-    int extension = offset + baseSize;
-    int bitstreamId = (data[extension + 5] & 0xff) >> 3;
-    if (!hasSyncword(data, extension)
-        || ((data[extension + 2] & 0xff) >> 6) != 1
-        || bitstreamId < 11 || bitstreamId > 16) {
-      return false;
-    }
-    int extensionSize = Ac3Util.parseAc3SyncframeSize(
-        Arrays.copyOfRange(data, extension, extension + 6));
-    if (extensionSize < 10 || extensionSize > limit - extension) {
-      return false;
-    }
+  private static Ac3Util.SyncFrameInfo parseFrame(byte[] data, int offset, int size) {
     try {
-      Ac3Util.SyncFrameInfo base = Ac3Util.parseAc3SyncframeInfo(
-          new ParsableBitArray(Arrays.copyOfRange(data, offset, extension)));
-      if (base.channelCount != 6 || MimeTypes.AUDIO_E_AC3_JOC.equals(base.mimeType)) {
-        return false;
-      }
-    } catch (IllegalStateException | IndexOutOfBoundsException e) {
-      return false;
+      return Ac3Util.parseAc3SyncframeInfo(
+          new ParsableBitArray(Arrays.copyOfRange(data, offset, offset + size)));
+    } catch (IllegalStateException | IllegalArgumentException | IndexOutOfBoundsException e) {
+      return null;
     }
+  }
+
+  private static boolean has71ChannelMap(byte[] data, int extension, int extensionSize) {
     ParsableBitArray header = new ParsableBitArray(data, extension + extensionSize);
     header.setPosition(extension * 8 + 50); // After bsid and dialnorm.
     if (header.readBit()) {
@@ -80,7 +75,12 @@ final class Eac3Surround {
         || (channelMode == 2 && channelMap == 0x0200);
   }
 
-  private static boolean hasSyncword(byte[] data, int offset) {
-    return data[offset] == 0x0b && data[offset + 1] == 0x77;
+  private static int completeSyncframeSize(byte[] data, int offset, int limit) {
+    if (offset < 0 || offset > limit || limit > data.length || limit - offset < 6
+        || data[offset] != 0x0b || data[offset + 1] != 0x77) {
+      return 0;
+    }
+    int size = Ac3Util.parseAc3SyncframeSize(Arrays.copyOfRange(data, offset, offset + 6));
+    return size >= 6 && size <= limit - offset ? size : 0;
   }
 }
