@@ -6,6 +6,7 @@ internal enum class AudioRoutingMode {
     PASSTHROUGH_IEC,
     PASSTHROUGH_DIRECT,
     TRANSCODE_AC3,
+    TRANSCODE_EAC3,
     PCM
 }
 
@@ -38,7 +39,8 @@ internal fun resolveAudioRoutingSnapshot(
     isTranscodingAc3: Boolean,
     isAudioPathActive: Boolean,
     sinkMime: String?,
-    sinkChannelCount: Int
+    sinkChannelCount: Int,
+    isTranscodingEac3: Boolean = false
 ): AudioRoutingSnapshot? {
     if (sourceMime == null) return null
     val isSourceSurroundOrHbr = isSurroundOrHbrMime(sourceMime, sourceChannelCount)
@@ -50,6 +52,10 @@ internal fun resolveAudioRoutingSnapshot(
                 outputFormat = "passthrough (IEC)",
                 isFallback = false
             )
+        }
+        isTranscodingEac3 -> {
+            val channels = when (sinkChannelCount) { 6 -> "5.1"; 8 -> "7.1"; else -> "? ch" }
+            AudioRoutingSnapshot(AudioRoutingMode.TRANSCODE_EAC3, "transcode E-AC-3 $channels", true)
         }
         isTranscodingAc3 -> {
             AudioRoutingSnapshot(
@@ -111,6 +117,8 @@ internal fun PlayerRuntimeController.getAudioRoutingSnapshot(): AudioRoutingSnap
         isTranscodingAc3 = isTranscodingAc3,
         isAudioPathActive = ffmpeg?.isAudioPathActive() == true,
         sinkMime = sinkFormat?.sampleMimeType,
-        sinkChannelCount = sinkFormat?.channelCount ?: -1
+        sinkChannelCount = sinkFormat?.channelCount ?: -1,
+        isTranscodingEac3 = Eac3TranscodingSupport.available &&
+            (runCatching { ffmpeg?.javaClass?.getMethod("isTranscodingToEac3")?.invoke(ffmpeg) == true }.getOrDefault(false))
     )
 }

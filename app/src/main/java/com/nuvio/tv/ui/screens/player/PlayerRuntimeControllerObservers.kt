@@ -1078,8 +1078,10 @@ internal fun PlayerRuntimeController.handleVc1PlaybackFailure(errorMessage: Stri
 
 internal fun PlayerRuntimeController.scheduleDeferredPlayerReinitialize(
     fromPositionMs: Long,
-    clearResumeProgress: Boolean = false
+    clearResumeProgress: Boolean = false,
+    startPaused: Boolean = false
 ) {
+    val streamUrl = currentStreamUrl
     cancelFirstFrameWatchdog()
     cancelTunnelAvSyncWatchdog()
     cancelStallWatchdog()
@@ -1095,9 +1097,10 @@ internal fun PlayerRuntimeController.scheduleDeferredPlayerReinitialize(
     }
     scope.launch {
         yield()
+        if (currentStreamUrl != streamUrl) return@launch
         runCatching {
             releasePlayer(flushPlaybackState = true, keepTorrentStream = true)
-            initializePlayer(currentStreamUrl, currentHeaders)
+            initializePlayer(streamUrl, currentHeaders, startPaused = startPaused)
         }.onFailure { e ->
             _uiState.update {
                 it.copy(

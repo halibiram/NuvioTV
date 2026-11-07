@@ -41,10 +41,16 @@ import java.util.List;
 /* package */ final class FfmpegAudioDecoder
     extends SimpleDecoder<DecoderInputBuffer, SimpleDecoderOutputBuffer, FfmpegDecoderException> {
 
+  // Private synthetic input used by EncodedEosDecoder to advance the native
+  // drain on the SimpleDecoder worker thread. Never passed to FFmpeg as media.
+  static final long ENCODED_DRAIN_INPUT_TIME_US = Long.MAX_VALUE;
+  static final long ENCODED_PENDING_INPUT_TIME_US = Long.MAX_VALUE - 1;
+
   private static final int INITIAL_OUTPUT_BUFFER_SIZE = 65535 * 2;
 
   private static final int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
   private static final int AUDIO_DECODER_ERROR_OTHER = -2;
+  private static final int AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH = -1000;
 
   // FLAC parsing constants
   private static final byte[] flacStreamMarker = {'f', 'L', 'a', 'C'};
@@ -57,12 +63,19 @@ import java.util.List;
   private final @C.PcmEncoding int outputEncoding;
   private volatile int userCenterMixLevelDb;
   private volatile boolean downmixNormalizationEnabled;
+  private volatile float lfeMixLevel;
   private int outputBufferSize;
 
   private long nativeContext; // May be reassigned on resetting the codec.
   private boolean hasOutputFormat;
   private volatile int channelCount;
   private volatile int sampleRate;
+  // First input timestamp anchors native encoder-relative PTS to media time.
+  private long encodedTimeAnchorUs = C.TIME_UNSET;
+  // Accessed only by the decoder/output scheduler thread. Reset on seek.
+  private volatile boolean encodedEndOfStreamComplete;
+  private volatile boolean syntheticDrainStepFinished;
+  private volatile int pendingEncodedPacketsSnapshot;
 
   public FfmpegAudioDecoder(
       Format format,
@@ -91,7 +104,8 @@ import java.util.List;
             outputChannelCount,
             requestedOutputLayoutName,
             outputEncoding == C.ENCODING_PCM_FLOAT,
-            outputEncoding == C.ENCODING_AC3);
+            outputEncoding == C.ENCODING_E_AC3 ? 2
+                : outputEncoding == C.ENCODING_AC3 ? 1 : 0);
     if (nativeContext == 0) {
       throw new FfmpegDecoderException("Initialization failed.");
     }
@@ -129,6 +143,47 @@ import java.util.List;
       if (nativeContext == 0) {
         return new FfmpegDecoderException("Error resetting (see logcat).");
       }
+      // The native encoder/resampler may have been recreated after seeking.
+      // Query the resulting output format again on the next non-empty buffer.
+      hasOutputFormat = false;
+      encodedTimeAnchorUs = C.TIME_UNSET;
+      encodedEndOfStreamComplete = false;
+      syntheticDrainStepFinished = false;
+      pendingEncodedPacketsSnapshot = 0;
+    }
+    if (inputBuffer.timeUs == ENCODED_PENDING_INPUT_TIME_US) {
+      try {
+        if (!dequeuePendingEncodedPacket(outputBuffer)) {
+          outputBuffer.shouldBeSkipped = true;
+        }
+        return null;
+      } catch (FfmpegDecoderException error) {
+        return error;
+      } finally {
+        pendingEncodedPacketsSnapshot = getPendingEncodedPacketCount();
+        syntheticDrainStepFinished = true;
+        
+      }
+    }
+    if (inputBuffer.timeUs == ENCODED_DRAIN_INPUT_TIME_US) {
+      try {
+        if (!drainNextEncodedEndOfStreamBuffer(outputBuffer)) {
+          outputBuffer.shouldBeSkipped = true;
+        }
+        return null;
+      } catch (FfmpegDecoderException error) {
+        return error;
+      } finally {
+        // Allows the renderer-facing wrapper to schedule the next drain
+        // step even when SimpleDecoder discards an empty output buffer.
+        pendingEncodedPacketsSnapshot = getPendingEncodedPacketCount();
+        syntheticDrainStepFinished = true;
+        
+      }
+    }
+    if ((outputEncoding == C.ENCODING_AC3 || outputEncoding == C.ENCODING_E_AC3)
+        && encodedTimeAnchorUs == C.TIME_UNSET) {
+      encodedTimeAnchorUs = inputBuffer.timeUs;
     }
     ByteBuffer inputData = Util.castNonNull(inputBuffer.data);
     int inputSize = inputData.limit();
@@ -143,8 +198,13 @@ import java.util.List;
             outputBufferSize,
             userCenterMixLevelDb,
             downmixNormalizationEnabled,
-            inputBuffer.isEndOfStream());
-    if (result == AUDIO_DECODER_ERROR_OTHER) {
+            lfeMixLevel);
+    if (isCompressedOutput()) {
+      pendingEncodedPacketsSnapshot = getPendingEncodedPacketCount();
+    }
+    if (result == AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH) {
+      return FfmpegDecoderException.eac3LayoutMismatch();
+    } else if (result == AUDIO_DECODER_ERROR_OTHER) {
       return new FfmpegDecoderException("Error decoding (see logcat).");
     } else if (result == AUDIO_DECODER_ERROR_INVALID_DATA) {
       // Treat invalid data errors as non-fatal to match the behavior of MediaCodec. No output will
@@ -175,6 +235,27 @@ import java.util.List;
     outputData = checkNotNull(outputBuffer.data);
     outputData.position(0);
     outputData.limit(result);
+    if (outputEncoding == C.ENCODING_AC3 || outputEncoding == C.ENCODING_E_AC3) {
+      int accessUnitCount = ffmpegGetOutputPacketCount(nativeContext);
+      if (accessUnitCount != 1) {
+        // A SimpleDecoderOutputBuffer has one presentation timestamp. Do not
+        // send concatenated compressed access units with an incorrect frame
+        // count or timestamp to the Media3 passthrough sink.
+        return new FfmpegDecoderException(
+            "Expected exactly one encoded audio access unit, got " + accessUnitCount
+                + ". Native packet scheduling returned an invalid buffer.");
+      }
+      long packetTimeUs = ffmpegGetOutputTimeUs(nativeContext);
+      if (packetTimeUs != Long.MIN_VALUE && encodedTimeAnchorUs != C.TIME_UNSET) {
+        // Guard the media-time conversion against signed overflow. A corrupt
+        // native timestamp must not wrap into an unrelated playback position.
+        if ((packetTimeUs > 0 && encodedTimeAnchorUs <= Long.MAX_VALUE - packetTimeUs)
+            || (packetTimeUs < 0 && encodedTimeAnchorUs >= Long.MIN_VALUE - packetTimeUs)
+            || packetTimeUs == 0) {
+          outputBuffer.timeUs = encodedTimeAnchorUs + packetTimeUs;
+        }
+      }
+    }
     return null;
   }
 
@@ -216,6 +297,14 @@ import java.util.List;
   /** Enables or disables downmix normalization. */
   public void setDownmixNormalizationEnabled(boolean downmixNormalizationEnabled) {
     this.downmixNormalizationEnabled = downmixNormalizationEnabled;
+  }
+
+  /**
+   * Sets how much of the LFE channel is mixed into the other channels when the downmix layout has
+   * no LFE (0 drops it, 1 mixes it at full level, split -3 dB per front channel by swresample).
+   */
+  public void setLfeMixLevel(float lfeMixLevel) {
+    this.lfeMixLevel = lfeMixLevel;
   }
 
   /**
@@ -339,7 +428,7 @@ import java.util.List;
       int outputChannelCount,
       @Nullable String requestedOutputLayoutName,
       boolean outputFloat,
-      boolean transcodeToAc3);
+      int transcodingMode);
 
   private native int ffmpegDecode(
       long context,
@@ -350,7 +439,234 @@ import java.util.List;
       int outputSize,
       int userCenterMixLevelDb,
       boolean downmixNormalizationEnabled,
-      boolean endOfStream);
+      float lfeMixLevel);
+
+  /**
+   * Advances compressed end-of-stream processing by at most one output access unit.
+   *
+   * <p>This method must be called by a future drain-aware output scheduler
+   * after the last compressed input, on the same thread that owns the native
+   * decoder. It must never be called concurrently with decode() or reset.
+   * A false result means no output was produced in this step, NOT necessarily
+   * that EOS is complete. Query isEncodedEndOfStreamComplete() separately.
+   */
+  boolean drainNextEncodedEndOfStreamBuffer(SimpleDecoderOutputBuffer outputBuffer)
+      throws FfmpegDecoderException {
+    if (outputEncoding != C.ENCODING_AC3 && outputEncoding != C.ENCODING_E_AC3) {
+      throw new FfmpegDecoderException("Encoded EOS drain requires AC-3 or E-AC-3 output.");
+    }
+    if (encodedEndOfStreamComplete) {
+      return false;
+    }
+    // Always emit previously encoded access units before producing more.
+    // This also keeps the bounded native packet queue from saturating.
+    if (dequeuePendingEncodedPacket(outputBuffer)) {
+      return true;
+    }
+    if (!isDecoderDrainComplete()) {
+      int size = drainDelayedDecoderFrames(outputBuffer);
+      if (size > 0) {
+        return true;
+      }
+      // The decoder can return zero bytes without having reached EOF.
+      return false;
+    }
+    if (!isResamplerDrainComplete()) {
+      drainResamplerAfterDecoderEof();
+      return dequeuePendingEncodedPacket(outputBuffer);
+    }
+    // A native encoder flush can return EAGAIN, or pause for queue
+    // backpressure, before receiving confirmed encoder EOF. Retry only
+    // after delivering queued packets to the renderer.
+    if (!isEncoderFlushComplete()) {
+      flushEncodedFramesAfterUpstreamDrain();
+      return dequeuePendingEncodedPacket(outputBuffer);
+    }
+    if (dequeuePendingEncodedPacket(outputBuffer)) {
+      return true;
+    }
+    encodedEndOfStreamComplete = true;
+    return false;
+  }
+
+  int getPendingEncodedPacketsSnapshot() {
+    return pendingEncodedPacketsSnapshot;
+  }
+
+  // Renderer-thread invalidation after a seek: the old native queue will be
+  // destroyed by SimpleDecoder's next reset, so never schedule stale tokens.
+  void invalidatePendingEncodedPackets() {
+    pendingEncodedPacketsSnapshot = 0;
+    syntheticDrainStepFinished = false;
+    encodedEndOfStreamComplete = false;
+  }
+
+  boolean hasFinishedSyntheticDrainStep() {
+    return syntheticDrainStepFinished;
+  }
+
+  void prepareSyntheticDrainStep() {
+    syntheticDrainStepFinished = false;
+  }
+
+  boolean isEncodedEndOfStreamComplete() {
+    return encodedEndOfStreamComplete;
+  }
+
+  boolean isCompressedOutput() {
+    return outputEncoding == C.ENCODING_AC3 || outputEncoding == C.ENCODING_E_AC3;
+  }
+
+  // For a future drain-capable output scheduler. SimpleDecoder cannot emit
+  // additional output buffers without another input, including at EOS.
+  int getPendingEncodedPacketCount() {
+    return ffmpegGetPendingEncodedPacketCount(nativeContext);
+  }
+
+  // Called only after the output scheduler owns an unused output buffer.
+  // Returns true when one compressed access unit was copied into it.
+  boolean dequeuePendingEncodedPacket(SimpleDecoderOutputBuffer outputBuffer)
+      throws FfmpegDecoderException {
+    if (outputEncoding != C.ENCODING_AC3 && outputEncoding != C.ENCODING_E_AC3) {
+      return false;
+    }
+    if (getPendingEncodedPacketCount() == 0) {
+      return false;
+    }
+    ByteBuffer data = outputBuffer.init(
+        encodedTimeAnchorUs == C.TIME_UNSET ? 0 : encodedTimeAnchorUs, outputBufferSize);
+    int size = ffmpegDequeueEncodedPacket(nativeContext, outputBuffer, data, outputBufferSize);
+    if (size < 0) {
+      throw new FfmpegDecoderException("Failed to dequeue encoded access unit.");
+    }
+    if (size == 0) {
+      return false;
+    }
+    data = checkNotNull(outputBuffer.data);
+    data.position(0);
+    data.limit(size);
+    // A short stream can produce its first encoded packet only during
+    // EOS draining, bypassing the normal decode() output-format update.
+    if (!hasOutputFormat) {
+      channelCount = ffmpegGetChannelCount(nativeContext);
+      sampleRate = ffmpegGetSampleRate(nativeContext);
+      if (channelCount <= 0 || sampleRate <= 0) {
+        throw new FfmpegDecoderException("Invalid compressed output format after drain.");
+      }
+      hasOutputFormat = true;
+    }
+    long packetTimeUs = ffmpegGetOutputTimeUs(nativeContext);
+    if (packetTimeUs != Long.MIN_VALUE && encodedTimeAnchorUs != C.TIME_UNSET
+        && ((packetTimeUs > 0 && encodedTimeAnchorUs <= Long.MAX_VALUE - packetTimeUs)
+            || (packetTimeUs < 0 && encodedTimeAnchorUs >= Long.MIN_VALUE - packetTimeUs)
+            || packetTimeUs == 0)) {
+      outputBuffer.timeUs = encodedTimeAnchorUs + packetTimeUs;
+    }
+    return true;
+  }
+
+  // Start native decoder EOF handling. This can return one queued encoded
+  // access unit; a drain-capable scheduler must continue until no output
+  // remains, then drain SwrContext before finalizing the encoder.
+  int drainDelayedDecoderFrames(SimpleDecoderOutputBuffer outputBuffer)
+      throws FfmpegDecoderException {
+    if (outputEncoding != C.ENCODING_AC3 && outputEncoding != C.ENCODING_E_AC3) {
+      return 0;
+    }
+    ByteBuffer data = outputBuffer.init(
+        encodedTimeAnchorUs == C.TIME_UNSET ? 0 : encodedTimeAnchorUs, outputBufferSize);
+    int size = ffmpegDrainDecoder(
+        nativeContext, outputBuffer, data, outputBufferSize,
+        userCenterMixLevelDb, downmixNormalizationEnabled, lfeMixLevel);
+    if (size == AUDIO_DECODER_ERROR_EAC3_LAYOUT_MISMATCH) {
+      throw FfmpegDecoderException.eac3LayoutMismatch();
+    }
+    if (size < 0) {
+      throw new FfmpegDecoderException("Failed to drain delayed FFmpeg decoder frames.");
+    }
+    if (size > 0) {
+      data = checkNotNull(outputBuffer.data);
+      data.position(0);
+      data.limit(size);
+      long packetTimeUs = ffmpegGetOutputTimeUs(nativeContext);
+      if (packetTimeUs != Long.MIN_VALUE && encodedTimeAnchorUs != C.TIME_UNSET
+          && ((packetTimeUs > 0 && encodedTimeAnchorUs <= Long.MAX_VALUE - packetTimeUs)
+              || (packetTimeUs < 0 && encodedTimeAnchorUs >= Long.MIN_VALUE - packetTimeUs)
+              || packetTimeUs == 0)) {
+        outputBuffer.timeUs = encodedTimeAnchorUs + packetTimeUs;
+      }
+    }
+    return size;
+  }
+
+  private native int ffmpegDrainDecoder(
+      long context, SimpleDecoderOutputBuffer decoderOutputBuffer, ByteBuffer outputData,
+      int outputSize, int userCenterMixLevelDb, boolean downmixNormalizationEnabled,
+      float lfeMixLevel);
+
+  // Zero bytes from drainDelayedDecoderFrames() does not prove EOF.
+  boolean isDecoderDrainComplete() {
+    return ffmpegIsDecoderDrainComplete(nativeContext);
+  }
+
+  private native boolean ffmpegIsDecoderDrainComplete(long context);
+
+  // Drains delayed SwrContext samples after confirmed native decoder EOF.
+  // Returns queued compressed access units, not a count of PCM samples.
+  int drainResamplerAfterDecoderEof() throws FfmpegDecoderException {
+    if (outputEncoding != C.ENCODING_AC3 && outputEncoding != C.ENCODING_E_AC3) {
+      return 0;
+    }
+    int count = ffmpegDrainResampler(nativeContext);
+    if (count < 0) {
+      throw new FfmpegDecoderException("Failed to drain FFmpeg resampler.");
+    }
+    return count;
+  }
+
+  private native int ffmpegDrainResampler(long context);
+
+  // A zero packet count is not evidence that SwrContext has finished.
+  boolean isResamplerDrainComplete() {
+    return ffmpegIsResamplerDrainComplete(nativeContext);
+  }
+
+  private native boolean ffmpegIsResamplerDrainComplete(long context);
+
+  // Only call after the upstream FFmpeg decoder and resampler are drained.
+  // Returns the number of queued encoded packets, or a negative error.
+  int flushEncodedFramesAfterUpstreamDrain() throws FfmpegDecoderException {
+    if (outputEncoding != C.ENCODING_AC3 && outputEncoding != C.ENCODING_E_AC3) {
+      return 0;
+    }
+    int count = ffmpegFlushEncodedFrames(nativeContext);
+    if (count < 0) {
+      throw new FfmpegDecoderException("Failed to flush encoded audio frames.");
+    }
+    return count;
+  }
+
+  private native int ffmpegFlushEncodedFrames(long context);
+
+  private native boolean ffmpegIsEncoderFlushComplete(long context);
+
+  boolean isEncoderFlushComplete() {
+    return ffmpegIsEncoderFlushComplete(nativeContext);
+  }
+
+
+
+  private native int ffmpegGetPendingEncodedPacketCount(long context);
+
+  private native int ffmpegDequeueEncodedPacket(
+      long context,
+      SimpleDecoderOutputBuffer decoderOutputBuffer,
+      ByteBuffer outputData,
+      int outputSize);
+
+  private native int ffmpegGetOutputPacketCount(long context);
+
+  private native long ffmpegGetOutputTimeUs(long context);
 
   private native int ffmpegGetChannelCount(long context);
 

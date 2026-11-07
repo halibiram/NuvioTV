@@ -51,12 +51,9 @@ object SurroundFormatResolver {
         routeIsBluetooth: Boolean,
         routeIsHdmiArc: Boolean,
         softwareDecodersAvailable: Boolean,
-        forceOpticalActive: Boolean,
         learnedDeniedGroups: Set<AudioPassthroughPolicy.Group>
     ): Resolution {
         if (routeIsBluetooth) return Resolution.INERT
-
-        if (!manualMode && forceOpticalActive) return Resolution.INERT
 
         val autoOnArc = !manualMode && routeIsHdmiArc
         val maxPcmChannels = if (autoOnArc) 2 else rawMaxPcmChannels
@@ -99,7 +96,7 @@ object SurroundFormatResolver {
         val anythingDenied = groupRepresentativeMimes.any { policy.deniesPassthrough(it) }
 
         val transcodePreferred = when {
-            !anythingDenied -> false
+            !anythingDenied || manualChannelTargetChannels == 2 -> false
             manualMode -> manualTranscodePreferred
             maxPcmChannels != null && maxPcmChannels > 2 -> false
             maxPcmChannels == 2 -> direct?.ac3 ?: autoOnArc

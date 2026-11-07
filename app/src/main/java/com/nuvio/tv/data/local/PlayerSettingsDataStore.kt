@@ -276,7 +276,8 @@ enum class SurroundChannelTarget {
 
 enum class DeniedCodecHandling {
     DECODE_PCM,
-    TRANSCODE_AC3;
+    TRANSCODE_AC3,
+    TRANSCODE_EAC3;
 
     companion object {
         fun fromStoredString(value: String?): DeniedCodecHandling =
@@ -302,7 +303,6 @@ data class PlayerSettings(
     val audioOutputChannels: AudioOutputChannels = AudioOutputChannels.default,
     val maintainOriginalAudioOnDownmix: Boolean = true,
     val tunnelingEnabled: Boolean = false,
-    val forceOpticalPassthrough: Boolean = false,
     val useSystemPassthrough: Boolean = false,
     val surroundFormatMode: SurroundFormatMode = SurroundFormatMode.AUTO,
     val surroundChannelTarget: SurroundChannelTarget = SurroundChannelTarget.AUTO,
@@ -391,8 +391,15 @@ data class PlayerSettings(
     val enableBufferLogs: Boolean = false,
     val resizeMode: Int = 0,
     // Nuvio ExoPlayer Performance Mode
-    val nuvioPerformanceModeEnabled: Boolean = DEFAULT_NUVIO_PERFORMANCE_MODE_ENABLED
+    val nuvioPerformanceModeEnabled: Boolean = DEFAULT_NUVIO_PERFORMANCE_MODE_ENABLED,
+    val legacyOpticalAc3Compatibility: Boolean = false
 ) {
+    val usesLegacyOpticalAc3: Boolean
+        get() = legacyOpticalAc3Compatibility && decoderPriority != 0 &&
+            surroundFormatMode == SurroundFormatMode.MANUAL &&
+            deniedCodecHandling == DeniedCodecHandling.TRANSCODE_AC3 &&
+            surroundChannelTarget != SurroundChannelTarget.CH_2_0 && allowAc3Passthrough
+
     /** Prefer FFmpeg/extension audio decoder (EXTENSION_RENDERER_MODE_PREFER). */
     val isPreferAppDecoder: Boolean
         get() = decoderPriority == 2
@@ -577,7 +584,7 @@ class PlayerSettingsDataStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
-        private const val FEATURE = "player_settings"
+        internal const val FEATURE = "player_settings"
         private const val AUDIO_AMPLIFICATION_DB_MIN = 0
         private const val AUDIO_AMPLIFICATION_DB_MAX = 10
         private const val CENTER_MIX_LEVEL_DB_MIN = -10
@@ -604,16 +611,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val downmixNormalizationEnabledLegacyKey =
         booleanPreferencesKey("downmix_normalization_enabled")
     private val tunnelingEnabledKey = booleanPreferencesKey("tunneling_enabled")
-    private val forceOpticalPassthroughKey = booleanPreferencesKey("force_optical_passthrough")
     private val useSystemPassthroughKey = booleanPreferencesKey("use_system_passthrough")
-    private val surroundFormatModeKey = stringPreferencesKey("surround_format_mode")
-    private val surroundChannelTargetKey = stringPreferencesKey("surround_channel_target")
-    private val allowAc3PassthroughKey = booleanPreferencesKey("allow_ac3_passthrough")
-    private val allowEac3PassthroughKey = booleanPreferencesKey("allow_eac3_passthrough")
-    private val allowTruehdPassthroughKey = booleanPreferencesKey("allow_truehd_passthrough")
-    private val allowDtsPassthroughKey = booleanPreferencesKey("allow_dts_passthrough")
-    private val allowDtshdPassthroughKey = booleanPreferencesKey("allow_dtshd_passthrough")
-    private val deniedCodecHandlingKey = stringPreferencesKey("denied_codec_handling")
     private val audioRejectionsSeenKey = stringSetPreferencesKey("audio_rejections_seen")
     private val audioRejectionsConfirmedKey = stringSetPreferencesKey("audio_rejections_confirmed")
     private val tunnelDeadAudioClassesKey = stringSetPreferencesKey("tunnel_dead_audio_classes")
@@ -999,7 +997,6 @@ class PlayerSettingsDataStore @Inject constructor(
                     prefs[maintainOriginalAudioOnDownmixKey]
                         ?: !(prefs[downmixNormalizationEnabledLegacyKey] ?: false),
                 tunnelingEnabled = prefs[tunnelingEnabledKey] ?: false,
-                forceOpticalPassthrough = prefs[forceOpticalPassthroughKey] ?: false,
                 useSystemPassthrough = prefs[useSystemPassthroughKey] ?: false,
                 surroundFormatMode = SurroundFormatMode.fromStoredString(prefs[surroundFormatModeKey]),
                 surroundChannelTarget = SurroundChannelTarget.fromStoredString(prefs[surroundChannelTargetKey]),
@@ -1009,6 +1006,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 allowDtsPassthrough = prefs[allowDtsPassthroughKey] ?: true,
                 allowDtshdPassthrough = prefs[allowDtshdPassthroughKey] ?: true,
                 deniedCodecHandling = DeniedCodecHandling.fromStoredString(prefs[deniedCodecHandlingKey]),
+                legacyOpticalAc3Compatibility = prefs[legacyOpticalAc3CompatibilityKey] ?: false,
                 audioRejectionsSeen = prefs[audioRejectionsSeenKey] ?: emptySet(),
                 audioRejectionsConfirmed = prefs[audioRejectionsConfirmedKey] ?: emptySet(),
                 tunnelDeadAudioClasses = prefs[tunnelDeadAudioClassesKey] ?: emptySet(),
@@ -1282,12 +1280,6 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setForceOpticalPassthrough(enabled: Boolean) {
-        store().edit { prefs ->
-            prefs[forceOpticalPassthroughKey] = enabled
-        }
-    }
-
     suspend fun setUseSystemPassthrough(enabled: Boolean) {
         store().edit { prefs ->
             prefs[useSystemPassthroughKey] = enabled
@@ -1296,6 +1288,7 @@ class PlayerSettingsDataStore @Inject constructor(
 
     suspend fun setSurroundFormatMode(mode: SurroundFormatMode) {
         store().edit { prefs ->
+            if (prefs[surroundFormatModeKey] != mode.name) prefs.remove(legacyOpticalAc3CompatibilityKey)
             prefs[surroundFormatModeKey] = mode.name
         }
     }
@@ -1308,6 +1301,7 @@ class PlayerSettingsDataStore @Inject constructor(
 
     suspend fun setAllowAc3Passthrough(enabled: Boolean) {
         store().edit { prefs ->
+            if (!enabled) prefs.remove(legacyOpticalAc3CompatibilityKey)
             prefs[allowAc3PassthroughKey] = enabled
         }
     }
@@ -1338,6 +1332,7 @@ class PlayerSettingsDataStore @Inject constructor(
 
     suspend fun setDeniedCodecHandling(handling: DeniedCodecHandling) {
         store().edit { prefs ->
+            if (handling != DeniedCodecHandling.TRANSCODE_AC3) prefs.remove(legacyOpticalAc3CompatibilityKey)
             prefs[deniedCodecHandlingKey] = handling.name
         }
     }

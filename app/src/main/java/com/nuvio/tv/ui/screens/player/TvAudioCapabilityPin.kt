@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioDeviceInfo
 import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.audio.AudioCapabilities
 
 internal object TvAudioCapabilityPin {
@@ -34,6 +36,18 @@ internal object TvAudioCapabilityPin {
             )
         }.getOrNull() ?: return null
         return snapshot.takeIf { shouldPin(isTelevision, it::supportsEncoding) }
+    }
+
+    fun legacyOpticalAc3Capabilities(context: Context): AudioCapabilities {
+        val attributes = AudioOutputRouteDetector.mediaMovieAudioAttributes()
+        val ac3 = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_AC3)
+            .setChannelCount(6).setSampleRate(48_000).build()
+        val detected = runCatching {
+            AudioCapabilities.getCapabilities(context, attributes, null)
+                .takeIf { it.isPassthroughPlaybackSupported(ac3, attributes) }
+        }.getOrNull()
+        // The old optical setting was an explicit override for devices that underreport AC-3.
+        return detected ?: AudioCapabilities(intArrayOf(C.ENCODING_PCM_16BIT, C.ENCODING_AC3), 6)
     }
 
     fun touchesOutputChain(routeKeyChanged: Boolean, sinkDeviceTypes: Collection<Int>): Boolean {

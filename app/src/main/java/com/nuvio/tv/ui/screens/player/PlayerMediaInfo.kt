@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.player
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import com.nuvio.tv.core.player.dvmkv.TrueHdAtmos
 
 data class PlayerMediaInfo(
     val videoCodec: String? = null,
@@ -40,12 +41,14 @@ internal fun mpvMediaInfo(property: (String) -> String?): PlayerMediaInfo =
         bitDepth = property("video-params/pixelformat")?.let(::mpvBitDepth)
     )
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private fun exoMediaInfo(video: Format?, audio: Format?): PlayerMediaInfo =
     PlayerMediaInfo(
         videoCodec = CustomDefaultTrackNameProvider.formatNameFromMime(video?.sampleMimeType),
         videoWidth = video?.width?.takeIf { it > 0 },
         videoHeight = video?.height?.takeIf { it > 0 },
         audioCodec = CustomDefaultTrackNameProvider.formatNameFromMime(audio?.sampleMimeType),
+        audioProfile = if (audio?.sampleMimeType == MimeTypes.AUDIO_E_AC3_JOC || TrueHdAtmos.isPresent(audio)) "Atmos" else null,
         audioChannels = audio?.channelCount?.takeIf { it > 0 },
         hdr = video?.hdrFormats().orEmpty(),
         bitDepth = video?.colorInfo?.lumaBitdepth?.takeIf { it > 0 }

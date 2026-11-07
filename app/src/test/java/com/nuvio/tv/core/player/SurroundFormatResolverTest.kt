@@ -30,7 +30,6 @@ class SurroundFormatResolverTest {
         routeIsBluetooth: Boolean = false,
         routeIsHdmiArc: Boolean = false,
         softwareDecodersAvailable: Boolean = true,
-        forceOpticalActive: Boolean = false,
         learnedDeniedGroups: Set<Group> = emptySet()
     ): Resolution = SurroundFormatResolver.resolve(
         manualMode = manualMode,
@@ -46,14 +45,12 @@ class SurroundFormatResolverTest {
         routeIsBluetooth = routeIsBluetooth,
         routeIsHdmiArc = routeIsHdmiArc,
         softwareDecodersAvailable = softwareDecodersAvailable,
-        forceOpticalActive = forceOpticalActive,
         learnedDeniedGroups = learnedDeniedGroups
     )
 
     private fun planned(r: Resolution): Set<String> = DeniedTranscodePlanner.effectiveTranscodeMimes(
         policy = r.policy,
-        transcodeDeniedToAc3 = r.transcodePreferred,
-        forcePassthroughActive = false
+        transcodeEnabled = r.transcodePreferred
     )
 
     @Test
@@ -66,15 +63,17 @@ class SurroundFormatResolverTest {
     }
 
     @Test
-    fun forceOptical_makesAutoInert() {
-        assertEquals(Resolution.INERT, resolve(forceOpticalActive = true, direct = nothingClaimed))
-    }
-
-    @Test
-    fun forceOptical_doesNotSuppressManualSwitches() {
-        val r = resolve(manualMode = true, forceOpticalActive = true, allowDts = false)
-        assertTrue(r.policy.deniesPassthrough(MimeTypes.AUDIO_DTS))
-        assertFalse(r.policy.deniesPassthrough(MimeTypes.AUDIO_TRUEHD))
+    fun explicitStereoDecodesDeniedFormatsWithoutTranscoding() {
+        val result = resolve(
+            manualMode = true,
+            allowTrueHd = false,
+            manualTranscodePreferred = true,
+            manualChannelTargetChannels = 2
+        )
+        assertEquals(2, result.inferredChannelTarget)
+        assertFalse(result.transcodePreferred)
+        assertTrue(result.policy.deniesPassthrough(MimeTypes.AUDIO_TRUEHD))
+        assertFalse(result.policy.deniesPassthrough(MimeTypes.AUDIO_E_AC3))
     }
 
     @Test

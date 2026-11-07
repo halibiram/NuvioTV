@@ -86,7 +86,6 @@ class AudioChainProbePcmSinkTest {
             routeIsBluetooth = false,
             routeIsHdmiArc = false,
             softwareDecodersAvailable = true,
-            forceOpticalActive = false,
             learnedDeniedGroups = emptySet()
         )
         assertEquals(6, resolution.inferredChannelTarget)

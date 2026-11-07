@@ -231,6 +231,10 @@ class PlayerViewModel @Inject constructor(
         return allocator.totalBytesAllocated.toLong().coerceAtLeast(0L)
     }
 
+    internal fun getDebugAudioOutput(): DebugAudioOutput? = controller.debugAudioTrack
+        ?.takeUnless { controller.playbackSpeedAwareAudioSink?.isIecHbrActive() == true }
+        ?.snapshot(exoPlayer?.audioFormat)
+
     internal fun getAudioRoutingSnapshot(): AudioRoutingSnapshot? = controller.getAudioRoutingSnapshot()
 
     fun stopAndRelease() {

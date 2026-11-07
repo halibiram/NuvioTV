@@ -32,7 +32,6 @@ import androidx.media3.exoplayer.ScrubbingModeParameters
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
-import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider
@@ -150,6 +149,7 @@ private fun PlayerRuntimeController.disposeExoPlayerBeforeRebuild() {
     }
     _exoPlayer = null
     playbackSpeedAwareAudioSink = null
+    debugAudioTrack = null
 }
 
 private fun PlayerRuntimeController.applyPendingSeeksAtReady(player: ExoPlayer) {
@@ -908,16 +908,13 @@ internal fun PlayerRuntimeController.initializePlayer(
             // optical/HDMI passthrough — decode to PCM and let the BT stack encode SBC/AAC/aptX/LDAC.
             val isBluetoothAudioOutput = currentAudioOutputRoute?.isBluetooth == true ||
                 AudioOutputRouteDetector.isBluetoothMediaOutput(context)
-            // Force-optical must never win over Bluetooth: AC3/DTS AudioTrack to A2DP fails hard.
-            val isForcePassthroughActive = !isBluetoothAudioOutput &&
-                playerSettings.forceOpticalPassthrough &&
-                playerSettings.decoderPriority != 0
+            val legacyOpticalAc3 = playerSettings.usesLegacyOpticalAc3 &&
+                !isBluetoothAudioOutput && !hasTriedAudioPcmFallback
             // Prefer FFmpeg/extension audio decoder on BT so multi-channel TrueHD/DTS always
             // decode to stereo PCM even when the platform MediaCodec path is flaky.
             val effectiveDecoderPriority = if (
                 preferFfmpegAudioActive ||
                 hasTriedAudioPcmFallback ||
-                isForcePassthroughActive ||
                 isBluetoothAudioOutput
             ) {
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
@@ -947,12 +944,16 @@ internal fun PlayerRuntimeController.initializePlayer(
                 routeKey = currentRouteKey,
                 isBluetooth = isBluetoothAudioOutput,
                 softwareDecodersAvailable = softwareDecodersAvailable,
-                forceOpticalActive = isForcePassthroughActive,
                 effectiveDownmixEnabled = effectiveDownmixEnabled,
                 effectiveAudioOutputChannels = effectiveAudioOutputChannels
             )
             surroundResolveInputs = surroundInputs
-            val surround = resolveSurroundForRoute(context, playerSettings, surroundInputs)
+            val surround = resolveSurroundForRoute(
+                context,
+                playerSettings,
+                surroundInputs,
+                retryEac3AtFiveOne = eac3Retry.shouldLimitToFiveOne(url, currentRouteKey)
+            )
             val surroundResolution = surround.resolution
             tunnelDeadClockSignature = if (isBluetoothAudioOutput || currentRouteKey == null) {
                 null
@@ -979,8 +980,6 @@ internal fun PlayerRuntimeController.initializePlayer(
                 }
             }
             val surroundTargetChannels = surround.targetChannels
-            val surroundDownmixEnabled = surround.downmixEnabled
-            val surroundAudioOutputChannels = surround.audioOutputChannels
             if (!surroundResolution.policy.allowsEverything() || surroundTargetChannels != null) {
                 Log.i(
                     PlayerRuntimeController.TAG,
@@ -1035,13 +1034,13 @@ internal fun PlayerRuntimeController.initializePlayer(
                     if (pv != null) pv.videoBoundsFraction(videoAspectRatio) else null
                 },
                 gainAudioProcessor = gainAudioProcessor,
-                downmixEnabled = surroundDownmixEnabled,
-                audioOutputChannels = surroundAudioOutputChannels,
                 downmixNormalizationEnabled = !playerSettings.maintainOriginalAudioOnDownmix,
-                forceOpticalPassthrough = isForcePassthroughActive,
                 useSystemPassthrough = playerSettings.useSystemPassthrough,
-                deniedTranscodeMimes = deniedTranscodeMimes,
+                surround = surround,
+                onDebugAudioTrackCreated = { debugAudioTrack = it },
                 bluetoothForcePcm = isBluetoothAudioOutput,
+                legacyOpticalAc3 = legacyOpticalAc3 &&
+                    !surroundResolution.policy.deniesPassthrough(MimeTypes.AUDIO_AC3),
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
                 initialForcePcm = hasTriedAudioPcmFallback || isBluetoothAudioOutput,
                 passthroughPolicy = surroundResolution.policy,
@@ -1052,11 +1051,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
                     renderer?.applyDownmixSettings(
-                        downmixEnabled = surroundDownmixEnabled,
-                        audioOutputChannels = surroundAudioOutputChannels,
                         downmixNormalizationEnabled = !playerSettings.maintainOriginalAudioOnDownmix,
-                        forceOpticalPassthrough = isForcePassthroughActive,
-                        deniedTranscodeMimes = deniedTranscodeMimes
+                        surround = surround
                     )
                     applyCenterMixLevel(_uiState.value.centerMixLevelDb)
                     updateAudioControlAvailability()
@@ -1594,11 +1590,16 @@ internal fun PlayerRuntimeController.initializePlayer(
                             return
                         }
 
-                        if (tryPassthroughOpenRetry(error)) {
+                        val failedEac3Output = failedTranscodedEac3Output(error, ffmpegAudioRenderer?.name)
+                        if (tryEac3FiveOneRetry(error, failedEac3Output?.channelCount, currentPosition)) {
                             return
                         }
-
-                        if (error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED) {
+                        if (failedEac3Output == null && tryPassthroughOpenRetry(error)) {
+                            return
+                        }
+                        if (failedEac3Output == null &&
+                            error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
+                        ) {
                             val failingMime = (error as? androidx.media3.exoplayer.ExoPlaybackException)
                                 ?.rendererFormat?.sampleMimeType
                             val rejectedGroup = AudioPassthroughPolicy.groupOf(failingMime)
@@ -2308,13 +2309,12 @@ private class SubtitleOffsetRenderersFactory(
     private val isSidecarAddonSubtitleActiveProvider: () -> Boolean = { false },
     private val videoBoundsFractionProvider: () -> RectF?,
     private val gainAudioProcessor: GainAudioProcessor,
-    private val downmixEnabled: Boolean,
-    private val audioOutputChannels: com.nuvio.tv.data.local.AudioOutputChannels,
     private val downmixNormalizationEnabled: Boolean,
-    private val forceOpticalPassthrough: Boolean,
     private val useSystemPassthrough: Boolean,
-    private val deniedTranscodeMimes: Set<String> = emptySet(),
+    private val surround: SurroundResolveResult,
+    private val onDebugAudioTrackCreated: (DebugAudioTrackBinding) -> Unit = {},
     private val bluetoothForcePcm: Boolean = false,
+    private val legacyOpticalAc3: Boolean = false,
     private val playbackSpeedProvider: () -> Float,
     private val initialForcePcm: Boolean = false,
     /**
@@ -2380,23 +2380,16 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
-        // Bluetooth: pin Media3-equivalent DEFAULT (PCM-only) so TV HDMI profiles / force-optical
-        // cannot advertise AC3/DTS passthrough while audio is routed to A2DP.
-        // Non-BT optical: pin expanded capabilities. On a TV, pin the capabilities read now when
-        // they include a bitstream format. Otherwise keep live Builder(context).
-        val pinnedTvCapabilities = if (bluetoothForcePcm || forceOpticalPassthrough) {
-            null
-        } else {
-            TvAudioCapabilityPin.pinnedCapabilities(context)
+        // Pin PCM-only capabilities for Bluetooth, or detected bitstream capabilities on TVs.
+        val pinnedTvCapabilities = when {
+            bluetoothForcePcm -> null
+            legacyOpticalAc3 -> TvAudioCapabilityPin.legacyOpticalAc3Capabilities(context)
+            else -> TvAudioCapabilityPin.pinnedCapabilities(context)
         }
         val builder = when {
             bluetoothForcePcm -> {
                 DefaultAudioSink.Builder()
                     .setAudioCapabilities(AudioOutputRouteDetector.bluetoothPcmOnlyCapabilities())
-            }
-            forceOpticalPassthrough -> {
-                DefaultAudioSink.Builder(context)
-                    .setAudioCapabilities(buildStableAudioCapabilities(context, true))
             }
             pinnedTvCapabilities != null -> {
                 DefaultAudioSink.Builder().setAudioCapabilities(pinnedTvCapabilities)
@@ -2407,11 +2400,24 @@ private class SubtitleOffsetRenderersFactory(
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioProcessors(arrayOf(gainAudioProcessor))
             .setAudioTrackBufferSizeProvider(cappedPassthroughBufferSizeProvider)
+        builder.setAudioTrackProvider(object : DefaultAudioSink.AudioTrackProvider {
+            private val delegate = DefaultAudioSink.AudioTrackProvider.DEFAULT
+            override fun getAudioTrack(
+                config: AudioSink.AudioTrackConfig,
+                audioAttributes: androidx.media3.common.AudioAttributes,
+                audioSessionId: Int,
+                context: Context?
+            ): android.media.AudioTrack = delegate.getAudioTrack(config, audioAttributes, audioSessionId, context).also {
+                onDebugAudioTrackCreated(DebugAudioTrackBinding(it, config))
+            }
+            override fun getAudioTrackChannelConfig(channelConfig: Int): Int =
+                delegate.getAudioTrackChannelConfig(channelConfig)
+        })
         val baseAudioSink = builder.build()
         var speedAwareSink: PlaybackSpeedAwareAudioSink? = null
         val iecAudioSink = IecPassthroughAudioSink(
             sink = baseAudioSink,
-            hbrIecEnabled = !useSystemPassthrough && !forceOpticalPassthrough && !bluetoothForcePcm,
+            hbrIecEnabled = !useSystemPassthrough && !bluetoothForcePcm,
             onIecBecameReady = {
                 Handler(Looper.getMainLooper()).post {
                     speedAwareSink?.notifyAudioProcessingRequirementChanged()
@@ -2445,9 +2451,16 @@ private class SubtitleOffsetRenderersFactory(
     ) {
         val playbackAwareSink = audioSink as? PlaybackSpeedAwareAudioSink
         val startIndex = out.size
+        // For the migrated optical mode, the platform renderer sends native AC-3 directly.
+        // Its format policy already leaves the blocked codecs to the FFmpeg renderer.
+        val audioExtensionMode = if (legacyOpticalAc3 && extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
+            EXTENSION_RENDERER_MODE_ON
+        } else {
+            extensionRendererMode
+        }
         super.buildAudioRenderers(
             context,
-            extensionRendererMode,
+            audioExtensionMode,
             mediaCodecSelector,
             enableDecoderFallback,
             audioSink,
@@ -2502,29 +2515,26 @@ private class SubtitleOffsetRenderersFactory(
         val ffmpegRenderers = out.filterIsInstance<FfmpegAudioRenderer>()
         ffmpegRenderers.forEach { renderer ->
             renderer.applyDownmixSettings(
-                downmixEnabled = downmixEnabled,
-                audioOutputChannels = audioOutputChannels,
                 downmixNormalizationEnabled = downmixNormalizationEnabled,
-                forceOpticalPassthrough = forceOpticalPassthrough,
-                deniedTranscodeMimes = deniedTranscodeMimes
+                surround = surround
             )
         }
         onFfmpegAudioRendererChanged(ffmpegRenderers.firstOrNull())
     }
 }
 internal fun FfmpegAudioRenderer.applyDownmixSettings(
-    downmixEnabled: Boolean,
-    audioOutputChannels: com.nuvio.tv.data.local.AudioOutputChannels,
     downmixNormalizationEnabled: Boolean,
-    forceOpticalPassthrough: Boolean,
-    deniedTranscodeMimes: Set<String>
+    surround: SurroundResolveResult
 ) {
-    setForceOpticalPassthrough(forceOpticalPassthrough)
-    setDeniedTranscodeMimes(deniedTranscodeMimes)
-    if (downmixEnabled) {
+    setDeniedTranscodeMimes(surround.deniedTranscodeMimes)
+    applyEac3Transcoding(
+        enabled = surround.eac3Target && surround.deniedTranscodeMimes.isNotEmpty(),
+        forceFiveOne = surround.limitEac3ToFiveOne
+    )
+    if (surround.downmixEnabled) {
         setAudioOutputChannels(
-            audioOutputChannels.ffmpegLayoutName,
-            audioOutputChannels.channelCount
+            surround.audioOutputChannels.ffmpegLayoutName,
+            surround.audioOutputChannels.channelCount
         )
         setDownmixNormalizationEnabled(downmixNormalizationEnabled)
     } else {
@@ -2964,43 +2974,6 @@ private fun passthroughBufferCapBytes(encoding: Int): Int {
         else -> 16_384
     }
     }
-
-private fun buildStableAudioCapabilities(context: Context, forceOpticalPassthrough: Boolean = false): AudioCapabilities {
-    val detected = AudioCapabilities.getCapabilities(context, AudioAttributes.DEFAULT, null)
-    val supportedEncodings = mutableListOf<Int>()
-    val knownEncodings = intArrayOf(
-        C.ENCODING_PCM_16BIT, C.ENCODING_AC3, C.ENCODING_AC4, C.ENCODING_DTS,
-        C.ENCODING_E_AC3_JOC, C.ENCODING_E_AC3, C.ENCODING_DOLBY_TRUEHD
-    )
-    for (encoding in knownEncodings) {
-        if (detected.supportsEncoding(encoding)) {
-            supportedEncodings += encoding
-        }
-    }
-    if ((detected.supportsEncoding(C.ENCODING_DTS_HD) || detected.supportsEncoding(C.ENCODING_DTS_UHD_P2)) && C.ENCODING_DTS !in supportedEncodings) {
-        supportedEncodings += C.ENCODING_DTS
-    }
-    if (forceOpticalPassthrough) {
-        val forced = intArrayOf(
-            C.ENCODING_AC3,
-            C.ENCODING_E_AC3,
-            C.ENCODING_E_AC3_JOC,
-            C.ENCODING_DTS,
-            C.ENCODING_DTS_HD
-        )
-        for (encoding in forced) {
-            if (encoding !in supportedEncodings) {
-                supportedEncodings += encoding
-            }
-        }
-    }
-    val maxChannelCount = if (forceOpticalPassthrough) {
-        maxOf(detected.maxChannelCount, 8)
-    } else {
-        detected.maxChannelCount
-    }
-    return AudioCapabilities(supportedEncodings.toIntArray(), maxChannelCount)
-}
 
 private class SafeBandwidthMeter(
     private val delegate: BandwidthMeter,

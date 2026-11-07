@@ -110,7 +110,6 @@ class AudioChainProbeHdmiReportTest {
             routeIsBluetooth = false,
             routeIsHdmiArc = false,
             softwareDecodersAvailable = true,
-            forceOpticalActive = false,
             learnedDeniedGroups = emptySet()
         ).policy
 }

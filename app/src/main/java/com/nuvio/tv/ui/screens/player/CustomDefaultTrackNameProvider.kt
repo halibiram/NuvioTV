@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import android.content.res.Resources
 import androidx.media3.common.Format
+import com.nuvio.tv.core.player.dvmkv.TrueHdAtmos
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.DefaultTrackNameProvider
@@ -24,6 +25,7 @@ class CustomDefaultTrackNameProvider(resources: Resources) : DefaultTrackNamePro
             if (sampleFormat == null) {
                 sampleFormat = format.sampleMimeType
             }
+            if (TrueHdAtmos.isPresent(format)) sampleFormat = "TrueHD Atmos"
             if (sampleFormat != null) {
                 trackName += " ($sampleFormat)"
             }

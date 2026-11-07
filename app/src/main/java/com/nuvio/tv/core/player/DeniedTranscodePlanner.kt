@@ -14,13 +14,17 @@ object DeniedTranscodePlanner {
 
     fun effectiveTranscodeMimes(
         policy: AudioPassthroughPolicy,
-        transcodeDeniedToAc3: Boolean,
-        forcePassthroughActive: Boolean
+        transcodeEnabled: Boolean,
+        outputMimeType: String = MimeTypes.AUDIO_AC3
     ): Set<String> {
-        if (!transcodeDeniedToAc3) return emptySet()
-        if (forcePassthroughActive) return emptySet()
+        if (!transcodeEnabled) return emptySet()
         if (!policy.softwareDecodersAvailable) return emptySet()
-        if (policy.deniesPassthrough(MimeTypes.AUDIO_AC3)) return emptySet()
-        return candidateMimeTypes.filter { policy.deniesPassthrough(it) }.toSet()
+        if (outputMimeType != MimeTypes.AUDIO_AC3 && outputMimeType != MimeTypes.AUDIO_E_AC3) return emptySet()
+        if (policy.deniesPassthrough(outputMimeType)) return emptySet()
+        return candidateMimeTypes.filter { mime ->
+            mime != outputMimeType &&
+                (outputMimeType == MimeTypes.AUDIO_AC3 || mime != MimeTypes.AUDIO_E_AC3_JOC) &&
+                policy.deniesPassthrough(mime)
+        }.toSet()
     }
 }

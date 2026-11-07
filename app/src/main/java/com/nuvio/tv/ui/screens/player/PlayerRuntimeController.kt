@@ -416,6 +416,7 @@ class PlayerRuntimeController(
     @Volatile var videoAspectRatio: Float = 0f
     @Volatile var exoPlayerView: androidx.media3.ui.PlayerView? = null
     internal var _loadControl: DefaultLoadControl? = null
+    @Volatile internal var debugAudioTrack: DebugAudioTrackBinding? = null
     internal var playbackSpeedAwareAudioSink: PlaybackSpeedAwareAudioSink? = null
 
     internal var progressJob: Job? = null
@@ -683,6 +684,7 @@ class PlayerRuntimeController(
     internal val preferFfmpegAudioStreamUrls: MutableSet<String> = mutableSetOf()
     internal val tunnelingDisabledStreamUrls: MutableSet<String> = mutableSetOf()
     internal val passthroughOpenRetry = PassthroughOpenRetryPolicy()
+    internal val eac3Retry = Eac3RetryPolicy()
     internal var currentAudioPassthroughPolicy: com.nuvio.tv.core.player.AudioPassthroughPolicy? = null
     internal var surroundResolveInputs: SurroundResolveInputs? = null
     internal var lastAppliedSurroundResolve: SurroundResolveResult? = null

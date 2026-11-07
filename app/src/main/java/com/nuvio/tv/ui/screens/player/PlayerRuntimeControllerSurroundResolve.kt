@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import android.content.Context
 import android.util.Log
+import androidx.media3.common.MimeTypes
 import com.nuvio.tv.core.player.DeniedTranscodePlanner
 import com.nuvio.tv.core.player.SurroundFormatResolver
 import com.nuvio.tv.data.local.AudioOutputChannels
@@ -14,7 +15,6 @@ internal data class SurroundResolveInputs(
     val routeKey: String?,
     val isBluetooth: Boolean,
     val softwareDecodersAvailable: Boolean,
-    val forceOpticalActive: Boolean,
     val effectiveDownmixEnabled: Boolean,
     val effectiveAudioOutputChannels: AudioOutputChannels
 )
@@ -24,15 +24,25 @@ internal data class SurroundResolveResult(
     val targetChannels: Int?,
     val downmixEnabled: Boolean,
     val audioOutputChannels: AudioOutputChannels,
-    val deniedTranscodeMimes: Set<String>
+    val deniedTranscodeMimes: Set<String>,
+    val eac3Target: Boolean = false,
+    val limitEac3ToFiveOne: Boolean = false
 )
 
 internal fun resolveSurroundForRoute(
     context: Context,
     playerSettings: PlayerSettings,
-    inputs: SurroundResolveInputs
+    inputs: SurroundResolveInputs,
+    retryEac3AtFiveOne: Boolean
 ): SurroundResolveResult {
     val currentRouteKey = inputs.routeKey
+    val manualMode = playerSettings.surroundFormatMode == SurroundFormatMode.MANUAL
+    val selectedChannels = when (playerSettings.surroundChannelTarget) {
+        SurroundChannelTarget.AUTO -> null
+        SurroundChannelTarget.CH_2_0 -> 2
+        SurroundChannelTarget.CH_5_1 -> 6
+        SurroundChannelTarget.CH_7_1 -> 8
+    }
     val surroundResolution = if (inputs.isBluetooth) {
         SurroundFormatResolver.Resolution.INERT
     } else {
@@ -42,26 +52,20 @@ internal fun resolveSurroundForRoute(
             playerSettings.audioRejectionsConfirmed
         )
         SurroundFormatResolver.resolve(
-            manualMode = playerSettings.surroundFormatMode == SurroundFormatMode.MANUAL,
+            manualMode = manualMode,
             allowAc3 = playerSettings.allowAc3Passthrough,
             allowEac3 = playerSettings.allowEac3Passthrough,
             allowTrueHd = playerSettings.allowTruehdPassthrough,
             allowDts = playerSettings.allowDtsPassthrough,
             allowDtsHd = playerSettings.allowDtshdPassthrough,
             manualTranscodePreferred =
-                playerSettings.deniedCodecHandling == DeniedCodecHandling.TRANSCODE_AC3,
-            manualChannelTargetChannels = when (playerSettings.surroundChannelTarget) {
-                SurroundChannelTarget.AUTO -> null
-                SurroundChannelTarget.CH_2_0 -> 2
-                SurroundChannelTarget.CH_5_1 -> 6
-                SurroundChannelTarget.CH_7_1 -> 8
-            },
+                playerSettings.deniedCodecHandling != DeniedCodecHandling.DECODE_PCM,
+            manualChannelTargetChannels = selectedChannels,
             direct = chainSnapshot.direct,
             rawMaxPcmChannels = chainSnapshot.maxPcmChannels,
             routeIsBluetooth = false,
             routeIsHdmiArc = SurroundFormatResolver.routeKeyIsHdmiArc(currentRouteKey),
             softwareDecodersAvailable = inputs.softwareDecodersAvailable,
-            forceOpticalActive = inputs.forceOpticalActive,
             learnedDeniedGroups = learnedDeniedGroups
         )
     }
@@ -74,17 +78,22 @@ internal fun resolveSurroundForRoute(
             inputs.effectiveAudioOutputChannels
         else -> surroundTargetToOutputChannels(surroundTargetChannels, inputs.effectiveAudioOutputChannels)
     }
+    val eac3Target = manualMode &&
+        playerSettings.deniedCodecHandling == DeniedCodecHandling.TRANSCODE_EAC3
     val deniedTranscodeMimes = DeniedTranscodePlanner.effectiveTranscodeMimes(
         policy = surroundResolution.policy,
-        transcodeDeniedToAc3 = surroundResolution.transcodePreferred,
-        forcePassthroughActive = inputs.forceOpticalActive
+        transcodeEnabled = surroundResolution.transcodePreferred &&
+            (!eac3Target || Eac3TranscodingSupport.available),
+        outputMimeType = if (eac3Target) MimeTypes.AUDIO_E_AC3 else MimeTypes.AUDIO_AC3
     )
     return SurroundResolveResult(
         resolution = surroundResolution,
         targetChannels = surroundTargetChannels,
         downmixEnabled = surroundDownmixEnabled,
         audioOutputChannels = surroundAudioOutputChannels,
-        deniedTranscodeMimes = deniedTranscodeMimes
+        deniedTranscodeMimes = deniedTranscodeMimes,
+        eac3Target = eac3Target,
+        limitEac3ToFiveOne = eac3Target && (selectedChannels == 6 || retryEac3AtFiveOne)
     )
 }
 
@@ -97,17 +106,15 @@ internal fun PlayerRuntimeController.applySurroundResolutionInPlace(reason: Stri
     val surround = resolveSurroundForRoute(
         context,
         settings,
-        inputs.copy(routeKey = routeKey)
+        inputs.copy(routeKey = routeKey),
+        retryEac3AtFiveOne = eac3Retry.shouldLimitToFiveOne(currentStreamUrl, routeKey)
     )
     val policy = surround.resolution.policy
     val policyChanged = playbackSpeedAwareAudioSink?.setPassthroughPolicy(policy) == true
     currentAudioPassthroughPolicy = policy
     ffmpegAudioRenderer?.applyDownmixSettings(
-        downmixEnabled = surround.downmixEnabled,
-        audioOutputChannels = surround.audioOutputChannels,
         downmixNormalizationEnabled = !settings.maintainOriginalAudioOnDownmix,
-        forceOpticalPassthrough = inputs.forceOpticalActive,
-        deniedTranscodeMimes = surround.deniedTranscodeMimes
+        surround = surround
     )
     val changed = surroundResolveNeedsReselect(lastAppliedSurroundResolve, surround) || policyChanged
     lastAppliedSurroundResolve = surround

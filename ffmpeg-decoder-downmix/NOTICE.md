@@ -24,3 +24,9 @@ This project is distributed under GPL-3.0. The modified decoder module is
 distributed with this project under GPL-3.0-only, while preserving the
 original AndroidX Media3 Apache-2.0 notices for the upstream base code.
 Kodi code available under `GPL-2.0-or-later` is compatible with GPL-3.0.
+
+Optional E-AC-3 7.1 encoding uses the FFmpeg candidate patch from PR 21668
+(Nomis101/ShortKatz), with additional local channel-mapping and bit-allocation
+corrections. The candidate attribution is preserved in the patch. See
+`../experiments/eac3-7.1/README.md` for the pinned revisions, patch sources,
+preparation steps and experimental validation limits.

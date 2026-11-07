@@ -19,6 +19,7 @@ import com.nuvio.tv.data.local.SurroundChannelTarget
 import com.nuvio.tv.data.local.SurroundFormatMode
 import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.ui.screens.player.PlayerTunnelAvSyncPolicy
+import com.nuvio.tv.ui.screens.player.Eac3TranscodingSupport
 
 internal fun rememberedTunnelStallClasses(settings: PlayerSettings): Set<String> =
     settings.tunnelDeadAudioClasses + PlayerTunnelAvSyncPolicy.deadAudioClasses
@@ -194,15 +195,12 @@ internal fun PlaybackAudioSection(
                 onToggle = { onUpdate { setAllowDtshdPassthrough(!settings.allowDtshdPassthrough) } },
                 enabled = switchesEnabled
             )
-            SettingsToggleRow(
-                title = stringResource(R.string.audio_surround_transcode_denied),
-                subtitle = stringResource(R.string.audio_surround_transcode_denied_sub),
-                checked = settings.deniedCodecHandling == DeniedCodecHandling.TRANSCODE_AC3 && !deviceOnly,
-                onToggle = {
-                    val next = settings.deniedCodecHandling != DeniedCodecHandling.TRANSCODE_AC3
-                    onUpdate { setTranscodeDeniedToAc3(next) }
-                },
-                enabled = switchesEnabled
+            SettingsActionRow(
+                title = stringResource(R.string.audio_transcoding_handling),
+                subtitle = stringResource(R.string.audio_transcoding_handling_sub),
+                value = deniedCodecHandlingLabel(settings.deniedCodecHandling.availableOutput()),
+                enabled = switchesEnabled,
+                onClick = { onOpenDialog(PlaybackDialog.DENIED_CODEC_HANDLING) }
             )
         }
 
@@ -228,14 +226,6 @@ internal fun PlaybackAudioSection(
             value = null,
             enabled = enabled && !settings.useSystemPassthrough,
             onClick = { onUpdate { resetIecPassthroughProbe() } }
-        )
-
-        SettingsToggleRow(
-            title = stringResource(R.string.audio_force_optical_passthrough),
-            subtitle = stringResource(R.string.audio_force_optical_passthrough_sub),
-            checked = settings.forceOpticalPassthrough && settings.decoderPriority != 0,
-            onToggle = { onUpdate { setForceOpticalPassthrough(!settings.forceOpticalPassthrough) } },
-            enabled = enabled && settings.decoderPriority != 0
         )
     }
 }
@@ -320,6 +310,21 @@ internal fun AudioSettingsDialogs(
                 onDismiss()
             },
             onDismiss = onDismiss
+        )
+        PlaybackDialog.DENIED_CODEC_HANDLING -> SettingsSingleChoiceDialog(
+            title = stringResource(R.string.audio_transcoding_handling),
+            subtitle = stringResource(R.string.audio_transcoding_handling_dialog_sub),
+            options = DeniedCodecHandling.entries.filter {
+                it != DeniedCodecHandling.TRANSCODE_EAC3 || Eac3TranscodingSupport.available
+            }.map { SettingsPickerOption(it, deniedCodecHandlingLabel(it)) },
+            selectedValue = settings.deniedCodecHandling.availableOutput(),
+            onOptionSelected = { handling ->
+                onUpdate { setDeniedCodecHandling(handling) }
+                onDismiss()
+            },
+            onDismiss = onDismiss,
+            width = 460.dp,
+            maxHeight = 380.dp
         )
         PlaybackDialog.SURROUND_FORMAT_MODE -> SurroundFormatModeDialog(
             selectedMode = settings.surroundFormatMode,
@@ -491,3 +496,17 @@ private fun SurroundChannelTargetDialog(
         maxHeight = 420.dp
     )
 }
+
+@Composable
+private fun deniedCodecHandlingLabel(handling: DeniedCodecHandling): String = when (handling) {
+    DeniedCodecHandling.DECODE_PCM -> "PCM"
+    DeniedCodecHandling.TRANSCODE_AC3 -> "Dolby Digital (AC-3)"
+    DeniedCodecHandling.TRANSCODE_EAC3 -> "Dolby Digital Plus (E-AC-3)"
+}
+
+private fun DeniedCodecHandling.availableOutput(): DeniedCodecHandling =
+    if (this == DeniedCodecHandling.TRANSCODE_EAC3 && !Eac3TranscodingSupport.available) {
+        DeniedCodecHandling.DECODE_PCM
+    } else {
+        this
+    }

@@ -149,3 +149,12 @@
 
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient
+# Optional methods are reached reflectively so the stock prebuilt AAR remains compatible.
+-keepclassmembers class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer {
+    public void setPreferEac3Transcoding(boolean);
+    public void setForceEac3FiveOne(boolean);
+    public boolean isTranscodingToEac3();
+}
+-keepclassmembers class androidx.media3.decoder.ffmpeg.FfmpegDecoderException {
+    public boolean isEac3LayoutMismatch();
+}

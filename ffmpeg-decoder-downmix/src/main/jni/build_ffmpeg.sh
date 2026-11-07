@@ -26,7 +26,10 @@ ANDROID_ABI="$4"
 echo "ANDROID_ABI is ${ANDROID_ABI}"
 ENABLED_DECODERS=("${@:5}")
 echo "Enabled decoders are ${ENABLED_DECODERS[@]}"
-JOBS="$(nproc 2> /dev/null || sysctl -n hw.ncpu 2> /dev/null || echo 4)"
+JOBS="${FFMPEG_BUILD_JOBS:-$(nproc 2> /dev/null || sysctl -n hw.ncpu 2> /dev/null || echo 4)}"
+# Optional CI fast path: compile only the Android TV arm64 target.
+# Default remains the original four-ABI build.
+TARGET_ABI="${FFMPEG_TARGET_ABI:-all}"
 echo "Using $JOBS jobs for make"
 COMMON_OPTIONS="
     --target-os=android
@@ -42,6 +45,7 @@ COMMON_OPTIONS="
     --disable-symver
     --enable-swresample
     --enable-encoder=ac3
+    --enable-encoder=eac3
     --extra-ldexeflags=-pie
     --disable-v4l2-m2m
     --disable-vulkan
@@ -74,6 +78,7 @@ then
 fi
 
 cd "${FFMPEG_MODULE_PATH}/jni/ffmpeg"
+if [[ "$TARGET_ABI" == "all" || "$TARGET_ABI" == "armeabi-v7a" ]]; then
 ./configure \
     --libdir=android-libs/armeabi-v7a \
     --arch=arm \
@@ -91,6 +96,8 @@ cd "${FFMPEG_MODULE_PATH}/jni/ffmpeg"
 make -j$JOBS
 make install-libs
 make clean
+fi
+if [[ "$TARGET_ABI" == "all" || "$TARGET_ABI" == "arm64-v8a" ]]; then
 ./configure \
     --libdir=android-libs/arm64-v8a \
     --arch=aarch64 \
@@ -106,6 +113,8 @@ make clean
 make -j$JOBS
 make install-libs
 make clean
+fi
+if [[ "$TARGET_ABI" == "all" ]]; then
 ./configure \
     --libdir=android-libs/x86 \
     --arch=x86 \
@@ -138,3 +147,5 @@ make clean
 make -j$JOBS
 make install-libs
 make clean
+
+fi
