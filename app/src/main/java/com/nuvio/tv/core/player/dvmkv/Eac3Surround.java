@@ -1,14 +1,33 @@
 package com.nuvio.tv.core.player.dvmkv;
 
 import androidx.media3.common.Format;
+import androidx.media3.common.Metadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.ParsableBitArray;
+import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.Ac3Util;
 import java.util.Arrays;
 
 /** Refines Matroska E-AC-3 formats from JOC headers and discrete 7.1 extensions. */
-final class Eac3Surround {
+@UnstableApi
+public final class Eac3Surround implements Metadata.Entry {
+  private static final Eac3Surround FIVE_ONE_BASE = new Eac3Surround();
+
   private Eac3Surround() {}
+
+  public static boolean hasFiveOneBase(Format format) {
+    if (format.channelCount != 8 || format.metadata == null
+        || (!MimeTypes.AUDIO_E_AC3.equals(format.sampleMimeType)
+            && !MimeTypes.AUDIO_E_AC3_JOC.equals(format.sampleMimeType))) {
+      return false;
+    }
+    for (int i = 0; i < format.metadata.length(); i++) {
+      if (format.metadata.get(i) instanceof Eac3Surround) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   static Format refineFormat(Format format, byte[] data, int offset, int limit) {
     int baseSize = completeSyncframeSize(data, offset, limit);
@@ -19,36 +38,37 @@ final class Eac3Surround {
     if (base == null || base.streamType == Ac3Util.SyncFrameInfo.STREAM_TYPE_TYPE1) {
       return format;
     }
-    if (MimeTypes.AUDIO_E_AC3_JOC.equals(base.mimeType)) {
-      return format.buildUpon()
-          .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
-          .setChannelCount(base.channelCount)
-          .build();
-    }
-
+    boolean hasJoc = MimeTypes.AUDIO_E_AC3_JOC.equals(base.mimeType);
+    boolean has71Extension = false;
+    boolean hasCompatibleBase = false;
     int extension = offset + baseSize;
     int extensionSize = completeSyncframeSize(data, extension, limit);
-    if (extensionSize < 10) {
+    if (extensionSize >= 10) {
+      int bitstreamId = (data[extension + 5] & 0xff) >> 3;
+      if (((data[extension + 2] & 0xff) >> 6) == 1 && bitstreamId >= 11 && bitstreamId <= 16) {
+        has71Extension = base.channelCount == 6 && has71ChannelMap(data, extension, extensionSize);
+        Ac3Util.SyncFrameInfo dependent = parseFrame(data, extension, extensionSize);
+        boolean matchingDependent = dependent != null
+            && dependent.streamType == Ac3Util.SyncFrameInfo.STREAM_TYPE_TYPE1
+            && dependent.sampleRate == base.sampleRate
+            && dependent.sampleCount == base.sampleCount;
+        if (matchingDependent) {
+          hasJoc |= MimeTypes.AUDIO_E_AC3_JOC.equals(dependent.mimeType);
+          hasCompatibleBase = has71Extension;
+        }
+      }
+    }
+    if (!hasJoc && !has71Extension) {
       return format;
     }
-    int bitstreamId = (data[extension + 5] & 0xff) >> 3;
-    if (((data[extension + 2] & 0xff) >> 6) != 1 || bitstreamId < 11 || bitstreamId > 16) {
-      return format;
+    Format.Builder refined = format.buildUpon()
+        .setSampleMimeType(hasJoc ? MimeTypes.AUDIO_E_AC3_JOC : format.sampleMimeType)
+        .setChannelCount(has71Extension ? 8 : base.channelCount);
+    if (hasCompatibleBase && !hasFiveOneBase(format)) {
+      refined.setMetadata(format.metadata == null ? new Metadata(FIVE_ONE_BASE)
+          : format.metadata.copyWithAppendedEntries(FIVE_ONE_BASE));
     }
-
-    boolean has71Extension = base.channelCount == 6 && has71ChannelMap(data, extension, extensionSize);
-    Ac3Util.SyncFrameInfo dependent = parseFrame(data, extension, extensionSize);
-    if (dependent != null
-        && dependent.streamType == Ac3Util.SyncFrameInfo.STREAM_TYPE_TYPE1
-        && dependent.sampleRate == base.sampleRate
-        && dependent.sampleCount == base.sampleCount
-        && MimeTypes.AUDIO_E_AC3_JOC.equals(dependent.mimeType)) {
-      return format.buildUpon()
-          .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
-          .setChannelCount(has71Extension ? 8 : base.channelCount)
-          .build();
-    }
-    return has71Extension ? format.buildUpon().setChannelCount(8).build() : format;
+    return refined.build();
   }
 
   private static Ac3Util.SyncFrameInfo parseFrame(byte[] data, int offset, int size) {

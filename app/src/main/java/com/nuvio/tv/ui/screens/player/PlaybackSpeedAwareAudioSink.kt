@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.extractor.Ac3Util
 import com.nuvio.tv.core.player.AudioPassthroughPolicy
+import com.nuvio.tv.core.player.dvmkv.Eac3Surround
 import com.nuvio.tv.ui.screens.player.iec.IecPassthroughAudioSink
 import java.nio.ByteBuffer
 
@@ -128,7 +129,15 @@ internal class PlaybackSpeedAwareAudioSink(
         passthroughPacer.onFormat(inputFormat, nowMs())
         markPcmFallbackIfNeeded(inputFormat, playbackSpeed)
         currentTunnelAudioClass = tunnelAudioClass(inputFormat)
-        super.configure(inputFormat, specifiedBufferSize, outputChannels)
+        val configuredFormat = if (Eac3Surround.hasFiveOneBase(inputFormat) &&
+            !shouldRejectDirectPlayback(inputFormat) &&
+            super.getFormatSupport(inputFormat) != AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
+        ) {
+            compatibleEac3Format(inputFormat) ?: inputFormat
+        } else {
+            inputFormat
+        }
+        super.configure(configuredFormat, specifiedBufferSize, outputChannels)
         passthroughPacer.setIecPacked(iecSink?.isIecActive == true)
         armForwardAnchor(armedBy = "configure")
     }
@@ -225,11 +234,26 @@ internal class PlaybackSpeedAwareAudioSink(
         listener?.onAudioCapabilitiesChanged()
     }
 
+    override fun supportsFormat(format: Format): Boolean =
+        getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
+
     override fun getFormatSupport(format: Format): Int {
         if (shouldRejectDirectPlayback(format)) {
             return AudioSink.SINK_FORMAT_UNSUPPORTED
         }
-        return super.getFormatSupport(format)
+        val original = super.getFormatSupport(format)
+        return if (original != AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY && compatibleEac3Format(format) != null) {
+            AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
+        } else {
+            original
+        }
+    }
+
+    private fun compatibleEac3Format(format: Format): Format? {
+        if (!Eac3Surround.hasFiveOneBase(format)) return null
+        // Configure the transport for the independently decodable base. Buffers remain 7.1.
+        val base = format.buildUpon().setChannelCount(6).build()
+        return base.takeIf { super.getFormatSupport(it) == AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY }
     }
 
     override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport {

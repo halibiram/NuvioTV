@@ -3,7 +3,9 @@ package com.nuvio.tv.core.player.dvmkv
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Eac3SurroundTest {
@@ -25,6 +27,7 @@ class Eac3SurroundTest {
             val result = Eac3Surround.refineFormat(format, sample, 0, sample.size)
             assertEquals(MimeTypes.AUDIO_E_AC3_JOC, result.sampleMimeType)
             assertEquals(6, result.channelCount)
+            assertFalse(Eac3Surround.hasFiveOneBase(result))
             assertEquals(48000, result.sampleRate)
             assertEquals("pt", result.language)
             assertEquals("Português", result.label)
@@ -48,6 +51,7 @@ class Eac3SurroundTest {
         val result = Eac3Surround.refineFormat(format, prefixed, 13, 13 + sample.size)
         assertEquals(MimeTypes.AUDIO_E_AC3_JOC, result.sampleMimeType)
         assertEquals(8, result.channelCount)
+        assertTrue(Eac3Surround.hasFiveOneBase(result))
         assertEquals(48000, result.sampleRate)
         assertEquals("en", result.language)
         assertEquals("Surround", result.label)
@@ -77,7 +81,15 @@ class Eac3SurroundTest {
             val refined = Eac3Surround.refineFormat(format, sample, 0, sample.size)
             assertEquals(MimeTypes.AUDIO_E_AC3, refined.sampleMimeType)
             assertEquals(8, refined.channelCount)
+            assertTrue(Eac3Surround.hasFiveOneBase(refined))
         }
+    }
+
+    @Test
+    fun aDifferentDependentSampleRateDoesNotProveACompatibleBase() {
+        val sample = accessUnit(1720, "0b77035b3f67ff810420568000020d00", 1352, "0b7742a37a67e011a000021000000021")
+        val format = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_E_AC3).setChannelCount(8).build()
+        assertFalse(Eac3Surround.hasFiveOneBase(Eac3Surround.refineFormat(format, sample, 0, sample.size)))
     }
 
     private fun accessUnit(baseSize: Int, baseHeader: String, extensionSize: Int, extensionHeader: String) =
