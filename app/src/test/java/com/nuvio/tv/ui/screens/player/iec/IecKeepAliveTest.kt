@@ -104,7 +104,7 @@ class IecKeepAliveTest {
 
         feed(sink, 48 until 72, ptsStartUs = 48 * AU_US, expectAccepted = false)
         assertEquals("content waits while paused", writtenBefore + 4 * FRAME, track.written)
-        assertFalse(sink.hasPendingData())
+        assertTrue("unplayed audio waits to be replayed", sink.hasPendingData())
         assertTrue(events.any { it.startsWith("iec_keepalive_hold reason=pause") })
 
         sink.play()
@@ -136,6 +136,71 @@ class IecKeepAliveTest {
         track.playOut()
         val contentBytes = track.writes.filter { !it.filler }.sumOf { it.bytes }
         assertEquals(contentBytes / 16L * 1_000_000L / 192_000L, sink.getCurrentPositionUs(false))
+    }
+
+    @Test
+    fun pause_replaysTheUnplayedContentSoTheClockResumesAtThePausedFrame() {
+        val track = HeadTrack()
+        val events = mutableListOf<String>()
+        val sink = sink(track, events)
+        sink.configure(trueHdFormat(), 0, null)
+        sink.play()
+        feed(sink, 0 until 96, ptsStartUs = 0L)
+        val contentBefore = track.contents.size
+        assertTrue(contentBefore >= 3)
+        track.playHead = track.written - 2 * FRAME
+        val atPause = sink.getCurrentPositionUs(false)
+        assertEquals((track.written - 2L * FRAME) / 16L * 1_000_000L / 192_000L, atPause)
+
+        sink.pause()
+        assertTrue(events.any { it.startsWith("iec_keepalive_replay frames=2") })
+        track.playOut()
+        repeat(6) { sink.keepAliveTick() }
+        track.playOut()
+        assertEquals("clock holds at the paused frame", atPause, sink.getCurrentPositionUs(false))
+
+        sink.play()
+        feed(sink, 96 until 120, ptsStartUs = 96 * AU_US)
+        val replayed = track.contents.drop(contentBefore).take(2)
+        val queuedAtPause = track.contents.subList(contentBefore - 2, contentBefore)
+        assertEquals(2, replayed.size)
+        for (i in 0 until 2) assertTrue("frame $i", replayed[i].contentEquals(queuedAtPause[i]))
+        var seen = 0
+        var replayEnd = 0
+        for (write in track.writes) {
+            replayEnd += write.bytes
+            if (!write.filler && ++seen == contentBefore + 2) break
+        }
+        track.playHead = replayEnd
+        assertEquals("replayed audio continues from the paused frame", atPause + 2L * FRAME / 16L * 1_000_000L / 192_000L, sink.getCurrentPositionUs(false))
+    }
+
+    @Test
+    fun pauseAfterEverythingPlayed_replaysNothing() {
+        val track = HeadTrack()
+        val events = mutableListOf<String>()
+        val sink = sink(track, events)
+        sink.configure(trueHdFormat(), 0, null)
+        sink.play()
+        feed(sink, 0 until 48, ptsStartUs = 0L)
+        track.playOut()
+        sink.pause()
+        assertTrue(events.none { it.startsWith("iec_keepalive_replay") })
+    }
+
+    @Test
+    fun ledger_markFillerMergesWithExistingRuns() {
+        val ledger = IecKeepAliveLedger()
+        ledger.add(100, 140)
+        ledger.add(300, 320)
+        ledger.markFiller(130, 200)
+        ledger.markFiller(250, 310)
+        assertEquals(100L, ledger.fillerBefore(250))
+        assertEquals(170L, ledger.fillerFrames)
+        assertEquals(100L, ledger.contentFrames(100))
+        assertEquals(100L, ledger.contentFrames(200))
+        assertEquals(150L, ledger.contentFrames(250))
+        assertEquals(150L, ledger.contentFrames(320))
     }
 
     @Test
@@ -562,10 +627,12 @@ class IecKeepAliveTest {
         var pauses = 0
         var flushes = 0
         val writes = mutableListOf<Write>()
+        val contents = mutableListOf<ByteArray>()
 
         override fun write(data: ByteArray, offset: Int, size: Int): Int {
             val filler = size == fillerSignature.size && data.contentEquals(fillerSignature)
             writes.add(Write(size, filler))
+            if (!filler) contents.add(data.copyOfRange(offset, offset + size))
             written += size
             return size
         }
