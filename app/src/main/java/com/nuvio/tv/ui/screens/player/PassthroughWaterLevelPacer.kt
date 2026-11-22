@@ -17,6 +17,8 @@ internal class PassthroughWaterLevelPacer(
     private var positionAnchorUs: Long = C.TIME_UNSET
     private var sampleMimeType: String? = null
     private var iecPacked: Boolean = false
+    private var initialFillBytes: Int = 0
+    private var acceptedBytes: Long = 0L
     private var pacingReported: Boolean = false
 
     fun appliesTo(format: Format?): Boolean {
@@ -28,6 +30,8 @@ internal class PassthroughWaterLevelPacer(
         firstPtsUs = C.TIME_UNSET
         lastAcceptedPtsUs = C.TIME_UNSET
         positionAnchorUs = C.TIME_UNSET
+        initialFillBytes = 0
+        acceptedBytes = 0L
         pacingReported = false
         frozenPlayingMs = 0L
         if (playing) {
@@ -36,7 +40,14 @@ internal class PassthroughWaterLevelPacer(
     }
 
     fun setIecPacked(packed: Boolean) {
+        if (iecPacked && !packed) {
+            acceptedBytes = 0L
+        }
         iecPacked = packed
+    }
+
+    fun setInitialFillBytes(bytes: Int) {
+        initialFillBytes = bytes.coerceAtLeast(0)
     }
 
     fun onPlay(nowMs: Long) {
@@ -58,6 +69,8 @@ internal class PassthroughWaterLevelPacer(
         firstPtsUs = C.TIME_UNSET
         lastAcceptedPtsUs = C.TIME_UNSET
         positionAnchorUs = C.TIME_UNSET
+        initialFillBytes = 0
+        acceptedBytes = 0L
         pacingReported = false
     }
 
@@ -65,6 +78,7 @@ internal class PassthroughWaterLevelPacer(
         firstPtsUs = C.TIME_UNSET
         lastAcceptedPtsUs = C.TIME_UNSET
         positionAnchorUs = C.TIME_UNSET
+        acceptedBytes = 0L
         frozenPlayingMs = 0L
         if (playing) {
             playStartedAtMs = nowMs
@@ -79,13 +93,22 @@ internal class PassthroughWaterLevelPacer(
         }
         val speed = normalizeSpeed(playbackSpeed)
         val aheadUs = presentationTimeUs - firstPtsUs
-        val allowedUs = playingWallUs(nowMs, speed) + writeAheadCeilingUs()
+        val playingUs = playingWallUs(nowMs, speed)
+        if (!iecPacked &&
+            initialFillBytes > 0 &&
+            acceptedBytes < initialFillBytes &&
+            aheadUs <= playingUs + maxOf(writeAheadCeilingUs(), MAX_INITIAL_FILL_AHEAD_US)
+        ) {
+            return true
+        }
+        val allowedUs = playingUs + writeAheadCeilingUs()
         if (aheadUs > allowedUs) {
             if (!pacingReported) {
                 pacingReported = true
                 onDiagnosticEvent?.invoke(
                     "water_level_pacing_active mime=$sampleMimeType iecPacked=$iecPacked " +
-                        "aheadUs=$aheadUs allowedUs=$allowedUs ceilingUs=${writeAheadCeilingUs()}"
+                        "aheadUs=$aheadUs allowedUs=$allowedUs ceilingUs=${writeAheadCeilingUs()} " +
+                        "initialFillBytes=$initialFillBytes acceptedBytes=$acceptedBytes"
                 )
             }
             return false
@@ -93,7 +116,10 @@ internal class PassthroughWaterLevelPacer(
         return true
     }
 
-    fun onBufferAccepted(presentationTimeUs: Long) {
+    fun onBufferAccepted(presentationTimeUs: Long, bytes: Int = 0) {
+        if (bytes > 0) {
+            acceptedBytes += bytes
+        }
         if (presentationTimeUs == C.TIME_UNSET) return
         if (firstPtsUs == C.TIME_UNSET) {
             firstPtsUs = presentationTimeUs
@@ -101,13 +127,25 @@ internal class PassthroughWaterLevelPacer(
         lastAcceptedPtsUs = presentationTimeUs
     }
 
+    fun onBytesConsumed(bytes: Int) {
+        if (bytes > 0) {
+            acceptedBytes += bytes
+        }
+    }
+
     fun clampPositionUs(sinkPositionUs: Long, nowMs: Long, playbackSpeed: Float): Long {
         if (sinkPositionUs == C.TIME_UNSET || sinkPositionUs == AudioSink.CURRENT_POSITION_NOT_SET) {
             return sinkPositionUs
         }
         if (positionAnchorUs == C.TIME_UNSET) {
-            positionAnchorUs = sinkPositionUs
-            return sinkPositionUs
+            positionAnchorUs = if (!iecPacked && firstPtsUs != C.TIME_UNSET) {
+                min(sinkPositionUs, maxOf(0L, firstPtsUs))
+            } else {
+                sinkPositionUs
+            }
+            if (iecPacked || firstPtsUs == C.TIME_UNSET) {
+                return sinkPositionUs
+            }
         }
         val speed = normalizeSpeed(playbackSpeed)
         val wallCapUs = positionAnchorUs + playingWallUs(nowMs, speed) + POSITION_LEAD_SLACK_US
@@ -141,6 +179,7 @@ internal class PassthroughWaterLevelPacer(
         const val MAX_WATER_LEVEL_US = 200_000L
         const val TRUEHD_WRITE_AHEAD_US = 800_000L
         const val IEC_WRITE_AHEAD_US = 1_000_000L
+        const val MAX_INITIAL_FILL_AHEAD_US = 8_000_000L
         const val POSITION_LEAD_SLACK_US = 100_000L
 
         fun isPassthroughMime(mimeType: String?): Boolean {

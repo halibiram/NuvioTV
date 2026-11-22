@@ -91,6 +91,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 import androidx.media3.common.Tracks
 
@@ -2446,6 +2447,23 @@ private class SubtitleOffsetRenderersFactory(
         } else {
             TvAudioCapabilityPin.pinnedCapabilities(context)
         }
+        val rawPassthroughBufferBytes = AtomicInteger(0)
+        val bufferSizeProvider =
+            DefaultAudioSink.AudioTrackBufferSizeProvider { minBuffer, encoding, outputMode, pcmFrameSize, sampleRate, bitrate, maxSpeed ->
+                val resolved = cappedPassthroughBufferSizeProvider.getBufferSizeInBytes(
+                    minBuffer,
+                    encoding,
+                    outputMode,
+                    pcmFrameSize,
+                    sampleRate,
+                    bitrate,
+                    maxSpeed
+                )
+                rawPassthroughBufferBytes.set(
+                    if (outputMode == DefaultAudioSink.OUTPUT_MODE_PASSTHROUGH) resolved else 0
+                )
+                resolved
+            }
         val builder = when {
             bluetoothForcePcm -> {
                 DefaultAudioSink.Builder()
@@ -2464,7 +2482,7 @@ private class SubtitleOffsetRenderersFactory(
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioProcessors(arrayOf(gainAudioProcessor, nightModeAudioProcessor))
-            .setAudioTrackBufferSizeProvider(cappedPassthroughBufferSizeProvider)
+            .setAudioTrackBufferSizeProvider(bufferSizeProvider)
         val baseAudioSink = builder.build()
         var speedAwareSink: PlaybackSpeedAwareAudioSink? = null
         val iecAudioSink = IecPassthroughAudioSink(
@@ -2483,7 +2501,8 @@ private class SubtitleOffsetRenderersFactory(
             initialForcePcm = initialForcePcm,
             forcePcmForBluetooth = bluetoothForcePcm,
             passthroughPolicy = passthroughPolicy,
-            onDiagnosticEvent = onAudioDiagnosticEvent
+            onDiagnosticEvent = onAudioDiagnosticEvent,
+            rawPassthroughBufferBytesProvider = rawPassthroughBufferBytes::get
         )
         speedAwareSink = playbackSpeedAwareAudioSink
         playbackSpeedAwareAudioSink.setInitialPlaybackSpeed(playbackSpeedProvider())
