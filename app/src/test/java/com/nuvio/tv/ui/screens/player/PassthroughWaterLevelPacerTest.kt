@@ -6,11 +6,16 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
 import androidx.media3.exoplayer.audio.AudioSink
+import com.nuvio.tv.ui.screens.player.iec.HbrPayload
+import com.nuvio.tv.ui.screens.player.iec.IecAudioTrack
+import com.nuvio.tv.ui.screens.player.iec.IecAudioTrackFactory
 import com.nuvio.tv.ui.screens.player.iec.IecPassthroughAudioSink
+import com.nuvio.tv.ui.screens.player.iec.TrueHdMatPackerTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.ByteBuffer
 
 class PassthroughWaterLevelPacerTest {
 
@@ -422,22 +427,21 @@ class PassthroughWaterLevelPacerTest {
     fun sink_ac3AndDtsHdArePaced_pcmIsNot() {
         val ac3Sink = PlaybackSpeedAwareAudioSink(RecordingSink())
         ac3Sink.configure(mime(MimeTypes.AUDIO_AC3), 0, null)
-        val buf = java.nio.ByteBuffer.allocate(32)
-        assertTrue(ac3Sink.handleBuffer(buf, 0L, 1))
+        assertTrue(ac3Sink.handleBuffer(ByteBuffer.allocate(32), 0L, 1))
         assertFalse(
-            ac3Sink.handleBuffer(buf, PassthroughWaterLevelPacer.MAX_WATER_LEVEL_US + 1_000L, 1)
+            ac3Sink.handleBuffer(ByteBuffer.allocate(32), PassthroughWaterLevelPacer.MAX_WATER_LEVEL_US + 1_000L, 1)
         )
 
         val pcmSink = PlaybackSpeedAwareAudioSink(RecordingSink())
         pcmSink.configure(mime(MimeTypes.AUDIO_RAW), 0, null)
-        assertTrue(pcmSink.handleBuffer(buf, 0L, 1))
+        assertTrue(pcmSink.handleBuffer(ByteBuffer.allocate(32), 0L, 1))
         assertTrue(
-            pcmSink.handleBuffer(buf, PassthroughWaterLevelPacer.MAX_WATER_LEVEL_US + 1_000L, 1)
+            pcmSink.handleBuffer(ByteBuffer.allocate(32), PassthroughWaterLevelPacer.MAX_WATER_LEVEL_US + 1_000L, 1)
         )
     }
 
     @Test
-    fun rawTrueHd_lowBitrateInitialFill_acceptsUpToTrackBufferThenPaces() {
+    fun rawTrueHd_lowBitrateInitialFill_acceptsUpToTrackBufferThenPacesAndClampsFirstPollSprint() {
         val pacer = PassthroughWaterLevelPacer()
         val trackBufferBytes = 2 * 61_440 // 122,880 B RAW TrueHD cap
         pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
@@ -463,12 +467,28 @@ class PassthroughWaterLevelPacerTest {
         assertFalse(pacer.shouldAcceptBuffer(ptsUs, resumeWallMs - 1L, 1f))
         assertTrue(pacer.shouldAcceptBuffer(ptsUs, resumeWallMs, 1f))
 
-        // Position clamp still prevents HAL sprints even after a multi-second quiet initial fill.
-        assertEquals(0L, pacer.clampPositionUs(0L, 0L, 1f))
+        // Even on the very first getCurrentPositionUs() call (without a prior 0L poll),
+        // a HAL sprint through the 2.5 s quiet initial fill is clamped to firstPts + wall + slack.
         assertEquals(
             100_000L + PassthroughWaterLevelPacer.POSITION_LEAD_SLACK_US,
-            pacer.clampPositionUs(2_000_000L, 100L, 1f)
+            pacer.clampPositionUs(2_400_000L, 100L, 1f)
         )
+        // Subsequent polls keep the same origin without double-counting wall time or slack.
+        assertEquals(
+            200_000L + PassthroughWaterLevelPacer.POSITION_LEAD_SLACK_US,
+            pacer.clampPositionUs(2_400_000L, 200L, 1f)
+        )
+    }
+
+    @Test
+    fun rawTrueHd_initialFill_rejectsCorruptPtsJumpBeyondDefensiveCap() {
+        val pacer = PassthroughWaterLevelPacer()
+        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
+        pacer.setInitialFillBytes(122_880)
+        assertTrue(pacer.shouldAcceptBuffer(0L, 0L, 1f))
+        pacer.onBufferAccepted(0L, 500)
+        assertTrue(pacer.shouldAcceptBuffer(PassthroughWaterLevelPacer.MAX_INITIAL_FILL_AHEAD_US, 0L, 1f))
+        assertFalse(pacer.shouldAcceptBuffer(PassthroughWaterLevelPacer.MAX_INITIAL_FILL_AHEAD_US + 1L, 0L, 1f))
     }
 
     @Test
@@ -485,7 +505,7 @@ class PassthroughWaterLevelPacerTest {
     }
 
     @Test
-    fun rawPassthrough_afterTimelineReset_refillsInitialTrackBuffer() {
+    fun rawPassthrough_afterTimelineReset_refillsInitialTrackBuffer_andResetClearsIt() {
         val pacer = PassthroughWaterLevelPacer()
         pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
         pacer.setInitialFillBytes(10_000)
@@ -494,13 +514,18 @@ class PassthroughWaterLevelPacerTest {
         pacer.onBufferAccepted(0L, 10_000)
         assertFalse(pacer.shouldAcceptBuffer(1_500_000L, 0L, 1f))
 
-        // Seek / flush calls onTimelineReset: acceptedBytes resets while initialFillBytes stays armed.
+        // Seek / flush / handleDiscontinuity calls onTimelineReset: acceptedBytes resets while initialFillBytes stays armed.
         pacer.onTimelineReset(5_000L)
         assertTrue(pacer.shouldAcceptBuffer(25_000_000L, 5_000L, 1f))
         pacer.onBufferAccepted(25_000_000L, 4_000)
         assertTrue(pacer.shouldAcceptBuffer(26_000_000L, 5_000L, 1f))
         pacer.onBufferAccepted(26_000_000L, 6_000)
         assertFalse(pacer.shouldAcceptBuffer(26_500_000L, 5_000L, 1f))
+
+        // reset() clears initialFillBytes completely.
+        pacer.onReset()
+        assertTrue(pacer.shouldAcceptBuffer(30_000_000L, 5_000L, 1f))
+        assertFalse(pacer.shouldAcceptBuffer(31_000_000L, 5_000L, 1f))
     }
 
     @Test
@@ -515,19 +540,51 @@ class PassthroughWaterLevelPacerTest {
     }
 
     @Test
-    fun partialWrites_advanceInitialFillProgress() {
-        val pacer = PassthroughWaterLevelPacer()
-        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
-        pacer.setInitialFillBytes(8_000)
-        assertTrue(pacer.shouldAcceptBuffer(0L, 0L, 1f))
-        pacer.onBytesConsumed(5_000)
-        assertTrue(pacer.shouldAcceptBuffer(1_000_000L, 0L, 1f))
-        pacer.onBytesConsumed(3_000)
-        assertFalse(pacer.shouldAcceptBuffer(1_200_000L, 0L, 1f))
+    fun sink_partialWriteCrossingInitialFill_finishesInFlightBufferBeforePacingNext() {
+        val inner = PartialWriteSink(maxBytesPerCall = 3_000)
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = inner,
+            rawPassthroughBufferBytesProvider = { 10_000 }
+        )
+        sink.configure(mime(MimeTypes.AUDIO_TRUEHD), 0, null)
+
+        // Fill 9,000 B across three full 3,000 B chunks up to 1.8 s.
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(3_000), 0L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(3_000), 600_000L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(3_000), 1_200_000L, 1))
+
+        // Fourth chunk (4,000 B at 2.0 s) crosses 10,000 B mid-buffer via a partial write:
+        // 3,000 B consumed (acceptedBytes = 12,000 >= 10,000), 1,000 B still remaining in the same ByteBuffer.
+        val straddling = ByteBuffer.allocate(4_000)
+        assertFalse(sink.handleBuffer(straddling, 2_000_000L, 1))
+        assertEquals(1_000, straddling.remaining())
+
+        // Retrying the exact same partially-written ByteBuffer must bypass pacing so DefaultAudioSink can finish draining it.
+        assertTrue(sink.handleBuffer(straddling, 2_000_000L, 1))
+        assertEquals(0, straddling.remaining())
+
+        // Once the in-flight buffer has finished draining, the next new buffer past 800 ms is paced.
+        assertFalse(sink.handleBuffer(ByteBuffer.allocate(3_000), 2_200_000L, 1))
     }
 
     @Test
-    fun sink_rawPassthroughInitialFill_wiredThroughConfigureAndFlush() {
+    fun sink_droppedZeroByteBuffer_doesNotConsumeInitialFillBudget() {
+        val inner = RecordingSink(consumeBytes = false)
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = inner,
+            rawPassthroughBufferBytesProvider = { 10_000 }
+        )
+        sink.configure(mime(MimeTypes.AUDIO_TRUEHD), 0, null)
+
+        // Simulate DefaultAudioSink dropping unsynced pre-sync TrueHD chunks (returns true, position unchanged).
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(8_000), 0L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(8_000), 500_000L, 1))
+        // Because 0 bytes were actually consumed, initialFillBytes is still unsatisfied and the next chunk is accepted.
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(8_000), 1_200_000L, 1))
+    }
+
+    @Test
+    fun sink_rawPassthroughInitialFill_wiredThroughConfigureSpecifiedSizeFlushAndDiscontinuity() {
         var trackBufferBytes = 10_000
         val sink = PlaybackSpeedAwareAudioSink(
             sink = RecordingSink(),
@@ -535,22 +592,111 @@ class PassthroughWaterLevelPacerTest {
         )
         sink.configure(mime(MimeTypes.AUDIO_TRUEHD), 0, null)
 
-        val chunk = java.nio.ByteBuffer.allocate(5_000)
-        assertTrue(sink.handleBuffer(chunk, 0L, 1))
-        assertTrue(sink.handleBuffer(chunk, 1_200_000L, 1))
-        // Now 10,000 B accepted -> initial fill satisfied -> next buffer past 800 ms is paced.
-        assertFalse(sink.handleBuffer(chunk, 1_500_000L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 0L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 1_200_000L, 1))
+        // Now 10,000 B consumed -> initial fill satisfied -> next buffer past 800 ms is paced.
+        assertFalse(sink.handleBuffer(ByteBuffer.allocate(5_000), 1_500_000L, 1))
 
         // After flush, the recreated track can fill its initial buffer again.
         sink.flush()
-        assertTrue(sink.handleBuffer(chunk, 25_000_000L, 1))
-        assertTrue(sink.handleBuffer(chunk, 26_200_000L, 1))
-        assertFalse(sink.handleBuffer(chunk, 26_500_000L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 25_000_000L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 26_200_000L, 1))
+        assertFalse(sink.handleBuffer(ByteBuffer.allocate(5_000), 26_500_000L, 1))
 
-        // Reconfiguring to a non-passthrough track clears the initial fill target.
+        // After handleDiscontinuity, initial fill stays armed and acceptedBytes resets.
+        sink.handleDiscontinuity()
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 40_000_000L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 41_200_000L, 1))
+        assertFalse(sink.handleBuffer(ByteBuffer.allocate(5_000), 41_500_000L, 1))
+
+        // Explicit specifiedBufferSize > 0 overrides the provider.
         trackBufferBytes = 0
+        sink.configure(mime(MimeTypes.AUDIO_TRUEHD), 8_000, null)
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(4_000), 0L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(4_000), 1_200_000L, 1))
+        assertFalse(sink.handleBuffer(ByteBuffer.allocate(4_000), 1_500_000L, 1))
+
+        // Reconfiguring to a non-passthrough track does not pace.
         sink.configure(mime(MimeTypes.AUDIO_RAW), 0, null)
-        assertTrue(sink.handleBuffer(chunk, 30_000_000L, 1))
+        assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 30_000_000L, 1))
+    }
+
+    @Test
+    fun sink_iecFallbackDuringPlayOrIsEnded_armsRawInitialFillAndForwardAnchor() {
+        fun buildIecSink(track: ScriptedIecTrack, events: MutableList<String>): Pair<IecPassthroughAudioSink, PlaybackSpeedAwareAudioSink> {
+            val iecSink = IecPassthroughAudioSink(
+                sink = RecordingSink(),
+                trackFactory = IecAudioTrackFactory { _, _, _, _ -> track },
+                onDiagnosticEvent = { events.add(it) }
+            )
+            val sink = PlaybackSpeedAwareAudioSink(
+                sink = iecSink,
+                onDiagnosticEvent = { events.add(it) },
+                rawPassthroughBufferBytesProvider = { 10_000 }
+            )
+            sink.configure(mime(MimeTypes.AUDIO_TRUEHD), 0, null)
+            assertTrue(iecSink.isIecActive)
+            return iecSink to sink
+        }
+
+        // Case 1: IEC fallback triggered inside play() under keep-alive.
+        run {
+            val events = mutableListOf<String>()
+            val track = ScriptedIecTrack(writeResult = null)
+            val (iecSink, sink) = buildIecSink(track, events)
+            sink.play()
+            var pts = 0L
+            for (i in 0 until 48) {
+                if (i == 24) track.writeResult = 0 // leave a pending frame queued
+                sink.handleBuffer(ByteBuffer.wrap(TrueHdMatPackerTest.trueHdAu(frameTime = i * 40, major = i == 0)), pts, 1)
+                pts += 833L
+            }
+            assertTrue(iecSink.isIecActive)
+            sink.pause()
+            track.writeResult = -1 // trigger write failure during play() -> drainPending() -> fallback
+            sink.play()
+            assertFalse(iecSink.isIecActive)
+            assertTrue(events.any { it.startsWith("iec_fallback_to_raw ") })
+
+            // Verify RAW initialFillBytes (10,000 B) is now armed and forward_anchor runs on the next synced chunk.
+            assertTrue(sink.handleBuffer(trueHdSyncChunk(5_000), 5_000_000L, 16))
+            assertTrue(events.any { it.startsWith("forward_anchor ") && it.contains("armedBy=fallback") })
+            assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 6_200_000L, 16))
+            assertFalse(sink.handleBuffer(ByteBuffer.allocate(5_000), 6_500_000L, 16))
+        }
+
+        // Case 2: IEC fallback triggered inside isEnded().
+        run {
+            val events = mutableListOf<String>()
+            val track = ScriptedIecTrack(writeResult = null)
+            val (iecSink, sink) = buildIecSink(track, events)
+            sink.play()
+            var pts = 0L
+            for (i in 0 until 48) {
+                if (i == 24) track.writeResult = 0
+                sink.handleBuffer(ByteBuffer.wrap(TrueHdMatPackerTest.trueHdAu(frameTime = i * 40, major = i == 0)), pts, 1)
+                pts += 833L
+            }
+            sink.playToEndOfStream()
+            assertTrue(iecSink.isIecActive)
+            track.writeResult = -1 // trigger fallback during isEnded() -> drainPending(stallIsFatal = false)
+            sink.isEnded()
+            assertFalse(iecSink.isIecActive)
+            assertTrue(events.any { it.startsWith("iec_fallback_to_raw ") })
+
+            sink.flush()
+            assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 10_000_000L, 16))
+            assertTrue(sink.handleBuffer(ByteBuffer.allocate(5_000), 11_200_000L, 16))
+            assertFalse(sink.handleBuffer(ByteBuffer.allocate(5_000), 11_500_000L, 16))
+        }
+    }
+
+    private fun trueHdSyncChunk(size: Int): ByteBuffer {
+        val buf = ByteBuffer.allocate(size)
+        val syncAu = TrueHdMatPackerTest.trueHdAu(frameTime = 0, major = true)
+        buf.put(syncAu)
+        buf.position(0)
+        return buf
     }
 
     private fun mime(sampleMimeType: String): Format {
@@ -561,7 +707,44 @@ class PassthroughWaterLevelPacerTest {
             .build()
     }
 
-    private class RecordingSink : AudioSink {
+    private class PartialWriteSink(private val maxBytesPerCall: Int) : RecordingSink() {
+        private var inFlight: ByteBuffer? = null
+        override fun handleBuffer(
+            buffer: ByteBuffer,
+            presentationTimeUs: Long,
+            encodedAccessUnitCount: Int
+        ): Boolean {
+            if (inFlight != null) {
+                assertTrue("DefaultAudioSink requires retrying the exact same in-flight buffer", inFlight === buffer)
+            }
+            val take = minOf(maxBytesPerCall, buffer.remaining())
+            buffer.position(buffer.position() + take)
+            return if (buffer.hasRemaining()) {
+                inFlight = buffer
+                false
+            } else {
+                inFlight = null
+                true
+            }
+        }
+    }
+
+    private class ScriptedIecTrack(var writeResult: Int? = -1) : IecAudioTrack {
+        override val sampleRate: Int = 192_000
+        override val frameSizeBytes: Int = 16
+        override val payload: HbrPayload = HbrPayload.IEC_BURST
+        override val bufferSizeBytes: Int = sampleRate * frameSizeBytes
+        override fun write(data: ByteArray, offset: Int, size: Int): Int = writeResult ?: size
+        override fun play() = Unit
+        override fun pause() = Unit
+        override fun flush() = Unit
+        override fun release() = Unit
+        override fun playbackHeadFrames(): Long = 0L
+        override fun setVolume(volume: Float) = Unit
+        override fun underrunCount(): Int = 0
+    }
+
+    private open class RecordingSink(private val consumeBytes: Boolean = true) : AudioSink {
         override fun setListener(listener: AudioSink.Listener) = Unit
         override fun supportsFormat(format: Format): Boolean = true
         override fun getFormatSupport(format: Format): Int = AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
@@ -573,10 +756,15 @@ class PassthroughWaterLevelPacerTest {
         override fun play() = Unit
         override fun handleDiscontinuity() = Unit
         override fun handleBuffer(
-            buffer: java.nio.ByteBuffer,
+            buffer: ByteBuffer,
             presentationTimeUs: Long,
             encodedAccessUnitCount: Int
-        ): Boolean = true
+        ): Boolean {
+            if (consumeBytes) {
+                buffer.position(buffer.limit())
+            }
+            return true
+        }
         override fun playToEndOfStream() = Unit
         override fun isEnded(): Boolean = false
         override fun hasPendingData(): Boolean = false

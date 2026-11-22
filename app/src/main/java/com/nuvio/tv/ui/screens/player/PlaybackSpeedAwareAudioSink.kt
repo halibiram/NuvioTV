@@ -61,6 +61,8 @@ internal class PlaybackSpeedAwareAudioSink(
 
     private val passthroughPacer = PassthroughWaterLevelPacer(onDiagnosticEvent)
     private val iecSink: IecPassthroughAudioSink? = sink as? IecPassthroughAudioSink
+    private var lastKnownIecActive: Boolean = false
+    private var inFlightPartialBuffer: ByteBuffer? = null
 
     private var forwardAnchorPending: Boolean = false
     private var forwardUnsyncedChunks: Int = 0
@@ -126,19 +128,27 @@ internal class PlaybackSpeedAwareAudioSink(
 
     override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
         currentInputFormat = inputFormat
+        inFlightPartialBuffer = null
         passthroughPacer.onFormat(inputFormat, nowMs())
         markPcmFallbackIfNeeded(inputFormat, playbackSpeed)
         currentTunnelAudioClass = tunnelAudioClass(inputFormat)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
         val iecActive = iecSink?.isIecActive == true
+        lastKnownIecActive = iecActive
         passthroughPacer.setIecPacked(iecActive)
-        passthroughPacer.setInitialFillBytes(if (iecActive) 0 else rawPassthroughBufferBytesProvider())
+        val rawBufferBytes = if (specifiedBufferSize > 0) {
+            specifiedBufferSize
+        } else {
+            rawPassthroughBufferBytesProvider()
+        }
+        passthroughPacer.setInitialFillBytes(if (iecActive) 0 else rawBufferBytes)
         armForwardAnchor(armedBy = "configure")
     }
 
     override fun play() {
         passthroughPacer.onPlay(nowMs())
         super.play()
+        syncIecFallbackIfNeeded()
     }
 
     override fun pause() {
@@ -147,23 +157,32 @@ internal class PlaybackSpeedAwareAudioSink(
     }
 
     override fun flush() {
+        inFlightPartialBuffer = null
         passthroughPacer.onTimelineReset(nowMs())
         super.flush()
         armForwardAnchor(armedBy = "flush")
     }
 
     override fun reset() {
+        inFlightPartialBuffer = null
+        lastKnownIecActive = false
         passthroughPacer.onReset()
         super.reset()
     }
 
     override fun playToEndOfStream() {
-        val iecWasActive = iecSink?.isIecActive == true
         super.playToEndOfStream()
-        noteIecFallbackIfFlipped(iecWasActive)
+        syncIecFallbackIfNeeded()
+    }
+
+    override fun isEnded(): Boolean {
+        val ended = super.isEnded()
+        syncIecFallbackIfNeeded()
+        return ended
     }
 
     override fun handleDiscontinuity() {
+        inFlightPartialBuffer = null
         passthroughPacer.onTimelineReset(nowMs())
         super.handleDiscontinuity()
     }
@@ -178,7 +197,9 @@ internal class PlaybackSpeedAwareAudioSink(
             evaluateForwardAnchor(buffer, presentationTimeUs)
         }
         val passthrough = passthroughPacer.appliesTo(currentInputFormat)
+        val continuingPartialBuffer = inFlightPartialBuffer === buffer
         if (passthrough &&
+            !continuingPartialBuffer &&
             !passthroughPacer.shouldAcceptBuffer(presentationTimeUs, nowMs(), playbackSpeed)
         ) {
             return false
@@ -189,11 +210,14 @@ internal class PlaybackSpeedAwareAudioSink(
         } else {
             0
         }
-        val iecWasActive = iecSink?.isIecActive == true
         val handled = super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-        val deltaBytes = (remainingBefore - buffer.remaining()).coerceAtLeast(0)
-        val consumedBytes = if (handled && deltaBytes == 0) remainingBefore else deltaBytes
-        noteIecFallbackIfFlipped(iecWasActive)
+        val consumedBytes = (remainingBefore - buffer.remaining()).coerceAtLeast(0)
+        syncIecFallbackIfNeeded()
+        if (handled) {
+            inFlightPartialBuffer = null
+        } else if (consumedBytes > 0 && buffer.hasRemaining()) {
+            inFlightPartialBuffer = buffer
+        }
         if (passthrough) {
             if (handled) {
                 passthroughPacer.onBufferAccepted(presentationTimeUs, consumedBytes)
@@ -313,8 +337,10 @@ internal class PlaybackSpeedAwareAudioSink(
         return false
     }
 
-    private fun noteIecFallbackIfFlipped(iecWasActive: Boolean) {
-        if (iecWasActive && iecSink?.isIecActive == false) {
+    private fun syncIecFallbackIfNeeded() {
+        if (lastKnownIecActive && iecSink?.isIecActive == false) {
+            lastKnownIecActive = false
+            inFlightPartialBuffer = null
             passthroughPacer.setIecPacked(false)
             passthroughPacer.setInitialFillBytes(rawPassthroughBufferBytesProvider())
             armForwardAnchor(armedBy = "fallback", forceResync = true)
