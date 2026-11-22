@@ -436,6 +436,123 @@ class PassthroughWaterLevelPacerTest {
         )
     }
 
+    @Test
+    fun rawTrueHd_lowBitrateInitialFill_acceptsUpToTrackBufferThenPaces() {
+        val pacer = PassthroughWaterLevelPacer()
+        val trackBufferBytes = 2 * 61_440 // 122,880 B RAW TrueHD cap
+        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
+        pacer.setInitialFillBytes(trackBufferBytes)
+
+        // ~400 kbps quiet TrueHD (~50 KB/s): 100 ms chunks carry 5,000 B, so 800 ms is only 40 KB.
+        var ptsUs = 0L
+        var totalBytes = 0
+        while (totalBytes < trackBufferBytes) {
+            assertTrue("Expected accept while filling initial buffer ($totalBytes B)", pacer.shouldAcceptBuffer(ptsUs, 0L, 1f))
+            pacer.onBufferAccepted(ptsUs, 5_000)
+            totalBytes += 5_000
+            ptsUs += 100_000L
+        }
+        assertTrue("Low-bitrate initial fill crosses 800 ms ceiling", ptsUs > PassthroughWaterLevelPacer.TRUEHD_WRITE_AHEAD_US)
+
+        // Once the initial track buffer is filled, normal content-time pacing takes over.
+        assertFalse(pacer.shouldAcceptBuffer(ptsUs, 0L, 1f))
+
+        // Playing wall time lets writes resume once buffered content drains back to the 800 ms ceiling.
+        pacer.onPlay(0L)
+        val resumeWallMs = (ptsUs - PassthroughWaterLevelPacer.TRUEHD_WRITE_AHEAD_US) / 1_000L
+        assertFalse(pacer.shouldAcceptBuffer(ptsUs, resumeWallMs - 1L, 1f))
+        assertTrue(pacer.shouldAcceptBuffer(ptsUs, resumeWallMs, 1f))
+
+        // Position clamp still prevents HAL sprints even after a multi-second quiet initial fill.
+        assertEquals(0L, pacer.clampPositionUs(0L, 0L, 1f))
+        assertEquals(
+            100_000L + PassthroughWaterLevelPacer.POSITION_LEAD_SLACK_US,
+            pacer.clampPositionUs(2_000_000L, 100L, 1f)
+        )
+    }
+
+    @Test
+    fun rawTrueHd_highBitrate_enforcesEightHundredMsOnceBufferFilled() {
+        val pacer = PassthroughWaterLevelPacer()
+        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
+        pacer.setInitialFillBytes(122_880)
+
+        // 4 Mbps TrueHD (~500 KB/s): 300 ms already exceeds 122,880 B.
+        assertTrue(pacer.shouldAcceptBuffer(0L, 0L, 1f))
+        pacer.onBufferAccepted(0L, 150_000)
+        assertTrue(pacer.shouldAcceptBuffer(PassthroughWaterLevelPacer.TRUEHD_WRITE_AHEAD_US, 0L, 1f))
+        assertFalse(pacer.shouldAcceptBuffer(PassthroughWaterLevelPacer.TRUEHD_WRITE_AHEAD_US + 1L, 0L, 1f))
+    }
+
+    @Test
+    fun rawPassthrough_afterTimelineReset_refillsInitialTrackBuffer() {
+        val pacer = PassthroughWaterLevelPacer()
+        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
+        pacer.setInitialFillBytes(10_000)
+        pacer.onPlay(0L)
+        assertTrue(pacer.shouldAcceptBuffer(0L, 0L, 1f))
+        pacer.onBufferAccepted(0L, 10_000)
+        assertFalse(pacer.shouldAcceptBuffer(1_500_000L, 0L, 1f))
+
+        // Seek / flush calls onTimelineReset: acceptedBytes resets while initialFillBytes stays armed.
+        pacer.onTimelineReset(5_000L)
+        assertTrue(pacer.shouldAcceptBuffer(25_000_000L, 5_000L, 1f))
+        pacer.onBufferAccepted(25_000_000L, 4_000)
+        assertTrue(pacer.shouldAcceptBuffer(26_000_000L, 5_000L, 1f))
+        pacer.onBufferAccepted(26_000_000L, 6_000)
+        assertFalse(pacer.shouldAcceptBuffer(26_500_000L, 5_000L, 1f))
+    }
+
+    @Test
+    fun iecPacked_ignoresInitialFillBytes() {
+        val pacer = PassthroughWaterLevelPacer()
+        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
+        pacer.setIecPacked(true)
+        pacer.setInitialFillBytes(122_880)
+        assertTrue(pacer.shouldAcceptBuffer(0L, 0L, 1f))
+        pacer.onBufferAccepted(0L, 1_000)
+        assertFalse(pacer.shouldAcceptBuffer(PassthroughWaterLevelPacer.IEC_WRITE_AHEAD_US + 1L, 0L, 1f))
+    }
+
+    @Test
+    fun partialWrites_advanceInitialFillProgress() {
+        val pacer = PassthroughWaterLevelPacer()
+        pacer.onFormat(mime(MimeTypes.AUDIO_TRUEHD))
+        pacer.setInitialFillBytes(8_000)
+        assertTrue(pacer.shouldAcceptBuffer(0L, 0L, 1f))
+        pacer.onBytesConsumed(5_000)
+        assertTrue(pacer.shouldAcceptBuffer(1_000_000L, 0L, 1f))
+        pacer.onBytesConsumed(3_000)
+        assertFalse(pacer.shouldAcceptBuffer(1_200_000L, 0L, 1f))
+    }
+
+    @Test
+    fun sink_rawPassthroughInitialFill_wiredThroughConfigureAndFlush() {
+        var trackBufferBytes = 10_000
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = RecordingSink(),
+            rawPassthroughBufferBytesProvider = { trackBufferBytes }
+        )
+        sink.configure(mime(MimeTypes.AUDIO_TRUEHD), 0, null)
+
+        val chunk = java.nio.ByteBuffer.allocate(5_000)
+        assertTrue(sink.handleBuffer(chunk, 0L, 1))
+        assertTrue(sink.handleBuffer(chunk, 1_200_000L, 1))
+        // Now 10,000 B accepted -> initial fill satisfied -> next buffer past 800 ms is paced.
+        assertFalse(sink.handleBuffer(chunk, 1_500_000L, 1))
+
+        // After flush, the recreated track can fill its initial buffer again.
+        sink.flush()
+        assertTrue(sink.handleBuffer(chunk, 25_000_000L, 1))
+        assertTrue(sink.handleBuffer(chunk, 26_200_000L, 1))
+        assertFalse(sink.handleBuffer(chunk, 26_500_000L, 1))
+
+        // Reconfiguring to a non-passthrough track clears the initial fill target.
+        trackBufferBytes = 0
+        sink.configure(mime(MimeTypes.AUDIO_RAW), 0, null)
+        assertTrue(sink.handleBuffer(chunk, 30_000_000L, 1))
+    }
+
     private fun mime(sampleMimeType: String): Format {
         return Format.Builder()
             .setSampleMimeType(sampleMimeType)

@@ -27,7 +27,8 @@ internal class PlaybackSpeedAwareAudioSink(
     initialForcePcm: Boolean = false,
     forcePcmForBluetooth: Boolean = false,
     passthroughPolicy: AudioPassthroughPolicy = AudioPassthroughPolicy.ALLOW_ALL,
-    private val onDiagnosticEvent: ((String) -> Unit)? = null
+    private val onDiagnosticEvent: ((String) -> Unit)? = null,
+    private val rawPassthroughBufferBytesProvider: () -> Int = { 0 }
 ) : ForwardingAudioSink(sink) {
 
     // Set when the sink is built with forcePcm (error recovery). Don't clear on speed reset.
@@ -129,7 +130,9 @@ internal class PlaybackSpeedAwareAudioSink(
         markPcmFallbackIfNeeded(inputFormat, playbackSpeed)
         currentTunnelAudioClass = tunnelAudioClass(inputFormat)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
-        passthroughPacer.setIecPacked(iecSink?.isIecActive == true)
+        val iecActive = iecSink?.isIecActive == true
+        passthroughPacer.setIecPacked(iecActive)
+        passthroughPacer.setInitialFillBytes(if (iecActive) 0 else rawPassthroughBufferBytesProvider())
         armForwardAnchor(armedBy = "configure")
     }
 
@@ -180,16 +183,23 @@ internal class PlaybackSpeedAwareAudioSink(
         ) {
             return false
         }
+        val remainingBefore = buffer.remaining()
         val encodedBytes = if (currentInputFormat?.sampleMimeType != MimeTypes.AUDIO_RAW) {
-            buffer.remaining()
+            remainingBefore
         } else {
             0
         }
         val iecWasActive = iecSink?.isIecActive == true
         val handled = super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        val deltaBytes = (remainingBefore - buffer.remaining()).coerceAtLeast(0)
+        val consumedBytes = if (handled && deltaBytes == 0) remainingBefore else deltaBytes
         noteIecFallbackIfFlipped(iecWasActive)
-        if (handled && passthrough) {
-            passthroughPacer.onBufferAccepted(presentationTimeUs)
+        if (passthrough) {
+            if (handled) {
+                passthroughPacer.onBufferAccepted(presentationTimeUs, consumedBytes)
+            } else if (consumedBytes > 0) {
+                passthroughPacer.onBytesConsumed(consumedBytes)
+            }
         }
         if (handled && encodedBytes > 0) {
             PlayerAudioBitrateMeter.record(encodedBytes, presentationTimeUs)
@@ -306,6 +316,7 @@ internal class PlaybackSpeedAwareAudioSink(
     private fun noteIecFallbackIfFlipped(iecWasActive: Boolean) {
         if (iecWasActive && iecSink?.isIecActive == false) {
             passthroughPacer.setIecPacked(false)
+            passthroughPacer.setInitialFillBytes(rawPassthroughBufferBytesProvider())
             armForwardAnchor(armedBy = "fallback", forceResync = true)
         }
     }

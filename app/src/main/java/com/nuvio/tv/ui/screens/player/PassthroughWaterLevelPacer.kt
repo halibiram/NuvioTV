@@ -17,6 +17,8 @@ internal class PassthroughWaterLevelPacer(
     private var positionAnchorUs: Long = C.TIME_UNSET
     private var sampleMimeType: String? = null
     private var iecPacked: Boolean = false
+    private var initialFillBytes: Int = 0
+    private var acceptedBytes: Long = 0L
     private var pacingReported: Boolean = false
 
     fun appliesTo(format: Format?): Boolean {
@@ -28,6 +30,8 @@ internal class PassthroughWaterLevelPacer(
         firstPtsUs = C.TIME_UNSET
         lastAcceptedPtsUs = C.TIME_UNSET
         positionAnchorUs = C.TIME_UNSET
+        initialFillBytes = 0
+        acceptedBytes = 0L
         pacingReported = false
         frozenPlayingMs = 0L
         if (playing) {
@@ -36,7 +40,14 @@ internal class PassthroughWaterLevelPacer(
     }
 
     fun setIecPacked(packed: Boolean) {
+        if (iecPacked && !packed) {
+            acceptedBytes = 0L
+        }
         iecPacked = packed
+    }
+
+    fun setInitialFillBytes(bytes: Int) {
+        initialFillBytes = bytes.coerceAtLeast(0)
     }
 
     fun onPlay(nowMs: Long) {
@@ -58,6 +69,8 @@ internal class PassthroughWaterLevelPacer(
         firstPtsUs = C.TIME_UNSET
         lastAcceptedPtsUs = C.TIME_UNSET
         positionAnchorUs = C.TIME_UNSET
+        initialFillBytes = 0
+        acceptedBytes = 0L
         pacingReported = false
     }
 
@@ -65,6 +78,7 @@ internal class PassthroughWaterLevelPacer(
         firstPtsUs = C.TIME_UNSET
         lastAcceptedPtsUs = C.TIME_UNSET
         positionAnchorUs = C.TIME_UNSET
+        acceptedBytes = 0L
         frozenPlayingMs = 0L
         if (playing) {
             playStartedAtMs = nowMs
@@ -75,6 +89,9 @@ internal class PassthroughWaterLevelPacer(
         if (presentationTimeUs == C.TIME_UNSET) return true
         if (firstPtsUs == C.TIME_UNSET) {
             firstPtsUs = presentationTimeUs
+            return true
+        }
+        if (!iecPacked && initialFillBytes > 0 && acceptedBytes < initialFillBytes) {
             return true
         }
         val speed = normalizeSpeed(playbackSpeed)
@@ -93,12 +110,21 @@ internal class PassthroughWaterLevelPacer(
         return true
     }
 
-    fun onBufferAccepted(presentationTimeUs: Long) {
+    fun onBufferAccepted(presentationTimeUs: Long, bytes: Int = 0) {
+        if (bytes > 0) {
+            acceptedBytes += bytes
+        }
         if (presentationTimeUs == C.TIME_UNSET) return
         if (firstPtsUs == C.TIME_UNSET) {
             firstPtsUs = presentationTimeUs
         }
         lastAcceptedPtsUs = presentationTimeUs
+    }
+
+    fun onBytesConsumed(bytes: Int) {
+        if (bytes > 0) {
+            acceptedBytes += bytes
+        }
     }
 
     fun clampPositionUs(sinkPositionUs: Long, nowMs: Long, playbackSpeed: Float): Long {
