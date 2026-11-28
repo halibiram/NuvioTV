@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,6 +100,13 @@ fun PostPlayOverlay(
             fadeOut(animationSpec = tween(160)),
         modifier = modifier,
     ) {
+        LaunchedEffect(isAutoPlay, controlsVisible) {
+            if (isAutoPlay && !controlsVisible && !placedFocused) {
+                if (runCatching { nextEpisodeFocusRequester.requestFocus() }.getOrDefault(false)) {
+                    placedFocused = true
+                }
+            }
+        }
         val onCardClick: () -> Unit = when {
             isAutoPlay && isAutoPlayPlayable -> onPlayNext
             mode is PostPlayMode.StillWatching -> onContinueStillWatching
@@ -127,20 +135,16 @@ fun PostPlayOverlay(
                 .focusRequester(nextEpisodeFocusRequester)
                 .onPlaced {
                     if (isAutoPlay && !controlsVisible && !placedFocused) {
-                        placedFocused = true
-                        runCatching { nextEpisodeFocusRequester.requestFocus() }
+                        if (runCatching { nextEpisodeFocusRequester.requestFocus() }.getOrDefault(false)) {
+                            placedFocused = true
+                        }
                     }
                 }
-                .then(
-                    if (progressBarFocusRequester != null || leftFocusRequester != null) {
-                        Modifier.focusProperties {
-                            progressBarFocusRequester?.let { down = it }
-                            leftFocusRequester?.let { left = it }
-                        }
-                    } else {
-                        Modifier
-                    }
-                ),
+                .focusProperties {
+                    canFocus = mode != null
+                    progressBarFocusRequester?.let { down = it }
+                    leftFocusRequester?.let { left = it }
+                },
         ) {
             transition.AnimatedContent(
                 transitionSpec = {

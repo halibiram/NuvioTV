@@ -86,6 +86,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
@@ -206,6 +207,31 @@ internal fun playerBackOpensCurrentEpisodeStreams(
     autoPlayEnabled: Boolean
 ): Boolean = episodeChangedInPlace && !autoPlayEnabled
 
+internal enum class NextEpisodeDismissFocusTarget {
+    PLAY_PAUSE,
+    SKIP_INTRO,
+    CONTAINER
+}
+
+internal fun resolveNextEpisodeDismissFocusTarget(
+    controlsVisible: Boolean,
+    skipButtonVisible: Boolean,
+    skipIntroCanFocus: Boolean
+): NextEpisodeDismissFocusTarget = when {
+    skipButtonVisible && skipIntroCanFocus -> NextEpisodeDismissFocusTarget.SKIP_INTRO
+    controlsVisible -> NextEpisodeDismissFocusTarget.PLAY_PAUSE
+    else -> NextEpisodeDismissFocusTarget.CONTAINER
+}
+
+private fun requestFocusOrFallback(
+    primary: FocusRequester,
+    fallback: FocusRequester
+) {
+    if (!runCatching { primary.requestFocus() }.getOrDefault(false)) {
+        runCatching { fallback.requestFocus() }
+    }
+}
+
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
@@ -250,6 +276,7 @@ fun PlayerScreen(
     var skipButtonActuallyVisible by remember { mutableStateOf(false) }
     var restoreStreamInfoFocus by remember { mutableStateOf(false) }
     var focusPlayAfterMoreBack by remember { mutableStateOf(false) }
+    var restoreFocusAfterNextEpisodeDismiss by remember { mutableStateOf(0) }
     var hideControlsAfterStreamInfo by remember { mutableStateOf(false) }
     val nextEpisodeFocusRequester = remember { FocusRequester() }
     var subtitleDelayFocusTarget by remember { mutableStateOf(SubtitleDelayFocusTarget.SLIDER) }
@@ -354,6 +381,63 @@ fun PlayerScreen(
         }
     }
 
+    val postPlayOverlayMode = uiState.postPlayMode.takeIf {
+        uiState.error == null &&
+            !postPlayRecommendationState.isVisible &&
+            postPlayRecommendationState.recommendation == null &&
+            !shouldConfirmNextEpisodeOnEnd &&
+            !uiState.showLoadingOverlay &&
+            !uiState.showPauseOverlay &&
+            !uiState.showStreamInfoOverlay &&
+            !uiState.showEpisodesPanel &&
+            !uiState.showSourcesPanel && !uiState.showChaptersPanel &&
+            !uiState.showPartyPanel &&
+            !uiState.showAudioOverlay &&
+            !uiState.showSubtitleOverlay &&
+            !uiState.showSubtitleStylePanel &&
+            !uiState.showSubtitleDelayOverlay &&
+            !uiState.showSubtitleTimingDialog &&
+            !(uiState.showSpeedDialog || uiState.showDiscTitlesDialog)
+    }
+    val playerControlsVisible = uiState.showControls && uiState.error == null &&
+        !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
+        !uiState.showStreamInfoOverlay &&
+        !uiState.showSubtitleStylePanel &&
+        !uiState.showSubtitleDelayOverlay &&
+        !uiState.showEpisodesPanel &&
+        !uiState.showSourcesPanel && !uiState.showChaptersPanel &&
+        !uiState.showPartyPanel &&
+        !uiState.showAudioOverlay &&
+        !uiState.showSubtitleOverlay &&
+        !(uiState.showSpeedDialog || uiState.showDiscTitlesDialog) &&
+        !postPlayRecommendationState.isVisible &&
+        uiState.postPlayMode !is PostPlayMode.StillWatching
+    val skipIntroCanFocus = isSkipIntroCanFocus(
+        subtitleOverlayVisible = uiState.showSubtitleOverlay,
+    )
+    val skipButtonActiveAndVisible = skipButtonActuallyVisible &&
+        uiState.activeSkipInterval != null &&
+        !uiState.skipIntervalDismissed
+    val hasBlockingOverlayForPlayerFocus = uiState.error != null ||
+        shouldConfirmNextEpisodeOnEnd ||
+        postPlayRecommendationState.isVisible ||
+        uiState.showLoadingOverlay ||
+        uiState.showEpisodeAutoPlayLoadingOverlay ||
+        uiState.showPauseOverlay ||
+        uiState.showStreamInfoOverlay ||
+        uiState.showEpisodesPanel ||
+        uiState.showSourcesPanel ||
+        uiState.showChaptersPanel ||
+        uiState.showPartyPanel ||
+        uiState.showAudioOverlay ||
+        uiState.showSubtitleOverlay ||
+        uiState.showSubtitleStylePanel ||
+        uiState.showSubtitleDelayOverlay ||
+        uiState.showSubtitleTimingDialog ||
+        uiState.showSpeedDialog ||
+        uiState.showDiscTitlesDialog ||
+        uiState.postPlayMode is PostPlayMode.StillWatching
+
     val handleBackPress = handleBackPress@{
         if (externalHandoffInProgress) return@handleBackPress
         if (postPlayRecommendationState.canReturnToPlayer && !uiState.playbackEnded) {
@@ -378,9 +462,6 @@ fun PlayerScreen(
             hideControlsAfterStreamInfo = false
         } else if (uiState.showPauseOverlay) {
             viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay)
-        } else if (uiState.showMoreDialog) {
-            focusPlayAfterMoreBack = true
-            viewModel.onEvent(PlayerEvent.OnDismissMoreDialog)
         } else if (uiState.showSubtitleTimingDialog) {
             viewModel.onEvent(PlayerEvent.OnDismissSubtitleTimingDialog)
         } else if (uiState.showSubtitleDelayOverlay) {
@@ -407,13 +488,30 @@ fun PlayerScreen(
             postPlayRecommendationState.recommendation == null
         ) {
             viewModel.onEvent(PlayerEvent.OnDismissNextEpisodeCard)
-            if (skipButtonActuallyVisible) {
-                runCatching { skipIntroFocusRequester.requestFocus() }
-            } else {
-                runCatching { containerFocusRequester.requestFocus() }
+            when (
+                resolveNextEpisodeDismissFocusTarget(
+                    controlsVisible = playerControlsVisible && !hasBlockingOverlayForPlayerFocus,
+                    skipButtonVisible = skipButtonActiveAndVisible,
+                    skipIntroCanFocus = skipIntroCanFocus
+                )
+            ) {
+                NextEpisodeDismissFocusTarget.PLAY_PAUSE -> {
+                    requestFocusOrFallback(playPauseFocusRequester, containerFocusRequester)
+                }
+                NextEpisodeDismissFocusTarget.SKIP_INTRO -> {
+                    requestFocusOrFallback(skipIntroFocusRequester, containerFocusRequester)
+                }
+                NextEpisodeDismissFocusTarget.CONTAINER -> {
+                    runCatching { containerFocusRequester.requestFocus() }
+                }
             }
+            restoreFocusAfterNextEpisodeDismiss++
+        } else if (uiState.showMoreDialog) {
+            focusPlayAfterMoreBack = true
+            viewModel.onEvent(PlayerEvent.OnDismissMoreDialog)
         } else if (skipButtonActuallyVisible && !uiState.showControls) {
             viewModel.onEvent(PlayerEvent.OnDismissSkipIntro)
+            runCatching { containerFocusRequester.requestFocus() }
         } else if (uiState.postPlayMode is PostPlayMode.StillWatching) {
             viewModel.onEvent(PlayerEvent.OnDismissStillWatchingPrompt)
         } else if (uiState.showControls) {
@@ -602,8 +700,8 @@ fun PlayerScreen(
             }
         } else if (!uiState.showControls) {
             // When controls are hidden, let skip intro button take focus if visible
-            val skipVisible = uiState.activeSkipInterval != null && !uiState.skipIntervalDismissed
-            val nextEpisodeVisible = uiState.postPlayMode is PostPlayMode.AutoPlay
+            val skipVisible = skipButtonActiveAndVisible && skipIntroCanFocus
+            val nextEpisodeVisible = postPlayOverlayMode is PostPlayMode.AutoPlay
             if (!skipVisible && !nextEpisodeVisible) {
                 try {
                     containerFocusRequester.requestFocus()
@@ -612,6 +710,54 @@ fun PlayerScreen(
                 }
             }
             // If skip or next episode card is visible, their own LaunchedEffect will request focus
+        }
+    }
+
+    val latestPlayerControlsVisibleForFocus by rememberUpdatedState(playerControlsVisible)
+    val latestBlockingOverlayForFocus by rememberUpdatedState(hasBlockingOverlayForPlayerFocus)
+    val latestPostPlayOverlayModeForFocus by rememberUpdatedState(postPlayOverlayMode)
+    val latestSkipButtonActiveForFocus by rememberUpdatedState(skipButtonActiveAndVisible)
+    val latestSkipIntroCanFocusForFocus by rememberUpdatedState(skipIntroCanFocus)
+    LaunchedEffect(restoreFocusAfterNextEpisodeDismiss) {
+        if (restoreFocusAfterNextEpisodeDismiss == 0) return@LaunchedEffect
+        repeat(2) { withFrameNanos { } }
+        if (latestBlockingOverlayForFocus || latestPostPlayOverlayModeForFocus != null) return@LaunchedEffect
+        when (
+            resolveNextEpisodeDismissFocusTarget(
+                controlsVisible = latestPlayerControlsVisibleForFocus,
+                skipButtonVisible = latestSkipButtonActiveForFocus,
+                skipIntroCanFocus = latestSkipIntroCanFocusForFocus
+            )
+        ) {
+            NextEpisodeDismissFocusTarget.PLAY_PAUSE -> {
+                if (!playPauseFocusRequester.requestFocusAfterFrames(frames = 0)) {
+                    containerFocusRequester.requestFocusAfterFrames(frames = 0)
+                }
+            }
+            NextEpisodeDismissFocusTarget.SKIP_INTRO -> {
+                if (!skipIntroFocusRequester.requestFocusAfterFrames(frames = 0)) {
+                    containerFocusRequester.requestFocusAfterFrames(frames = 0)
+                }
+            }
+            NextEpisodeDismissFocusTarget.CONTAINER -> {
+                containerFocusRequester.requestFocusAfterFrames(frames = 0)
+            }
+        }
+    }
+
+    var previousSkipButtonVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(skipButtonActuallyVisible) {
+        val wasVisible = previousSkipButtonVisible
+        previousSkipButtonVisible = skipButtonActuallyVisible
+        if (wasVisible && !skipButtonActuallyVisible &&
+            !latestBlockingOverlayForFocus &&
+            !latestPlayerControlsVisibleForFocus
+        ) {
+            if (latestPostPlayOverlayModeForFocus is PostPlayMode.AutoPlay) {
+                requestFocusOrFallback(nextEpisodeFocusRequester, containerFocusRequester)
+            } else {
+                runCatching { containerFocusRequester.requestFocus() }
+            }
         }
     }
 
@@ -912,7 +1058,7 @@ fun PlayerScreen(
                         KeyEvent.KEYCODE_DPAD_LEFT,
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             val overlayButtonsCoexist = skipButtonActuallyVisible &&
-                                uiState.postPlayMode is PostPlayMode.AutoPlay
+                                postPlayOverlayMode is PostPlayMode.AutoPlay
                             if (!uiState.showControls && !overlayButtonsCoexist) {
                                 val isLeft =
                                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
@@ -941,7 +1087,7 @@ fun PlayerScreen(
                                                 skipIntroFocusRequester.requestFocus()
                                             } catch (_: Exception) {
                                             }
-                                        } else if (uiState.postPlayMode is PostPlayMode.AutoPlay) {
+                                        } else if (postPlayOverlayMode is PostPlayMode.AutoPlay) {
                                             try {
                                                 nextEpisodeFocusRequester.requestFocus()
                                             } catch (_: Exception) {
@@ -1069,43 +1215,11 @@ fun PlayerScreen(
         var postPlayClearancePx by remember { mutableFloatStateOf(0f) }
         var seekClearancePx by remember { mutableFloatStateOf(0f) }
         val subtitleClearanceGapPx = with(LocalDensity.current) { SUBTITLE_CONTROLS_GAP.toPx() }
-        val postPlayOverlayMode = uiState.postPlayMode.takeIf {
-            uiState.error == null &&
-                !postPlayRecommendationState.isVisible &&
-                postPlayRecommendationState.recommendation == null &&
-                !shouldConfirmNextEpisodeOnEnd &&
-                !uiState.showLoadingOverlay &&
-                !uiState.showPauseOverlay &&
-                !uiState.showStreamInfoOverlay &&
-                !uiState.showEpisodesPanel &&
-                !uiState.showSourcesPanel && !uiState.showChaptersPanel &&
-                !uiState.showPartyPanel &&
-                !uiState.showAudioOverlay &&
-                !uiState.showSubtitleOverlay &&
-                !uiState.showSubtitleStylePanel &&
-                !uiState.showSubtitleDelayOverlay &&
-                !uiState.showSubtitleTimingDialog &&
-                !(uiState.showSpeedDialog || uiState.showDiscTitlesDialog) &&
-                !uiState.showMoreDialog
-        }
         val seekOverlayVisible = uiState.showSeekOverlay && !uiState.showControls && uiState.error == null &&
             !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
             !uiState.showSubtitleDelayOverlay && !uiState.showSubtitleTimingDialog &&
             !uiState.showMoreDialog &&
             !uiState.isLive
-        val playerControlsVisible = uiState.showControls && uiState.error == null &&
-            !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
-            !uiState.showStreamInfoOverlay &&
-            !uiState.showSubtitleStylePanel &&
-            !uiState.showSubtitleDelayOverlay &&
-            !uiState.showEpisodesPanel &&
-            !uiState.showSourcesPanel && !uiState.showChaptersPanel &&
-            !uiState.showPartyPanel &&
-            !uiState.showAudioOverlay &&
-            !uiState.showSubtitleOverlay &&
-            !(uiState.showSpeedDialog || uiState.showDiscTitlesDialog) &&
-            !postPlayRecommendationState.isVisible &&
-            uiState.postPlayMode !is PostPlayMode.StillWatching
         val latestPlayerControlsVisible by rememberUpdatedState(playerControlsVisible)
         LaunchedEffect(playerControlsVisible) {
             if (!playerControlsVisible) {
@@ -1511,9 +1625,6 @@ fun PlayerScreen(
         )
 
         // Skip Intro button (bottom-left, lifted when controls are visible)
-        val skipIntroCanFocus = isSkipIntroCanFocus(
-            subtitleOverlayVisible = uiState.showSubtitleOverlay,
-        )
         SkipIntroButton(
             interval = if (uiState.showPauseOverlay || uiState.showLoadingOverlay || postPlayRecommendationState.isVisible) {
                 null
@@ -1523,13 +1634,18 @@ fun PlayerScreen(
             dismissed = uiState.skipIntervalDismissed,
             targetsPostCredits = uiState.activeSkipTargetsPostCredits,
             controlsVisible = uiState.showControls,
-            // Autoplay next-episode card owns focus; subtitle menu must keep D-pad focus (#2874).
-            suppressFocus = (uiState.postPlayMode is PostPlayMode.AutoPlay &&
-                postPlayRecommendationState.recommendation == null) || !skipIntroCanFocus,
+            // Autoplay next-episode card and modal overlays own focus (#2874).
+            suppressFocus = (postPlayOverlayMode is PostPlayMode.AutoPlay) ||
+                hasBlockingOverlayForPlayerFocus ||
+                !skipIntroCanFocus,
             canFocus = skipIntroCanFocus,
             onSkip = {
-                if (uiState.showControls) {
-                    runCatching { playPauseFocusRequester.requestFocus() }
+                if (playerControlsVisible && !hasBlockingOverlayForPlayerFocus) {
+                    requestFocusOrFallback(playPauseFocusRequester, containerFocusRequester)
+                } else if (postPlayOverlayMode is PostPlayMode.AutoPlay) {
+                    requestFocusOrFallback(nextEpisodeFocusRequester, containerFocusRequester)
+                } else {
+                    runCatching { containerFocusRequester.requestFocus() }
                 }
                 viewModel.onEvent(PlayerEvent.OnSkipIntro)
             },
@@ -1547,7 +1663,7 @@ fun PlayerScreen(
             } else {
                 null
             },
-            rightFocusRequester = if (uiState.postPlayMode is PostPlayMode.AutoPlay) nextEpisodeFocusRequester else null,
+            rightFocusRequester = if (postPlayOverlayMode is PostPlayMode.AutoPlay) nextEpisodeFocusRequester else null,
             onHideControls = {
                 if (uiState.showControls) viewModel.hideControls()
                 else viewModel.onEvent(PlayerEvent.OnToggleControls)
@@ -1661,7 +1777,7 @@ fun PlayerScreen(
                 reportCodeVisible = reportCodeVisible,
                 progressBarUpFocusRequester = when {
                     skipButtonActuallyVisible -> skipIntroFocusRequester
-                    uiState.postPlayMode is PostPlayMode.AutoPlay -> nextEpisodeFocusRequester
+                    postPlayOverlayMode is PostPlayMode.AutoPlay -> nextEpisodeFocusRequester
                     else -> null
                 },
                 onPlayPause = { viewModel.onEvent(PlayerEvent.OnPlayPause) },
@@ -3046,6 +3162,13 @@ private fun PlayerControlsOverlay(
                         (uiState.postPlayMode as? PostPlayMode.AutoPlay)?.let {
                             !it.searching && it.countdownSec == null
                         } != false
+                    var nextEpisodeButtonFocused by remember { mutableStateOf(false) }
+                    LaunchedEffect(showNextEpisodeButton) {
+                        if (!showNextEpisodeButton && nextEpisodeButtonFocused) {
+                            nextEpisodeButtonFocused = false
+                            runCatching { playPauseFocusRequester.requestFocus() }
+                        }
+                    }
 
                     ControlButton(
                         icon = if (uiState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -3062,10 +3185,15 @@ private fun PlayerControlsOverlay(
                         ControlButton(
                             icon = Icons.Default.SkipNext,
                             contentDescription = stringResource(R.string.next_episode_label),
-                            onClick = onPlayNextEpisode,
+                            onClick = {
+                                nextEpisodeButtonFocused = false
+                                runCatching { playPauseFocusRequester.requestFocus() }
+                                onPlayNextEpisode()
+                            },
                             upFocusRequester = progressUpTarget,
                             onDownKey = onHideControls,
-                            onFocused = onResetHideTimer
+                            onFocused = onResetHideTimer,
+                            onFocusChanged = { nextEpisodeButtonFocused = it }
                         )
                     }
 
@@ -3375,6 +3503,7 @@ private fun ControlButton(
     enabled: Boolean = true,
     onDownKey: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null,
+    onFocusChanged: ((Boolean) -> Unit)? = null,
     contentColor: Color = Color.White
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -3418,6 +3547,7 @@ private fun ControlButton(
             }
             .onFocusChanged {
                 isFocused = it.isFocused
+                onFocusChanged?.invoke(it.isFocused)
                 if (it.isFocused) onFocused?.invoke()
             },
         colors = IconButtonDefaults.colors(

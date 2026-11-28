@@ -167,13 +167,13 @@ fun SkipIntroButton(
                 }
                 .focusRequester(activeFocusRequester)
                 .focusProperties {
-                    this.canFocus = canFocus
+                    this.canFocus = canFocus && isVisible
                     downFocusRequester?.let { down = it }
                     upFocusRequester?.let { up = it }
                     rightFocusRequester?.let { right = it }
                 }
                 .onPreviewKeyEvent { keyEvent ->
-                    if (!canFocus) return@onPreviewKeyEvent false
+                    if (!canFocus || !isVisible) return@onPreviewKeyEvent false
                     if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
                         when (keyEvent.nativeKeyEvent.keyCode) {
                             android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
